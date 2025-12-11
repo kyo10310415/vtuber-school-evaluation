@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { renderer } from './renderer'
 import type { EvaluationRequest, EvaluationResponse, EvaluationResult } from './types'
-import { createGoogleAuth, fetchStudents, fetchAbsenceData, fetchPaymentData, fetchDocumentsInFolder, fetchDocumentContent, writeResultsToSheet } from './lib/google-client'
+import { fetchStudents, fetchAbsenceData, fetchPaymentData, fetchDocumentsInFolder, fetchDocumentContent, writeResultsToSheet } from './lib/google-client'
 import { GeminiAnalyzer } from './lib/gemini-client'
 import { evaluateStudent, convertResultToArray } from './lib/evaluation'
 
@@ -139,8 +139,7 @@ app.get('/api/health', (c) => {
 app.get('/api/students', async (c) => {
   try {
     const { env } = c
-    const auth = createGoogleAuth(env.GOOGLE_SERVICE_ACCOUNT)
-    const students = await fetchStudents(auth, env.STUDENT_MASTER_SPREADSHEET_ID)
+    const students = await fetchStudents(env.GOOGLE_SERVICE_ACCOUNT, env.STUDENT_MASTER_SPREADSHEET_ID)
     
     return c.json({ success: true, students })
   } catch (error: any) {
@@ -162,14 +161,11 @@ app.post('/api/evaluate', async (c) => {
       }, 400)
     }
 
-    // Google認証
-    const auth = createGoogleAuth(env.GOOGLE_SERVICE_ACCOUNT)
-    
     // Gemini初期化
     const gemini = new GeminiAnalyzer(env.GEMINI_API_KEY)
 
     // 生徒情報を取得
-    let students = await fetchStudents(auth, env.STUDENT_MASTER_SPREADSHEET_ID)
+    let students = await fetchStudents(env.GOOGLE_SERVICE_ACCOUNT, env.STUDENT_MASTER_SPREADSHEET_ID)
     
     // 特定の生徒のみ評価する場合
     if (request.studentIds && request.studentIds.length > 0) {
@@ -177,8 +173,8 @@ app.post('/api/evaluate', async (c) => {
     }
 
     // 欠席・支払いデータを取得
-    const absenceDataList = await fetchAbsenceData(auth, env.ABSENCE_SPREADSHEET_ID, request.month)
-    const paymentDataList = await fetchPaymentData(auth, env.PAYMENT_SPREADSHEET_ID, request.month)
+    const absenceDataList = await fetchAbsenceData(env.GOOGLE_SERVICE_ACCOUNT, env.ABSENCE_SPREADSHEET_ID, request.month)
+    const paymentDataList = await fetchPaymentData(env.GOOGLE_SERVICE_ACCOUNT, env.PAYMENT_SPREADSHEET_ID, request.month)
 
     const results: EvaluationResult[] = []
     const errors: string[] = []
@@ -187,7 +183,7 @@ app.post('/api/evaluate', async (c) => {
     for (const student of students) {
       try {
         // トークメモフォルダからドキュメントを取得
-        const documentIds = await fetchDocumentsInFolder(auth, student.talkMemoFolderUrl)
+        const documentIds = await fetchDocumentsInFolder(env.GOOGLE_SERVICE_ACCOUNT, student.talkMemoFolderUrl)
         
         if (documentIds.length === 0) {
           errors.push(`${student.name}(${student.studentId}): トークメモが見つかりません`)
@@ -195,7 +191,7 @@ app.post('/api/evaluate', async (c) => {
         }
 
         // 最新のドキュメントを取得（複数ある場合は統合も検討）
-        const talkMemo = await fetchDocumentContent(auth, documentIds[0])
+        const talkMemo = await fetchDocumentContent(env.GOOGLE_SERVICE_ACCOUNT, documentIds[0])
 
         // Geminiで分析
         const geminiAnalysis = await gemini.analyzeTrainingSession(talkMemo)
@@ -223,7 +219,7 @@ app.post('/api/evaluate', async (c) => {
     if (results.length > 0) {
       const resultArrays = results.map(convertResultToArray)
       await writeResultsToSheet(
-        auth,
+        env.GOOGLE_SERVICE_ACCOUNT,
         env.RESULT_SPREADSHEET_ID,
         `評価結果_${request.month}`,
         resultArrays
