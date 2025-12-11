@@ -1,0 +1,17 @@
+# Google Service Account JSON（改行なしの1行JSON文字列）
+GOOGLE_SERVICE_ACCOUNT='{"type":"service_account","project_id":"your-project",...}'
+
+# Gemini API Key
+GEMINI_API_KEY=your-gemini-api-key-here
+
+# 生徒マスタースプレッドシートID
+STUDENT_MASTER_SPREADSHEET_ID=your-student-master-spreadsheet-id
+
+# 欠席データスプレッドシートID
+ABSENCE_SPREADSHEET_ID=19dlNvTEp3SaFgXK7HWEamyhJDKpAODqoTnRhqOtNC4k
+
+# 支払いデータスプレッドシートID
+PAYMENT_SPREADSHEET_ID=1z-FKQnVZj9gtZEAbOFqfSkQyYqTWkmeZjTBBbzVxRpo
+
+# 結果出力先スプレッドシートID
+RESULT_SPREADSHEET_ID=your-result-spreadsheet-id

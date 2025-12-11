@@ -6,29 +6,12 @@
   "compatibility_flags": [
     "nodejs_compat"
   ]
-  // "vars": {
-  //   "MY_VAR": "my-variable"
-  // },
-  // "kv_namespaces": [
-  //   {
-  //     "binding": "MY_KV_NAMESPACE",
-  //     "id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-  //   }
-  // ],
-  // "r2_buckets": [
-  //   {
-  //     "binding": "MY_BUCKET",
-  //     "bucket_name": "my-bucket"
-  //   }
-  // ],
-  // "d1_databases": [
-  //   {
-  //     "binding": "MY_DB",
-  //     "database_name": "my-database",
-  //     "database_id": ""
-  //   }
-  // ],
-  // "ai": {
-  //   "binding": "AI"
-  // }
+  // 環境変数は .dev.vars (ローカル) または wrangler pages secret (本番) で設定
+  // 必要な環境変数:
+  // - GOOGLE_SERVICE_ACCOUNT (Google Service Account JSON)
+  // - GEMINI_API_KEY (Gemini API Key)
+  // - STUDENT_MASTER_SPREADSHEET_ID (生徒マスタースプレッドシートID)
+  // - ABSENCE_SPREADSHEET_ID (欠席データスプレッドシートID)
+  // - PAYMENT_SPREADSHEET_ID (支払いデータスプレッドシートID)
+  // - RESULT_SPREADSHEET_ID (結果出力先スプレッドシートID)
 }
