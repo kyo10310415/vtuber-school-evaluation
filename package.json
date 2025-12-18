@@ -18,12 +18,12 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
-    "hono": "^4.10.8"
-  },
-  "devDependencies": {
     "@hono/vite-build": "^1.2.0",
     "@hono/vite-dev-server": "^0.18.2",
+    "hono": "^4.10.8",
     "vite": "^6.3.5",
     "wrangler": "^4.4.0"
+  },
+  "devDependencies": {
   }
 }
