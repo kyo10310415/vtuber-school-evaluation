@@ -17,6 +17,16 @@ type Bindings = {
 
 const app = new Hono<{ Bindings: Bindings }>()
 
+// 環境変数ヘルパー（Cloudflare WorkersとNode.js両対応）
+function getEnv(c: any, key: keyof Bindings): string {
+  // Cloudflare Workers環境
+  if (c.env && c.env[key]) {
+    return c.env[key]
+  }
+  // Node.js環境（Render等）
+  return process.env[key] || ''
+}
+
 // CORS設定
 app.use('/api/*', cors())
 
@@ -137,19 +147,24 @@ app.get('/api/health', (c) => {
 
 // 環境変数チェック（デバッグ用）
 app.get('/api/debug/env-check', (c) => {
-  const { env } = c
+  const GOOGLE_SERVICE_ACCOUNT = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT')
+  const GEMINI_API_KEY = getEnv(c, 'GEMINI_API_KEY')
+  const STUDENT_MASTER_SPREADSHEET_ID = getEnv(c, 'STUDENT_MASTER_SPREADSHEET_ID')
+  const ABSENCE_SPREADSHEET_ID = getEnv(c, 'ABSENCE_SPREADSHEET_ID')
+  const PAYMENT_SPREADSHEET_ID = getEnv(c, 'PAYMENT_SPREADSHEET_ID')
+  const RESULT_SPREADSHEET_ID = getEnv(c, 'RESULT_SPREADSHEET_ID')
   
   return c.json({
     env_status: {
       GOOGLE_SERVICE_ACCOUNT: {
-        defined: !!env.GOOGLE_SERVICE_ACCOUNT,
-        type: typeof env.GOOGLE_SERVICE_ACCOUNT,
-        length: env.GOOGLE_SERVICE_ACCOUNT?.length || 0,
-        first50: env.GOOGLE_SERVICE_ACCOUNT?.substring(0, 50) || '',
+        defined: !!GOOGLE_SERVICE_ACCOUNT,
+        type: typeof GOOGLE_SERVICE_ACCOUNT,
+        length: GOOGLE_SERVICE_ACCOUNT?.length || 0,
+        first50: GOOGLE_SERVICE_ACCOUNT?.substring(0, 50) || '',
         isJSON: (() => {
           try {
-            if (env.GOOGLE_SERVICE_ACCOUNT) {
-              JSON.parse(env.GOOGLE_SERVICE_ACCOUNT);
+            if (GOOGLE_SERVICE_ACCOUNT) {
+              JSON.parse(GOOGLE_SERVICE_ACCOUNT);
               return true;
             }
             return false;
@@ -157,27 +172,27 @@ app.get('/api/debug/env-check', (c) => {
             return false;
           }
         })(),
-        hasNewlines: env.GOOGLE_SERVICE_ACCOUNT?.includes('\n') || false,
+        hasNewlines: GOOGLE_SERVICE_ACCOUNT?.includes('\n') || false,
       },
       GEMINI_API_KEY: {
-        defined: !!env.GEMINI_API_KEY,
-        length: env.GEMINI_API_KEY?.length || 0,
+        defined: !!GEMINI_API_KEY,
+        length: GEMINI_API_KEY?.length || 0,
       },
       STUDENT_MASTER_SPREADSHEET_ID: {
-        defined: !!env.STUDENT_MASTER_SPREADSHEET_ID,
-        value: env.STUDENT_MASTER_SPREADSHEET_ID || '',
+        defined: !!STUDENT_MASTER_SPREADSHEET_ID,
+        value: STUDENT_MASTER_SPREADSHEET_ID || '',
       },
       ABSENCE_SPREADSHEET_ID: {
-        defined: !!env.ABSENCE_SPREADSHEET_ID,
-        value: env.ABSENCE_SPREADSHEET_ID || '',
+        defined: !!ABSENCE_SPREADSHEET_ID,
+        value: ABSENCE_SPREADSHEET_ID || '',
       },
       PAYMENT_SPREADSHEET_ID: {
-        defined: !!env.PAYMENT_SPREADSHEET_ID,
-        value: env.PAYMENT_SPREADSHEET_ID || '',
+        defined: !!PAYMENT_SPREADSHEET_ID,
+        value: PAYMENT_SPREADSHEET_ID || '',
       },
       RESULT_SPREADSHEET_ID: {
-        defined: !!env.RESULT_SPREADSHEET_ID,
-        value: env.RESULT_SPREADSHEET_ID || '',
+        defined: !!RESULT_SPREADSHEET_ID,
+        value: RESULT_SPREADSHEET_ID || '',
       },
     }
   })
@@ -186,8 +201,10 @@ app.get('/api/debug/env-check', (c) => {
 // 生徒一覧取得
 app.get('/api/students', async (c) => {
   try {
-    const { env } = c
-    const students = await fetchStudents(env.GOOGLE_SERVICE_ACCOUNT, env.STUDENT_MASTER_SPREADSHEET_ID)
+    const GOOGLE_SERVICE_ACCOUNT = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT')
+    const STUDENT_MASTER_SPREADSHEET_ID = getEnv(c, 'STUDENT_MASTER_SPREADSHEET_ID')
+    
+    const students = await fetchStudents(GOOGLE_SERVICE_ACCOUNT, STUDENT_MASTER_SPREADSHEET_ID)
     
     return c.json({ success: true, students })
   } catch (error: any) {
@@ -198,7 +215,13 @@ app.get('/api/students', async (c) => {
 // 採点実行エンドポイント
 app.post('/api/evaluate', async (c) => {
   try {
-    const { env } = c
+    const GOOGLE_SERVICE_ACCOUNT = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT')
+    const GEMINI_API_KEY = getEnv(c, 'GEMINI_API_KEY')
+    const STUDENT_MASTER_SPREADSHEET_ID = getEnv(c, 'STUDENT_MASTER_SPREADSHEET_ID')
+    const ABSENCE_SPREADSHEET_ID = getEnv(c, 'ABSENCE_SPREADSHEET_ID')
+    const PAYMENT_SPREADSHEET_ID = getEnv(c, 'PAYMENT_SPREADSHEET_ID')
+    const RESULT_SPREADSHEET_ID = getEnv(c, 'RESULT_SPREADSHEET_ID')
+    
     const request: EvaluationRequest = await c.req.json()
     
     // 必須パラメータチェック
@@ -210,10 +233,10 @@ app.post('/api/evaluate', async (c) => {
     }
 
     // Gemini初期化
-    const gemini = new GeminiAnalyzer(env.GEMINI_API_KEY)
+    const gemini = new GeminiAnalyzer(GEMINI_API_KEY)
 
     // 生徒情報を取得
-    let students = await fetchStudents(env.GOOGLE_SERVICE_ACCOUNT, env.STUDENT_MASTER_SPREADSHEET_ID)
+    let students = await fetchStudents(GOOGLE_SERVICE_ACCOUNT, STUDENT_MASTER_SPREADSHEET_ID)
     
     // 特定の生徒のみ評価する場合
     if (request.studentIds && request.studentIds.length > 0) {
@@ -221,8 +244,8 @@ app.post('/api/evaluate', async (c) => {
     }
 
     // 欠席・支払いデータを取得
-    const absenceDataList = await fetchAbsenceData(env.GOOGLE_SERVICE_ACCOUNT, env.ABSENCE_SPREADSHEET_ID, request.month)
-    const paymentDataList = await fetchPaymentData(env.GOOGLE_SERVICE_ACCOUNT, env.PAYMENT_SPREADSHEET_ID, request.month)
+    const absenceDataList = await fetchAbsenceData(GOOGLE_SERVICE_ACCOUNT, ABSENCE_SPREADSHEET_ID, request.month)
+    const paymentDataList = await fetchPaymentData(GOOGLE_SERVICE_ACCOUNT, PAYMENT_SPREADSHEET_ID, request.month)
 
     const results: EvaluationResult[] = []
     const errors: string[] = []
@@ -231,7 +254,7 @@ app.post('/api/evaluate', async (c) => {
     for (const student of students) {
       try {
         // トークメモフォルダからドキュメントを取得
-        const documentIds = await fetchDocumentsInFolder(env.GOOGLE_SERVICE_ACCOUNT, student.talkMemoFolderUrl)
+        const documentIds = await fetchDocumentsInFolder(GOOGLE_SERVICE_ACCOUNT, student.talkMemoFolderUrl)
         
         if (documentIds.length === 0) {
           errors.push(`${student.name}(${student.studentId}): トークメモが見つかりません`)
@@ -239,7 +262,7 @@ app.post('/api/evaluate', async (c) => {
         }
 
         // 最新のドキュメントを取得（複数ある場合は統合も検討）
-        const talkMemo = await fetchDocumentContent(env.GOOGLE_SERVICE_ACCOUNT, documentIds[0])
+        const talkMemo = await fetchDocumentContent(GOOGLE_SERVICE_ACCOUNT, documentIds[0])
 
         // Geminiで分析
         const geminiAnalysis = await gemini.analyzeTrainingSession(talkMemo)
@@ -267,8 +290,8 @@ app.post('/api/evaluate', async (c) => {
     if (results.length > 0) {
       const resultArrays = results.map(convertResultToArray)
       await writeResultsToSheet(
-        env.GOOGLE_SERVICE_ACCOUNT,
-        env.RESULT_SPREADSHEET_ID,
+        GOOGLE_SERVICE_ACCOUNT,
+        RESULT_SPREADSHEET_ID,
         `評価結果_${request.month}`,
         resultArrays
       )
