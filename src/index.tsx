@@ -135,6 +135,54 @@ app.get('/api/health', (c) => {
   return c.json({ status: 'ok', timestamp: new Date().toISOString() })
 })
 
+// 環境変数チェック（デバッグ用）
+app.get('/api/debug/env-check', (c) => {
+  const { env } = c
+  
+  return c.json({
+    env_status: {
+      GOOGLE_SERVICE_ACCOUNT: {
+        defined: !!env.GOOGLE_SERVICE_ACCOUNT,
+        type: typeof env.GOOGLE_SERVICE_ACCOUNT,
+        length: env.GOOGLE_SERVICE_ACCOUNT?.length || 0,
+        first50: env.GOOGLE_SERVICE_ACCOUNT?.substring(0, 50) || '',
+        isJSON: (() => {
+          try {
+            if (env.GOOGLE_SERVICE_ACCOUNT) {
+              JSON.parse(env.GOOGLE_SERVICE_ACCOUNT);
+              return true;
+            }
+            return false;
+          } catch {
+            return false;
+          }
+        })(),
+        hasNewlines: env.GOOGLE_SERVICE_ACCOUNT?.includes('\n') || false,
+      },
+      GEMINI_API_KEY: {
+        defined: !!env.GEMINI_API_KEY,
+        length: env.GEMINI_API_KEY?.length || 0,
+      },
+      STUDENT_MASTER_SPREADSHEET_ID: {
+        defined: !!env.STUDENT_MASTER_SPREADSHEET_ID,
+        value: env.STUDENT_MASTER_SPREADSHEET_ID || '',
+      },
+      ABSENCE_SPREADSHEET_ID: {
+        defined: !!env.ABSENCE_SPREADSHEET_ID,
+        value: env.ABSENCE_SPREADSHEET_ID || '',
+      },
+      PAYMENT_SPREADSHEET_ID: {
+        defined: !!env.PAYMENT_SPREADSHEET_ID,
+        value: env.PAYMENT_SPREADSHEET_ID || '',
+      },
+      RESULT_SPREADSHEET_ID: {
+        defined: !!env.RESULT_SPREADSHEET_ID,
+        value: env.RESULT_SPREADSHEET_ID || '',
+      },
+    }
+  })
+})
+
 // 生徒一覧取得
 app.get('/api/students', async (c) => {
   try {
