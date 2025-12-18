@@ -89,10 +89,13 @@ function pemToArrayBuffer(pem: string): ArrayBuffer {
 export async function fetchStudents(
   serviceAccountJson: string,
   spreadsheetId: string,
-  sheetName: string = '生徒マスター'
+  sheetName: string = 'リスト'
 ): Promise<Student[]> {
   const accessToken = await getAccessToken(serviceAccountJson);
   
+  // 生徒マスタースプレッドシートから取得
+  // https://docs.google.com/spreadsheets/d/1MHRtvgDb-AWm7iBz9ova7KknwCrbcykp15ZtAlkbq-M/edit
+  // シート名は実際の名前に合わせて調整（デフォルト: 'リスト'）
   const response = await fetch(
     `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A2:Z`,
     {
@@ -106,11 +109,11 @@ export async function fetchStudents(
   const rows = data.values || [];
   
   return rows.map((row: any[]) => ({
-    studentId: row[0] || '',
-    name: row[1] || '',
-    talkMemoFolderUrl: row[2] || '',
-    enrollmentDate: row[3] || '',
-    status: row[4] || '在籍中',
+    studentId: row[0] || '',           // A列: 学籍番号
+    name: row[1] || '',                // B列: 氏名
+    talkMemoFolderUrl: row[2] || '',   // C列: トークメモフォルダURL
+    enrollmentDate: row[3] || '',      // D列: 入学年月
+    status: row[4] || '在籍中',        // E列: ステータス
   }));
 }
 
@@ -124,6 +127,7 @@ export async function fetchAbsenceData(
   
   // 欠席データのスプレッドシートから取得
   // https://docs.google.com/spreadsheets/d/19dlNvTEp3SaFgXK7HWEamyhJDKpAODqoTnRhqOtNC4k/edit
+  // F列: 学籍番号、G列: 前月の欠席回数
   const response = await fetch(
     `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/A2:Z`,
     {
@@ -137,19 +141,31 @@ export async function fetchAbsenceData(
   const rows = data.values || [];
   const absenceData: AbsenceData[] = [];
 
-  // スプレッドシートの構造に応じて調整が必要
-  // 仮の実装：列A=学籍番号、列B=欠席回数、列C=対象月
+  // F列（インデックス5）: 学籍番号
+  // G列（インデックス6）: 前月の欠席回数
   for (const row of rows) {
-    if (row[2] === month) { // 対象月のデータのみ
+    const studentId = row[5] || ''; // F列
+    const absenceCount = parseInt(row[6] || '0', 10); // G列
+    
+    if (studentId) {
       absenceData.push({
-        studentId: row[0] || '',
-        absenceCount: parseInt(row[1] || '0', 10),
-        month: row[2] || '',
+        studentId,
+        absenceCount,
+        month,
       });
     }
   }
 
   return absenceData;
+}
+
+// 列名（A,B,C...）をインデックスに変換
+function columnToIndex(column: string): number {
+  let index = 0;
+  for (let i = 0; i < column.length; i++) {
+    index = index * 26 + (column.charCodeAt(i) - 65 + 1);
+  }
+  return index - 1;
 }
 
 // 支払いデータを取得
@@ -162,8 +178,13 @@ export async function fetchPaymentData(
   
   // 支払いデータのスプレッドシートから取得
   // https://docs.google.com/spreadsheets/d/1z-FKQnVZj9gtZEAbOFqfSkQyYqTWkmeZjTBBbzVxRpo/edit
-  const response = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent('RAW_支払い状況')}!A2:Z`,
+  // ヘッダー行: 13行目
+  // E列: 学籍番号
+  // AN列以降: 支払いステータス（ヘッダーがyyyy/mm形式）
+  
+  // まずヘッダー行を取得して対象月の列を特定
+  const headerResponse = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent('RAW_支払い状況')}!AN13:ZZ13`,
     {
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -171,23 +192,85 @@ export async function fetchPaymentData(
     }
   );
 
-  const data = await response.json();
-  const rows = data.values || [];
+  const headerData = await headerResponse.json();
+  const headers = headerData.values?.[0] || [];
+  
+  // monthをyyyy/mm形式に変換（例: 2024-12 → 2024/12）
+  const targetMonth = month.replace('-', '/');
+  
+  // 対象月の列インデックスを検索
+  let targetColumnOffset = -1;
+  for (let i = 0; i < headers.length; i++) {
+    if (headers[i] === targetMonth) {
+      targetColumnOffset = i;
+      break;
+    }
+  }
+
+  if (targetColumnOffset === -1) {
+    console.warn(`Payment data not found for month: ${targetMonth}`);
+    return [];
+  }
+
+  // AN列は40番目の列（インデックス39）
+  const anColumnIndex = columnToIndex('AN');
+  const targetColumnIndex = anColumnIndex + targetColumnOffset;
+  
+  // 列番号を列名に変換
+  const targetColumn = indexToColumn(targetColumnIndex);
+
+  // データ行を取得（14行目以降）
+  const dataResponse = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent('RAW_支払い状況')}!E14:${targetColumn}`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    }
+  );
+
+  const dataData = await dataResponse.json();
+  const rows = dataData.values || [];
   const paymentData: PaymentData[] = [];
 
-  // スプレッドシートの構造に応じて調整が必要
-  // 仮の実装：列A=学籍番号、列B=支払い状況、列C=対象月
   for (const row of rows) {
-    if (row[2] === month) {
+    const studentId = row[0] || ''; // E列
+    const paymentStatusRaw = row[targetColumnOffset + (anColumnIndex - columnToIndex('E'))] || '';
+    
+    if (studentId) {
+      // 支払いステータスを判定
+      let paymentStatus: 'paid' | 'unpaid' | 'partial' = 'unpaid';
+      
+      if (paymentStatusRaw.includes('済') || paymentStatusRaw.includes('完了') || paymentStatusRaw === '○') {
+        paymentStatus = 'paid';
+      } else if (paymentStatusRaw.includes('一部') || paymentStatusRaw.includes('部分')) {
+        paymentStatus = 'partial';
+      } else if (paymentStatusRaw.includes('未') || paymentStatusRaw === '×' || paymentStatusRaw === '') {
+        paymentStatus = 'unpaid';
+      }
+
       paymentData.push({
-        studentId: row[0] || '',
-        paymentStatus: row[1] === '支払い済み' ? 'paid' : row[1] === '未払い' ? 'unpaid' : 'partial',
-        month: row[2] || '',
+        studentId,
+        paymentStatus,
+        month,
       });
     }
   }
 
   return paymentData;
+}
+
+// インデックスを列名に変換
+function indexToColumn(index: number): string {
+  let column = '';
+  let temp = index;
+  
+  while (temp >= 0) {
+    column = String.fromCharCode(65 + (temp % 26)) + column;
+    temp = Math.floor(temp / 26) - 1;
+  }
+  
+  return column;
 }
 
 // フォルダIDをURLから抽出
