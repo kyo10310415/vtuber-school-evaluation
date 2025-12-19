@@ -319,6 +319,99 @@ app.get('/api/debug/check-document/:studentId', async (c) => {
   }
 })
 
+// Google Docs APIの生のレスポンスを取得（デバッグ用）
+app.get('/api/debug/raw-document/:studentId', async (c) => {
+  try {
+    const GOOGLE_SERVICE_ACCOUNT = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT')
+    const STUDENT_MASTER_SPREADSHEET_ID = getEnv(c, 'STUDENT_MASTER_SPREADSHEET_ID')
+    const studentId = c.req.param('studentId')
+    
+    // 生徒情報を取得
+    const students = await fetchStudents(GOOGLE_SERVICE_ACCOUNT, STUDENT_MASTER_SPREADSHEET_ID)
+    const student = students.find(s => s.studentId === studentId)
+    
+    if (!student || !student.talkMemoFolderUrl) {
+      return c.json({ success: false, error: '生徒またはフォルダURLが見つかりません' }, 404)
+    }
+    
+    // フォルダ内のドキュメントを取得
+    const documentIds = await fetchDocumentsInFolder(GOOGLE_SERVICE_ACCOUNT, student.talkMemoFolderUrl)
+    
+    if (documentIds.length === 0) {
+      return c.json({ success: false, error: 'ドキュメントが見つかりません' }, 404)
+    }
+    
+    // Google Docs APIを直接呼び出して生のレスポンスを取得
+    const accessToken = await (async () => {
+      const credentials = JSON.parse(GOOGLE_SERVICE_ACCOUNT);
+      const header = { alg: 'RS256', typ: 'JWT' };
+      const now = Math.floor(Date.now() / 1000);
+      const payload = {
+        iss: credentials.client_email,
+        scope: 'https://www.googleapis.com/auth/documents.readonly',
+        aud: 'https://oauth2.googleapis.com/token',
+        exp: now + 3600,
+        iat: now,
+      };
+      
+      const base64UrlEncode = (str: string) => btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+      const headerEncoded = base64UrlEncode(JSON.stringify(header));
+      const payloadEncoded = base64UrlEncode(JSON.stringify(payload));
+      const signatureInput = `${headerEncoded}.${payloadEncoded}`;
+      
+      const pemToArrayBuffer = (pem: string) => {
+        const b64 = pem.replace(/-----BEGIN PRIVATE KEY-----/, '').replace(/-----END PRIVATE KEY-----/, '').replace(/\s/g, '');
+        const binary = atob(b64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        return bytes.buffer;
+      };
+      
+      const privateKey = await crypto.subtle.importKey('pkcs8', pemToArrayBuffer(credentials.private_key), { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
+      const signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', privateKey, new TextEncoder().encode(signatureInput));
+      const signatureEncoded = base64UrlEncode(String.fromCharCode(...new Uint8Array(signature)));
+      const jwt = `${signatureInput}.${signatureEncoded}`;
+      
+      const response = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: jwt }),
+      });
+      const data = await response.json();
+      return data.access_token;
+    })();
+    
+    const docResponse = await fetch(
+      `https://docs.googleapis.com/v1/documents/${documentIds[0]}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    
+    const doc = await docResponse.json();
+    
+    // 構造情報のみを返す（全データは大きすぎるため）
+    return c.json({
+      success: true,
+      documentId: documentIds[0],
+      structure: {
+        hasBody: !!doc.body,
+        hasTabs: !!doc.tabs,
+        tabsCount: doc.tabs?.length || 0,
+        tabs: doc.tabs?.map((tab: any, index: number) => ({
+          index,
+          title: tab.tabProperties?.title || 'untitled',
+          hasDocumentTab: !!tab.documentTab,
+          hasBody: !!tab.documentTab?.body,
+          contentElementsCount: tab.documentTab?.body?.content?.length || 0,
+        })) || [],
+        bodyContentElementsCount: doc.body?.content?.length || 0,
+      }
+    })
+  } catch (error: any) {
+    console.error('[/api/debug/raw-document] Error:', error.message)
+    return c.json({ success: false, error: error.message, stack: error.stack }, 500)
+  }
+})
+
 // 採点実行エンドポイント
 app.post('/api/evaluate', async (c) => {
   try {
