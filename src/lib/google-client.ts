@@ -359,7 +359,7 @@ export async function fetchDocumentContent(
 ): Promise<TalkMemoDocument> {
   const accessToken = await getAccessToken(serviceAccountJson);
 
-  // タブ情報を取得するため、fieldsパラメータでtabsを指定
+  // まず通常のDocs APIでドキュメント情報を取得
   const response = await fetch(
     `https://docs.googleapis.com/v1/documents/${documentId}?fields=*`,
     {
@@ -379,85 +379,106 @@ export async function fetchDocumentContent(
     tabTitles: doc.tabs?.map((t: any) => t.tabProperties?.title || 'untitled') || []
   });
   
-  // タブがある場合は「文字起こし」タブを探す
-  let targetContent: any = null;
-  let selectedTabName = '';
+  // Google Meet録画の文字起こしを取得する戦略:
+  // 1. Drive API Export でプレーンテキストを取得（全タブの内容が含まれる）
+  // 2. テキストを解析して文字起こし部分を抽出
   
-  if (doc.tabs && doc.tabs.length > 0) {
-    // 「文字起こし」タブを検索（部分一致も許容）
-    const transcriptTab = doc.tabs.find((tab: any) => {
-      const tabTitle = tab.tabProperties?.title || '';
-      return tabTitle.includes('文字起こし') || tabTitle.includes('transcript');
-    });
-    
-    if (transcriptTab) {
-      selectedTabName = transcriptTab.tabProperties?.title || 'found';
-      console.log('[fetchDocumentContent] Found transcript tab:', selectedTabName);
-      targetContent = transcriptTab.documentTab?.body?.content;
-    } else {
-      // 「文字起こし」が見つからない場合、2番目のタブを試す（通常メモが1番目）
-      if (doc.tabs.length > 1) {
-        selectedTabName = doc.tabs[1].tabProperties?.title || 'second tab';
-        console.log('[fetchDocumentContent] Using second tab:', selectedTabName);
-        targetContent = doc.tabs[1]?.documentTab?.body?.content;
-      } else {
-        selectedTabName = doc.tabs[0].tabProperties?.title || 'first tab';
-        console.log('[fetchDocumentContent] Using first tab:', selectedTabName);
-        targetContent = doc.tabs[0]?.documentTab?.body?.content;
-      }
-    }
-  } else {
-    // タブがない場合はbody.contentを使用
-    selectedTabName = 'no tabs (using body)';
-    console.log('[fetchDocumentContent] No tabs found, using body.content');
-    targetContent = doc.body?.content;
-  }
-  
-  // ドキュメントの本文を抽出（「詳細」見出し以降のみを抽出）
   let content = '';
-  let isAfterDetailsHeading = false;
   
-  if (targetContent) {
-    for (const element of targetContent) {
-      if (element.paragraph) {
-        // 見出しスタイルを確認
-        const style = element.paragraph.paragraphStyle?.namedStyleType || 'NORMAL_TEXT';
+  try {
+    // Drive API の Export エンドポイントを使用してプレーンテキストを取得
+    const exportResponse = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${documentId}/export?mimeType=text/plain`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
+    
+    if (exportResponse.ok) {
+      const fullText = await exportResponse.text();
+      console.log('[fetchDocumentContent] Exported text length:', fullText.length);
+      console.log('[fetchDocumentContent] Text preview:', fullText.substring(0, 300));
+      
+      // Google Meetの文字起こしは通常、タイムスタンプ付きの会話形式
+      // 例: "00:00:15 きょうへい先生: こんにちは"
+      // または: "きょうへい先生: こんにちは"
+      
+      // 文字起こし部分を検出（タイムスタンプまたは発話者名で始まる行）
+      const lines = fullText.split('\n');
+      const transcriptLines: string[] = [];
+      let isInTranscript = false;
+      
+      for (const line of lines) {
+        // タイムスタンプパターン: "00:00:00" または "0:00:00"
+        const hasTimestamp = /^\d{1,2}:\d{2}:\d{2}/.test(line.trim());
         
-        // テキスト内容を取得
-        let text = '';
-        for (const elem of element.paragraph.elements || []) {
-          if (elem.textRun?.content) {
-            text += elem.textRun.content;
-          }
-        }
+        // 発話者パターン: "名前:" または "名前："
+        const hasSpeaker = /^[^\s:：]+[:：]\s*.+/.test(line.trim());
         
-        // 「詳細」見出しを検出（HEADING_3で「詳細」を含む）
-        if (style.startsWith('HEADING') && text.includes('詳細')) {
-          isAfterDetailsHeading = true;
-          console.log('[fetchDocumentContent] Found "詳細" heading at index, starting transcript extraction');
-          continue; // 見出し自体はスキップ
-        }
-        
-        // 「推奨される次のステップ」見出しで終了
-        if (isAfterDetailsHeading && style.startsWith('HEADING') && text.includes('推奨される次のステップ')) {
-          console.log('[fetchDocumentContent] Found "推奨される次のステップ" heading, stopping extraction');
-          break;
-        }
-        
-        // 「詳細」以降のテキストのみを追加
-        if (isAfterDetailsHeading) {
-          content += text;
+        if (hasTimestamp || hasSpeaker) {
+          isInTranscript = true;
+          transcriptLines.push(line);
+        } else if (isInTranscript && line.trim()) {
+          // 文字起こし中の継続行
+          transcriptLines.push(line);
+        } else if (isInTranscript && !line.trim()) {
+          // 空行は継続を許可
+          transcriptLines.push(line);
         }
       }
+      
+      if (transcriptLines.length > 0) {
+        content = transcriptLines.join('\n');
+        console.log('[fetchDocumentContent] Extracted transcript lines:', transcriptLines.length);
+      } else {
+        // 文字起こしパターンが見つからない場合は全テキストを使用
+        console.log('[fetchDocumentContent] No transcript pattern found, using full text');
+        content = fullText;
+      }
+    } else {
+      console.error('[fetchDocumentContent] Export failed:', exportResponse.status);
+      // フォールバック: body.content から取得
+      content = extractTextFromContent(doc.body?.content || []);
     }
+  } catch (error) {
+    console.error('[fetchDocumentContent] Export error:', error);
+    // フォールバック: body.content から取得
+    content = extractTextFromContent(doc.body?.content || []);
   }
 
   console.log('[fetchDocumentContent] Result:', {
-    selectedTab: selectedTabName,
-    extractionMethod: 'after_details_heading',
+    extractionMethod: 'drive_export_api',
     contentLength: content.length,
     contentPreview: content.substring(0, 200)
   });
+  
+  // メッセージを解析（簡易的な実装）
+  const messages = parseMessages(content);
+
+  return {
+    documentId,
+    title,
+    content,
+    messages,
+  };
+}
+
+// body.content からテキストを抽出（フォールバック用）
+function extractTextFromContent(contentElements: any[]): string {
+  let text = '';
+  for (const element of contentElements) {
+    if (element.paragraph?.elements) {
+      for (const elem of element.paragraph.elements) {
+        if (elem.textRun?.content) {
+          text += elem.textRun.content;
+        }
+      }
+    }
+  }
+  return text;
+}
   
   // メッセージを解析（簡易的な実装）
   const messages = parseMessages(content);
