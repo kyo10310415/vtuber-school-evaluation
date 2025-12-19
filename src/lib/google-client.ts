@@ -116,10 +116,10 @@ export async function fetchStudents(
   });
   
   return rows.map((row: any[]) => ({
-    studentId: row[0] || '',           // A列: 学籍番号
-    name: row[1] || '',                // B列: 氏名
-    enrollmentDate: row[2] || '',      // C列: 入学年月
-    status: row[3] || '在籍中',        // D列: ステータス
+    studentId: row[1] || '',           // B列: 学籍番号
+    name: row[0] || '',                // A列: 生徒名
+    enrollmentDate: row[2] || '',      // C列: プラン（入学年月の代わりに使用）
+    status: row[3] || '在籍中',        // D列: 会員ステータス
     talkMemoFolderUrl: row[4] || '',   // E列: トークメモフォルダURL
   }));
 }
