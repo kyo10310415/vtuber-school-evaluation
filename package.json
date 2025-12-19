@@ -4,7 +4,8 @@
   "scripts": {
     "dev": "vite",
     "dev:sandbox": "wrangler pages dev dist --ip 0.0.0.0 --port 3000",
-    "start": "wrangler pages dev dist --ip 0.0.0.0 --port ${PORT:-3000}",
+    "start": "node server.js",
+    "start:wrangler": "wrangler pages dev dist --ip 0.0.0.0 --port ${PORT:-3000}",
     "build": "vite build",
     "preview": "wrangler pages dev dist",
     "deploy": "npm run build && wrangler pages deploy",
@@ -18,12 +19,11 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@hono/node-server": "^1.19.7",
     "@hono/vite-build": "^1.2.0",
     "@hono/vite-dev-server": "^0.18.2",
     "hono": "^4.10.8",
     "vite": "^6.3.5",
     "wrangler": "^4.4.0"
-  },
-  "devDependencies": {
   }
 }
