@@ -359,8 +359,9 @@ export async function fetchDocumentContent(
 ): Promise<TalkMemoDocument> {
   const accessToken = await getAccessToken(serviceAccountJson);
 
+  // タブ情報を含めて取得するため、suggestionsViewModeパラメータを追加
   const response = await fetch(
-    `https://docs.googleapis.com/v1/documents/${documentId}`,
+    `https://docs.googleapis.com/v1/documents/${documentId}?suggestionsViewMode=PREVIEW_WITHOUT_SUGGESTIONS`,
     {
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -371,25 +372,43 @@ export async function fetchDocumentContent(
   const doc = await response.json();
   const title = doc.title || '';
   
-  console.log('[fetchDocumentContent] Document tabs:', doc.tabs?.length || 0);
+  console.log('[fetchDocumentContent] Document structure:', {
+    hasBody: !!doc.body,
+    hasTabs: !!doc.tabs,
+    tabsLength: doc.tabs?.length || 0,
+    tabTitles: doc.tabs?.map((t: any) => t.tabProperties?.title || 'untitled') || []
+  });
   
   // タブがある場合は「文字起こし」タブを探す
   let targetContent: any = null;
+  let selectedTabName = '';
+  
   if (doc.tabs && doc.tabs.length > 0) {
-    // 「文字起こし」タブを検索
-    const transcriptTab = doc.tabs.find((tab: any) => 
-      tab.tabProperties?.title === '文字起こし'
-    );
+    // 「文字起こし」タブを検索（部分一致も許容）
+    const transcriptTab = doc.tabs.find((tab: any) => {
+      const tabTitle = tab.tabProperties?.title || '';
+      return tabTitle.includes('文字起こし') || tabTitle.includes('transcript');
+    });
     
     if (transcriptTab) {
-      console.log('[fetchDocumentContent] Found "文字起こし" tab');
+      selectedTabName = transcriptTab.tabProperties?.title || 'found';
+      console.log('[fetchDocumentContent] Found transcript tab:', selectedTabName);
       targetContent = transcriptTab.documentTab?.body?.content;
     } else {
-      console.log('[fetchDocumentContent] "文字起こし" tab not found, using first tab');
-      targetContent = doc.tabs[0]?.documentTab?.body?.content;
+      // 「文字起こし」が見つからない場合、2番目のタブを試す（通常メモが1番目）
+      if (doc.tabs.length > 1) {
+        selectedTabName = doc.tabs[1].tabProperties?.title || 'second tab';
+        console.log('[fetchDocumentContent] Using second tab:', selectedTabName);
+        targetContent = doc.tabs[1]?.documentTab?.body?.content;
+      } else {
+        selectedTabName = doc.tabs[0].tabProperties?.title || 'first tab';
+        console.log('[fetchDocumentContent] Using first tab:', selectedTabName);
+        targetContent = doc.tabs[0]?.documentTab?.body?.content;
+      }
     }
   } else {
     // タブがない場合は従来通りbody.contentを使用
+    selectedTabName = 'no tabs (using body)';
     console.log('[fetchDocumentContent] No tabs found, using body.content');
     targetContent = doc.body?.content;
   }
@@ -408,7 +427,11 @@ export async function fetchDocumentContent(
     }
   }
 
-  console.log('[fetchDocumentContent] Extracted content length:', content.length);
+  console.log('[fetchDocumentContent] Result:', {
+    selectedTab: selectedTabName,
+    contentLength: content.length,
+    contentPreview: content.substring(0, 200)
+  });
   
   // メッセージを解析（簡易的な実装）
   const messages = parseMessages(content);
