@@ -2,7 +2,8 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { renderer } from './renderer'
 import type { EvaluationRequest, EvaluationResponse, EvaluationResult } from './types'
-import { fetchStudents, fetchAbsenceData, fetchPaymentData, fetchDocumentsInFolder, fetchDocumentContent, writeResultsToSheet } from './lib/google-client'
+import { fetchStudents, fetchAbsenceData, fetchDocumentsInFolder, fetchDocumentContent, writeResultsToSheet } from './lib/google-client'
+// fetchPaymentData は一旦使用しない
 import { GeminiAnalyzer } from './lib/gemini-client'
 import { evaluateStudent, convertResultToArray } from './lib/evaluation'
 
@@ -79,7 +80,7 @@ app.get('/', (c) => {
         </div>
         <p class="text-sm text-gray-600 mt-3">
           <i class="fas fa-info-circle mr-1"></i>
-          選択した月のトークメモ、欠席データ、支払いデータを元に採点を実行します
+          選択した月のトークメモと直近3ヶ月の欠席データを元に採点を実行します
         </p>
       </div>
 
@@ -236,8 +237,8 @@ app.post('/api/evaluate', async (c) => {
     const GEMINI_API_KEY = getEnv(c, 'GEMINI_API_KEY')
     const STUDENT_MASTER_SPREADSHEET_ID = getEnv(c, 'STUDENT_MASTER_SPREADSHEET_ID')
     const ABSENCE_SPREADSHEET_ID = getEnv(c, 'ABSENCE_SPREADSHEET_ID')
-    const PAYMENT_SPREADSHEET_ID = getEnv(c, 'PAYMENT_SPREADSHEET_ID')
     const RESULT_SPREADSHEET_ID = getEnv(c, 'RESULT_SPREADSHEET_ID')
+    // PAYMENT_SPREADSHEET_ID は一旦使用しない
     
     const request: EvaluationRequest = await c.req.json()
     
@@ -260,9 +261,8 @@ app.post('/api/evaluate', async (c) => {
       students = students.filter(s => request.studentIds!.includes(s.studentId))
     }
 
-    // 欠席・支払いデータを取得
+    // 欠席データを取得（直近3ヶ月以内から集計）
     const absenceDataList = await fetchAbsenceData(GOOGLE_SERVICE_ACCOUNT, ABSENCE_SPREADSHEET_ID, request.month)
-    const paymentDataList = await fetchPaymentData(GOOGLE_SERVICE_ACCOUNT, PAYMENT_SPREADSHEET_ID, request.month)
 
     const results: EvaluationResult[] = []
     const errors: string[] = []
@@ -284,15 +284,14 @@ app.post('/api/evaluate', async (c) => {
         // Geminiで分析
         const geminiAnalysis = await gemini.analyzeTrainingSession(talkMemo)
 
-        // 欠席・支払いデータを取得
+        // 欠席データを取得
         const absenceData = absenceDataList.find(a => a.studentId === student.studentId)
-        const paymentData = paymentDataList.find(p => p.studentId === student.studentId)
 
-        // 評価を実施
+        // 評価を実施（支払いデータは一旦なし）
         const result = evaluateStudent(
           student,
           absenceData,
-          paymentData,
+          undefined, // 支払いデータは一旦なし
           geminiAnalysis,
           request.month
         )

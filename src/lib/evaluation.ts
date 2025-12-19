@@ -77,7 +77,7 @@ export function evaluateStudent(
     absence: evaluateAbsence(absenceData?.absenceCount || 0),
     lateness: geminiAnalysis.lateness.grade,
     mission: geminiAnalysis.mission.grade,
-    payment: evaluatePayment(paymentData?.paymentStatus || 'unpaid'),
+    payment: paymentData ? evaluatePayment(paymentData.paymentStatus) : 'C', // 支払いデータなしの場合はC評価
     activeListening: geminiAnalysis.activeListening.grade,
     comprehension: geminiAnalysis.comprehension.grade,
   };
@@ -104,7 +104,7 @@ function generateComments(scores: ProLevelScores, analysis: GeminiAnalysisResult
   if (scores.absence === 'S') strengths.push('皆勤');
   if (scores.lateness === 'S') strengths.push('遅刻なし');
   if (scores.mission === 'S' || scores.mission === 'A') strengths.push('ミッション達成');
-  if (scores.payment === 'S') strengths.push('支払い良好');
+  // 支払い評価は一旦コメントから除外
 
   if (strengths.length > 0) {
     comments.push(`【強み】${strengths.join('、')}`);
@@ -115,7 +115,7 @@ function generateComments(scores: ProLevelScores, analysis: GeminiAnalysisResult
   if (scores.absence === 'C' || scores.absence === 'D') improvements.push('出席率の改善');
   if (scores.lateness === 'D') improvements.push('時間厳守');
   if (scores.mission === 'C' || scores.mission === 'D') improvements.push('ミッション取り組み');
-  if (scores.payment === 'C' || scores.payment === 'D') improvements.push('支払い状況');
+  // 支払い評価は一旦コメントから除外
   if (scores.activeListening === 'C' || scores.activeListening === 'D') improvements.push('傾聴姿勢');
   if (scores.comprehension === 'C' || scores.comprehension === 'D') improvements.push('理解度向上');
 

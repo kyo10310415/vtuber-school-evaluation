@@ -124,7 +124,7 @@ export async function fetchStudents(
   }));
 }
 
-// 欠席データを取得
+// 欠席データを取得（直近3ヶ月以内のデータから集計）
 export async function fetchAbsenceData(
   serviceAccountJson: string,
   spreadsheetId: string,
@@ -132,11 +132,13 @@ export async function fetchAbsenceData(
 ): Promise<AbsenceData[]> {
   const accessToken = await getAccessToken(serviceAccountJson);
   
-  // 欠席データのスプレッドシートから取得
+  // レッスン記録スプレッドシートから取得
   // https://docs.google.com/spreadsheets/d/19dlNvTEp3SaFgXK7HWEamyhJDKpAODqoTnRhqOtNC4k/edit
-  // F列: 学籍番号、G列: 前月の欠席回数
+  // A列: タイムスタンプ
+  // F列: 学籍番号
+  // G列: 生徒様の出欠
   const response = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/A2:Z`,
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/A2:G`,
     {
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -146,21 +148,53 @@ export async function fetchAbsenceData(
 
   const data = await response.json();
   const rows = data.values || [];
-  const absenceData: AbsenceData[] = [];
+  
+  // 直近3ヶ月の日付を計算
+  const threeMonthsAgo = new Date();
+  threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+  
+  console.log('[fetchAbsenceData] Processing records:', {
+    totalRecords: rows.length,
+    threeMonthsAgo: threeMonthsAgo.toISOString(),
+  });
 
-  // F列（インデックス5）: 学籍番号
-  // G列（インデックス6）: 前月の欠席回数
+  // 学籍番号ごとに欠席数を集計
+  const absenceCountMap = new Map<string, number>();
+  
   for (const row of rows) {
-    const studentId = row[5] || ''; // F列
-    const absenceCount = parseInt(row[6] || '0', 10); // G列
+    const timestamp = row[0] || ''; // A列: タイムスタンプ
+    const studentId = row[5] || '';  // F列: 学籍番号
+    const attendance = row[6] || ''; // G列: 生徒様の出欠
     
-    if (studentId) {
-      absenceData.push({
-        studentId,
-        absenceCount,
-        month,
-      });
+    if (!studentId || !timestamp) continue;
+    
+    // タイムスタンプをパース
+    // 形式: "2024/10/20 1:57:41"
+    const recordDate = new Date(timestamp);
+    
+    // 直近3ヶ月以内かチェック
+    if (recordDate >= threeMonthsAgo) {
+      // 欠席の場合のみカウント
+      if (attendance === '欠席') {
+        const currentCount = absenceCountMap.get(studentId) || 0;
+        absenceCountMap.set(studentId, currentCount + 1);
+      }
     }
+  }
+  
+  console.log('[fetchAbsenceData] Absence count:', {
+    studentsWithAbsence: absenceCountMap.size,
+    details: Array.from(absenceCountMap.entries()).slice(0, 5), // 最初の5件を表示
+  });
+
+  // AbsenceData配列に変換
+  const absenceData: AbsenceData[] = [];
+  for (const [studentId, count] of absenceCountMap.entries()) {
+    absenceData.push({
+      studentId,
+      absenceCount: count,
+      month,
+    });
   }
 
   return absenceData;
