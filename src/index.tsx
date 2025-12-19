@@ -389,7 +389,8 @@ app.get('/api/debug/raw-document/:studentId', async (c) => {
     const doc = await docResponse.json();
     
     // body.contentの詳細構造を解析（見出しやテーブルを含む）
-    const bodyElements = (doc.body?.content || []).slice(0, 30).map((element: any, index: number) => {
+    // 全要素を取得（最大100要素）
+    const bodyElements = (doc.body?.content || []).slice(0, 100).map((element: any, index: number) => {
       if (element.paragraph) {
         let text = '';
         for (const elem of element.paragraph.elements || []) {
