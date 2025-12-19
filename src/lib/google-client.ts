@@ -352,7 +352,7 @@ export async function fetchDocumentsInFolder(
   return (data.files || []).map((file: any) => file.id || '');
 }
 
-// Googleドキュメントの内容を取得
+// Googleドキュメントの内容を取得（「文字起こし」タブを優先）
 export async function fetchDocumentContent(
   serviceAccountJson: string,
   documentId: string
@@ -371,10 +371,33 @@ export async function fetchDocumentContent(
   const doc = await response.json();
   const title = doc.title || '';
   
+  console.log('[fetchDocumentContent] Document tabs:', doc.tabs?.length || 0);
+  
+  // タブがある場合は「文字起こし」タブを探す
+  let targetContent: any = null;
+  if (doc.tabs && doc.tabs.length > 0) {
+    // 「文字起こし」タブを検索
+    const transcriptTab = doc.tabs.find((tab: any) => 
+      tab.tabProperties?.title === '文字起こし'
+    );
+    
+    if (transcriptTab) {
+      console.log('[fetchDocumentContent] Found "文字起こし" tab');
+      targetContent = transcriptTab.documentTab?.body?.content;
+    } else {
+      console.log('[fetchDocumentContent] "文字起こし" tab not found, using first tab');
+      targetContent = doc.tabs[0]?.documentTab?.body?.content;
+    }
+  } else {
+    // タブがない場合は従来通りbody.contentを使用
+    console.log('[fetchDocumentContent] No tabs found, using body.content');
+    targetContent = doc.body?.content;
+  }
+  
   // ドキュメントの本文を抽出
   let content = '';
-  if (doc.body?.content) {
-    for (const element of doc.body.content) {
+  if (targetContent) {
+    for (const element of targetContent) {
       if (element.paragraph?.elements) {
         for (const elem of element.paragraph.elements) {
           if (elem.textRun?.content) {
@@ -385,6 +408,8 @@ export async function fetchDocumentContent(
     }
   }
 
+  console.log('[fetchDocumentContent] Extracted content length:', content.length);
+  
   // メッセージを解析（簡易的な実装）
   const messages = parseMessages(content);
 
