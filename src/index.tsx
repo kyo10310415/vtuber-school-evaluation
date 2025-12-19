@@ -388,6 +388,41 @@ app.get('/api/debug/raw-document/:studentId', async (c) => {
     
     const doc = await docResponse.json();
     
+    // body.contentの詳細構造を解析（見出しやテーブルを含む）
+    const bodyElements = (doc.body?.content || []).slice(0, 30).map((element: any, index: number) => {
+      if (element.paragraph) {
+        let text = '';
+        for (const elem of element.paragraph.elements || []) {
+          if (elem.textRun?.content) {
+            text += elem.textRun.content;
+          }
+        }
+        return {
+          type: 'paragraph',
+          index,
+          style: element.paragraph.paragraphStyle?.namedStyleType || 'NORMAL_TEXT',
+          textPreview: text.substring(0, 100).replace(/\n/g, ' '),
+        };
+      } else if (element.table) {
+        return {
+          type: 'table',
+          index,
+          rows: element.table.tableRows?.length || 0,
+        };
+      } else if (element.sectionBreak) {
+        return {
+          type: 'sectionBreak',
+          index,
+        };
+      } else {
+        return {
+          type: 'unknown',
+          index,
+          keys: Object.keys(element),
+        };
+      }
+    });
+    
     // 構造情報のみを返す（全データは大きすぎるため）
     return c.json({
       success: true,
@@ -404,6 +439,7 @@ app.get('/api/debug/raw-document/:studentId', async (c) => {
           contentElementsCount: tab.documentTab?.body?.content?.length || 0,
         })) || [],
         bodyContentElementsCount: doc.body?.content?.length || 0,
+        bodyElements, // 最初の30要素の詳細構造
       }
     })
   } catch (error: any) {
