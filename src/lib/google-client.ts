@@ -399,7 +399,8 @@ export async function fetchDocumentContent(
     if (exportResponse.ok) {
       const fullText = await exportResponse.text();
       console.log('[fetchDocumentContent] Exported text length:', fullText.length);
-      console.log('[fetchDocumentContent] Text preview:', fullText.substring(0, 300));
+      console.log('[fetchDocumentContent] First 500 chars:', fullText.substring(0, 500));
+      console.log('[fetchDocumentContent] Last 500 chars:', fullText.substring(Math.max(0, fullText.length - 500)));
       
       // Google Meetの文字起こしは通常、タイムスタンプ付きの会話形式
       // 例: "00:00:15 きょうへい先生: こんにちは"
@@ -409,8 +410,10 @@ export async function fetchDocumentContent(
       const lines = fullText.split('\n');
       const transcriptLines: string[] = [];
       let isInTranscript = false;
+      let transcriptStartIndex = -1;
       
-      for (const line of lines) {
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
         // タイムスタンプパターン: "00:00:00" または "0:00:00"
         const hasTimestamp = /^\d{1,2}:\d{2}:\d{2}/.test(line.trim());
         
@@ -418,6 +421,10 @@ export async function fetchDocumentContent(
         const hasSpeaker = /^[^\s:：]+[:：]\s*.+/.test(line.trim());
         
         if (hasTimestamp || hasSpeaker) {
+          if (!isInTranscript) {
+            transcriptStartIndex = i;
+            console.log('[fetchDocumentContent] Transcript detected at line', i, ':', line.substring(0, 80));
+          }
           isInTranscript = true;
           transcriptLines.push(line);
         } else if (isInTranscript && line.trim()) {
@@ -429,9 +436,16 @@ export async function fetchDocumentContent(
         }
       }
       
+      console.log('[fetchDocumentContent] Transcript detection results:', {
+        totalLines: lines.length,
+        transcriptStartIndex,
+        transcriptLinesCount: transcriptLines.length,
+      });
+      
       if (transcriptLines.length > 0) {
         content = transcriptLines.join('\n');
         console.log('[fetchDocumentContent] Extracted transcript lines:', transcriptLines.length);
+        console.log('[fetchDocumentContent] Transcript preview:', content.substring(0, 300));
       } else {
         // 文字起こしパターンが見つからない場合は全テキストを使用
         console.log('[fetchDocumentContent] No transcript pattern found, using full text');
