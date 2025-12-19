@@ -407,21 +407,46 @@ export async function fetchDocumentContent(
       }
     }
   } else {
-    // タブがない場合は従来通りbody.contentを使用
+    // タブがない場合はbody.contentを使用
     selectedTabName = 'no tabs (using body)';
     console.log('[fetchDocumentContent] No tabs found, using body.content');
     targetContent = doc.body?.content;
   }
   
-  // ドキュメントの本文を抽出
+  // ドキュメントの本文を抽出（「詳細」見出し以降のみを抽出）
   let content = '';
+  let isAfterDetailsHeading = false;
+  
   if (targetContent) {
     for (const element of targetContent) {
-      if (element.paragraph?.elements) {
-        for (const elem of element.paragraph.elements) {
+      if (element.paragraph) {
+        // 見出しスタイルを確認
+        const style = element.paragraph.paragraphStyle?.namedStyleType || 'NORMAL_TEXT';
+        
+        // テキスト内容を取得
+        let text = '';
+        for (const elem of element.paragraph.elements || []) {
           if (elem.textRun?.content) {
-            content += elem.textRun.content;
+            text += elem.textRun.content;
           }
+        }
+        
+        // 「詳細」見出しを検出（HEADING_3で「詳細」を含む）
+        if (style.startsWith('HEADING') && text.includes('詳細')) {
+          isAfterDetailsHeading = true;
+          console.log('[fetchDocumentContent] Found "詳細" heading at index, starting transcript extraction');
+          continue; // 見出し自体はスキップ
+        }
+        
+        // 「推奨される次のステップ」見出しで終了
+        if (isAfterDetailsHeading && style.startsWith('HEADING') && text.includes('推奨される次のステップ')) {
+          console.log('[fetchDocumentContent] Found "推奨される次のステップ" heading, stopping extraction');
+          break;
+        }
+        
+        // 「詳細」以降のテキストのみを追加
+        if (isAfterDetailsHeading) {
+          content += text;
         }
       }
     }
@@ -429,6 +454,7 @@ export async function fetchDocumentContent(
 
   console.log('[fetchDocumentContent] Result:', {
     selectedTab: selectedTabName,
+    extractionMethod: 'after_details_heading',
     contentLength: content.length,
     contentPreview: content.substring(0, 200)
   });
