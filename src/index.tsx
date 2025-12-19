@@ -230,6 +230,44 @@ app.get('/api/students', async (c) => {
   }
 })
 
+// トークメモフォルダのドキュメント一覧をテスト（デバッグ用）
+app.get('/api/debug/check-folder/:studentId', async (c) => {
+  try {
+    const GOOGLE_SERVICE_ACCOUNT = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT')
+    const STUDENT_MASTER_SPREADSHEET_ID = getEnv(c, 'STUDENT_MASTER_SPREADSHEET_ID')
+    const studentId = c.req.param('studentId')
+    
+    // 生徒情報を取得
+    const students = await fetchStudents(GOOGLE_SERVICE_ACCOUNT, STUDENT_MASTER_SPREADSHEET_ID)
+    const student = students.find(s => s.studentId === studentId)
+    
+    if (!student) {
+      return c.json({ success: false, error: '生徒が見つかりません' }, 404)
+    }
+    
+    if (!student.talkMemoFolderUrl) {
+      return c.json({ success: false, error: 'トークメモフォルダURLが設定されていません', student }, 400)
+    }
+    
+    // フォルダ内のドキュメントを取得
+    const documentIds = await fetchDocumentsInFolder(GOOGLE_SERVICE_ACCOUNT, student.talkMemoFolderUrl)
+    
+    return c.json({
+      success: true,
+      student: {
+        studentId: student.studentId,
+        name: student.name,
+        talkMemoFolderUrl: student.talkMemoFolderUrl,
+      },
+      documentCount: documentIds.length,
+      documentIds,
+    })
+  } catch (error: any) {
+    console.error('[/api/debug/check-folder] Error:', error.message)
+    return c.json({ success: false, error: error.message, stack: error.stack }, 500)
+  }
+})
+
 // 採点実行エンドポイント
 app.post('/api/evaluate', async (c) => {
   try {
