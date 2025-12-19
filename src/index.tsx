@@ -268,6 +268,57 @@ app.get('/api/debug/check-folder/:studentId', async (c) => {
   }
 })
 
+// ドキュメントの内容を取得（デバッグ用）
+app.get('/api/debug/check-document/:studentId', async (c) => {
+  try {
+    const GOOGLE_SERVICE_ACCOUNT = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT')
+    const STUDENT_MASTER_SPREADSHEET_ID = getEnv(c, 'STUDENT_MASTER_SPREADSHEET_ID')
+    const studentId = c.req.param('studentId')
+    
+    // 生徒情報を取得
+    const students = await fetchStudents(GOOGLE_SERVICE_ACCOUNT, STUDENT_MASTER_SPREADSHEET_ID)
+    const student = students.find(s => s.studentId === studentId)
+    
+    if (!student) {
+      return c.json({ success: false, error: '生徒が見つかりません' }, 404)
+    }
+    
+    if (!student.talkMemoFolderUrl) {
+      return c.json({ success: false, error: 'トークメモフォルダURLが設定されていません' }, 400)
+    }
+    
+    // フォルダ内のドキュメントを取得
+    const documentIds = await fetchDocumentsInFolder(GOOGLE_SERVICE_ACCOUNT, student.talkMemoFolderUrl)
+    
+    if (documentIds.length === 0) {
+      return c.json({ success: false, error: 'ドキュメントが見つかりません' }, 404)
+    }
+    
+    // 最初のドキュメントの内容を取得
+    const document = await fetchDocumentContent(GOOGLE_SERVICE_ACCOUNT, documentIds[0])
+    
+    return c.json({
+      success: true,
+      student: {
+        studentId: student.studentId,
+        name: student.name,
+      },
+      document: {
+        id: document.documentId,
+        title: document.title,
+        contentLength: document.content.length,
+        contentPreview: document.content.substring(0, 1000), // 最初の1000文字
+        fullContent: document.content, // 全文
+        messagesCount: document.messages.length,
+        messagesPreview: document.messages.slice(0, 5), // 最初の5メッセージ
+      }
+    })
+  } catch (error: any) {
+    console.error('[/api/debug/check-document] Error:', error.message)
+    return c.json({ success: false, error: error.message, stack: error.stack }, 500)
+  }
+})
+
 // 採点実行エンドポイント
 app.post('/api/evaluate', async (c) => {
   try {
