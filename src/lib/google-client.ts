@@ -479,17 +479,6 @@ function extractTextFromContent(contentElements: any[]): string {
   }
   return text;
 }
-  
-  // メッセージを解析（簡易的な実装）
-  const messages = parseMessages(content);
-
-  return {
-    documentId,
-    title,
-    content,
-    messages,
-  };
-}
 
 // テキストからメッセージを解析
 function parseMessages(content: string): TalkMessage[] {
