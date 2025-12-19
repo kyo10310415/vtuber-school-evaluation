@@ -19,12 +19,24 @@ const app = new Hono<{ Bindings: Bindings }>()
 
 // 環境変数ヘルパー（Cloudflare WorkersとNode.js両対応）
 function getEnv(c: any, key: keyof Bindings): string {
-  // Cloudflare Workers環境
-  if (c.env && c.env[key]) {
-    return c.env[key]
+  // デバッグ: c.envの中身を確認
+  if (key === 'GOOGLE_SERVICE_ACCOUNT') {
+    console.log('[getEnv] Checking GOOGLE_SERVICE_ACCOUNT:', {
+      'c.env exists': !!c.env,
+      'c.env[key] exists': !!c.env?.[key],
+      'c.env[key] type': typeof c.env?.[key],
+      'c.env[key] length': c.env?.[key]?.length || 0,
+      'c.env keys': c.env ? Object.keys(c.env) : []
+    })
   }
-  // Node.js環境（Render等）
-  return process.env[key] || ''
+  
+  // Cloudflare Workers環境（c.envから値を取得し、空でないことを確認）
+  const envValue = c.env?.[key]
+  if (envValue && typeof envValue === 'string' && envValue.length > 0) {
+    return envValue
+  }
+  // Node.js環境（Render等）- server.jsから渡されたc.envを使用
+  return envValue || ''
 }
 
 // CORS設定
