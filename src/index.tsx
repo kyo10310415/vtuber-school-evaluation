@@ -216,11 +216,16 @@ app.get('/api/students', async (c) => {
     const GOOGLE_SERVICE_ACCOUNT = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT')
     const STUDENT_MASTER_SPREADSHEET_ID = getEnv(c, 'STUDENT_MASTER_SPREADSHEET_ID')
     
+    console.log('[/api/students] Fetching students from:', STUDENT_MASTER_SPREADSHEET_ID)
+    
     const students = await fetchStudents(GOOGLE_SERVICE_ACCOUNT, STUDENT_MASTER_SPREADSHEET_ID)
     
-    return c.json({ success: true, students })
+    console.log('[/api/students] Fetched students count:', students.length)
+    
+    return c.json({ success: true, students, count: students.length })
   } catch (error: any) {
-    return c.json({ success: false, error: error.message }, 500)
+    console.error('[/api/students] Error:', error.message)
+    return c.json({ success: false, error: error.message, stack: error.stack }, 500)
   }
 })
 

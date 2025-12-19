@@ -108,12 +108,19 @@ export async function fetchStudents(
   const data = await response.json();
   const rows = data.values || [];
   
+  console.log('[fetchStudents] Response:', {
+    spreadsheetId,
+    sheetName,
+    rowCount: rows.length,
+    firstRow: rows[0] || null,
+  });
+  
   return rows.map((row: any[]) => ({
     studentId: row[0] || '',           // A列: 学籍番号
     name: row[1] || '',                // B列: 氏名
-    talkMemoFolderUrl: row[2] || '',   // C列: トークメモフォルダURL
-    enrollmentDate: row[3] || '',      // D列: 入学年月
-    status: row[4] || '在籍中',        // E列: ステータス
+    enrollmentDate: row[2] || '',      // C列: 入学年月
+    status: row[3] || '在籍中',        // D列: ステータス
+    talkMemoFolderUrl: row[4] || '',   // E列: トークメモフォルダURL
   }));
 }
 
