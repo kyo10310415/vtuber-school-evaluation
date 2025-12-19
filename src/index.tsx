@@ -382,7 +382,7 @@ app.get('/api/debug/raw-document/:studentId', async (c) => {
     })();
     
     const docResponse = await fetch(
-      `https://docs.googleapis.com/v1/documents/${documentIds[0]}`,
+      `https://docs.googleapis.com/v1/documents/${documentIds[0]}?fields=*`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
     

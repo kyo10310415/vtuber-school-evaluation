@@ -359,9 +359,9 @@ export async function fetchDocumentContent(
 ): Promise<TalkMemoDocument> {
   const accessToken = await getAccessToken(serviceAccountJson);
 
-  // タブ情報を含めて取得するため、suggestionsViewModeパラメータを追加
+  // タブ情報を取得するため、fieldsパラメータでtabsを指定
   const response = await fetch(
-    `https://docs.googleapis.com/v1/documents/${documentId}?suggestionsViewMode=PREVIEW_WITHOUT_SUGGESTIONS`,
+    `https://docs.googleapis.com/v1/documents/${documentId}?fields=*`,
     {
       headers: {
         Authorization: `Bearer ${accessToken}`,
