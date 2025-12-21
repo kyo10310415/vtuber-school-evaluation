@@ -20,13 +20,18 @@ export class GeminiAnalyzer {
       const response = await result.response;
       const text = response.text();
       
+      console.log('[GeminiAnalyzer] Response text length:', text.length);
+      console.log('[GeminiAnalyzer] Response preview:', text.substring(0, 500));
+      
       // JSONレスポンスをパース
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
+        console.log('[GeminiAnalyzer] JSON match found:', jsonMatch[0].substring(0, 300));
         const analysis = JSON.parse(jsonMatch[0]);
         return this.normalizeAnalysisResult(analysis);
       }
       
+      console.error('[GeminiAnalyzer] No JSON found in response');
       throw new Error('Failed to parse Gemini response');
     } catch (error) {
       console.error('Gemini analysis error:', error);
