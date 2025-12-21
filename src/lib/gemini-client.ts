@@ -23,16 +23,26 @@ export class GeminiAnalyzer {
       console.log('[GeminiAnalyzer] Response text length:', text.length);
       console.log('[GeminiAnalyzer] Response preview:', text.substring(0, 500));
       
-      // JSONレスポンスをパース
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        console.log('[GeminiAnalyzer] JSON match found:', jsonMatch[0].substring(0, 300));
-        const analysis = JSON.parse(jsonMatch[0]);
-        return this.normalizeAnalysisResult(analysis);
+      // Markdownコードブロックを除去（```json ... ``` または ``` ... ```）
+      let jsonText = text;
+      
+      // ```json ... ``` 形式を検出
+      const codeBlockMatch = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+      if (codeBlockMatch) {
+        jsonText = codeBlockMatch[1];
+        console.log('[GeminiAnalyzer] Extracted JSON from code block');
+      } else {
+        // コードブロックなしでJSONを直接検出
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          jsonText = jsonMatch[0];
+        }
       }
       
-      console.error('[GeminiAnalyzer] No JSON found in response');
-      throw new Error('Failed to parse Gemini response');
+      console.log('[GeminiAnalyzer] JSON text preview:', jsonText.substring(0, 300));
+      
+      const analysis = JSON.parse(jsonText);
+      return this.normalizeAnalysisResult(analysis);
     } catch (error) {
       console.error('Gemini analysis error:', error);
       // エラー時のデフォルト値
