@@ -402,47 +402,61 @@ export async function fetchDocumentContent(
       console.log('[fetchDocumentContent] First 500 chars:', fullText.substring(0, 500));
       console.log('[fetchDocumentContent] Last 500 chars:', fullText.substring(Math.max(0, fullText.length - 500)));
       
-      // Google Meetの文字起こしは通常、タイムスタンプ付きの会話形式
-      // 例: "00:00:15 きょうへい先生: こんにちは"
-      // または: "きょうへい先生: こんにちは"
+      // Google Meetの文字起こしを検出する戦略:
+      // 1. 行ごとに解析して、発話者パターン（"名前: 内容"）が連続する箇所を探す
+      // 2. タイムスタンプ（"00:00:00"）も検出対象とする
       
-      // 文字起こし部分を検出（タイムスタンプまたは発話者名で始まる行）
       const lines = fullText.split('\n');
       const transcriptLines: string[] = [];
-      let isInTranscript = false;
+      let consecutiveSpeakerLines = 0;
       let transcriptStartIndex = -1;
       
+      // まず、連続する発話者パターンを検出
       for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        // タイムスタンプパターン: "00:00:00" または "0:00:00"
-        const hasTimestamp = /^\d{1,2}:\d{2}:\d{2}/.test(line.trim());
+        const line = lines[i].trim();
         
-        // 発話者パターン: "名前:" または "名前："
-        const hasSpeaker = /^[^\s:：]+[:：]\s*.+/.test(line.trim());
+        // タイムスタンプパターン: "00:00:00" または "0:00:00"
+        const hasTimestamp = /^\d{1,2}:\d{2}:\d{2}/.test(line);
+        
+        // 発話者パターン: "名前: 内容" または "名前： 内容"
+        // 名前部分は日本語、英数字、スペースなし
+        const hasSpeaker = /^[^\s:：]{2,20}[:：]\s*.+/.test(line);
         
         if (hasTimestamp || hasSpeaker) {
-          if (!isInTranscript) {
-            transcriptStartIndex = i;
-            console.log('[fetchDocumentContent] Transcript detected at line', i, ':', line.substring(0, 80));
+          consecutiveSpeakerLines++;
+          if (consecutiveSpeakerLines >= 3 && transcriptStartIndex === -1) {
+            // 3行以上連続で発話パターンがあれば文字起こしと判定
+            transcriptStartIndex = i - consecutiveSpeakerLines + 1;
+            console.log('[fetchDocumentContent] Transcript detected at line', transcriptStartIndex, ':', lines[transcriptStartIndex].substring(0, 80));
           }
-          isInTranscript = true;
-          transcriptLines.push(line);
-        } else if (isInTranscript && line.trim()) {
-          // 文字起こし中の継続行
-          transcriptLines.push(line);
-        } else if (isInTranscript && !line.trim()) {
-          // 空行は継続を許可
-          transcriptLines.push(line);
+        } else if (!line) {
+          // 空行は許容（継続）
+        } else {
+          // パターンが途切れたらリセット
+          consecutiveSpeakerLines = 0;
         }
       }
       
       console.log('[fetchDocumentContent] Transcript detection results:', {
         totalLines: lines.length,
         transcriptStartIndex,
-        transcriptLinesCount: transcriptLines.length,
+        consecutiveSpeakerLines,
       });
       
-      if (transcriptLines.length > 0) {
+      // 文字起こしが検出された場合、その位置から最後までを抽出
+      if (transcriptStartIndex >= 0) {
+        for (let i = transcriptStartIndex; i < lines.length; i++) {
+          const line = lines[i].trim();
+          
+          // 終了マーカーを検出
+          if (line.includes('文字起こしが終了しました') || line.includes('文字起こしはコンピュータが生成')) {
+            console.log('[fetchDocumentContent] Transcript end marker found at line', i);
+            break;
+          }
+          
+          transcriptLines.push(lines[i]);
+        }
+        
         content = transcriptLines.join('\n');
         console.log('[fetchDocumentContent] Extracted transcript lines:', transcriptLines.length);
         console.log('[fetchDocumentContent] Transcript preview:', content.substring(0, 300));
