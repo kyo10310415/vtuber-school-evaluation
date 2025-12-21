@@ -66,30 +66,52 @@ function renderStudentList(studentList) {
 function setupEventListeners() {
   // 採点実行ボタン
   document.getElementById('run-evaluation-btn').addEventListener('click', runEvaluation);
+  
+  // 結果検索ボタン
+  document.getElementById('search-results-btn').addEventListener('click', searchResults);
+  
+  // Enterキーで検索
+  document.getElementById('search-student-id').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+      searchResults();
+    }
+  });
 }
 
 // 採点を実行
 async function runEvaluation() {
   const month = document.getElementById('evaluation-month').value;
+  const studentIdsInput = document.getElementById('student-ids-input').value.trim();
   
   if (!month) {
     showError('評価対象月を選択してください');
     return;
   }
 
-  if (!confirm(`${month}の採点を実行しますか？`)) {
+  const studentIds = studentIdsInput ? studentIdsInput.split(',').map(id => id.trim()).filter(id => id) : undefined;
+  
+  const targetText = studentIds && studentIds.length > 0 
+    ? `${studentIds.length}名の生徒` 
+    : '全生徒';
+
+  if (!confirm(`${month}の${targetText}の採点を実行しますか？`)) {
     return;
   }
 
   try {
     showLoading('採点を実行中... この処理には数分かかる場合があります');
     
+    const body = { month };
+    if (studentIds && studentIds.length > 0) {
+      body.studentIds = studentIds;
+    }
+    
     const response = await fetch('/api/evaluate', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ month }),
+      body: JSON.stringify(body),
     });
 
     const data = await response.json();
@@ -196,6 +218,143 @@ function renderResults(results) {
         <div class="mt-3 text-xs text-gray-500 text-right">
           評価日時: ${new Date(result.evaluatedAt).toLocaleString('ja-JP')}
         </div>
+      </div>
+    `;
+  }).join('');
+
+  container.innerHTML = html;
+}
+
+// 結果を検索
+async function searchResults() {
+  const studentId = document.getElementById('search-student-id').value.trim();
+  
+  if (!studentId) {
+    showError('学籍番号を入力してください');
+    return;
+  }
+
+  try {
+    showLoading('評価結果を検索中...');
+    
+    const response = await fetch(`/api/results/${encodeURIComponent(studentId)}`);
+    const data = await response.json();
+    hideLoading();
+
+    if (data.success) {
+      if (data.count === 0) {
+        showWarning(`学籍番号「${studentId}」の評価結果が見つかりませんでした`);
+        document.getElementById('search-results-section').classList.add('hidden');
+      } else {
+        showSuccess(`${data.count}件の評価結果が見つかりました`);
+        renderSearchResults(data.results, studentId);
+        document.getElementById('search-results-section').classList.remove('hidden');
+        
+        // 結果表示位置にスクロール
+        document.getElementById('search-results-section').scrollIntoView({ behavior: 'smooth' });
+      }
+    } else {
+      showError('検索に失敗しました: ' + data.message);
+    }
+  } catch (error) {
+    hideLoading();
+    showError('エラー: ' + error.message);
+  }
+}
+
+// 検索結果を表示
+function renderSearchResults(results, studentId) {
+  const titleElement = document.getElementById('search-results-title');
+  const container = document.getElementById('search-results-list');
+  
+  // 生徒名を取得（最初の結果から）
+  const studentName = results[0]['氏名'] || '';
+  titleElement.textContent = `${studentName}（${studentId}）の評価履歴`;
+  
+  const gradeColor = {
+    'S': 'bg-purple-100 text-purple-800',
+    'A': 'bg-blue-100 text-blue-800',
+    'B': 'bg-green-100 text-green-800',
+    'C': 'bg-yellow-100 text-yellow-800',
+    'D': 'bg-red-100 text-red-800',
+  };
+
+  const html = results.map(result => {
+    const month = result['評価月'] || '-';
+    const overallGrade = result['総合評価'] || '-';
+    const absence = result['欠席'] || '-';
+    const lateness = result['遅刻'] || '-';
+    const mission = result['ミッション'] || '-';
+    const payment = result['支払い'] || '-';
+    const activeListening = result['アクティブリスニング'] || '-';
+    const comprehension = result['理解度'] || '-';
+    const comments = result['コメント'] || '';
+    const evaluatedAt = result['評価日時'] || '';
+
+    return `
+      <div class="bg-white rounded-lg shadow-md p-6 border-l-4 border-purple-500 hover:shadow-lg transition">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center gap-3">
+            <span class="text-2xl font-bold text-purple-600">${month}</span>
+            <div class="text-center">
+              <div class="text-xs text-gray-600 mb-1">総合評価</div>
+              <span class="inline-block px-4 py-2 ${gradeColor[overallGrade]} rounded-lg text-xl font-bold">
+                ${overallGrade}
+              </span>
+            </div>
+          </div>
+          <div class="text-xs text-gray-500">
+            ${evaluatedAt ? new Date(evaluatedAt).toLocaleString('ja-JP') : ''}
+          </div>
+        </div>
+
+        <div class="grid grid-cols-3 md:grid-cols-6 gap-2 mb-4">
+          <div class="text-center p-2 bg-gray-50 rounded">
+            <div class="text-xs text-gray-600 mb-1">欠席</div>
+            <span class="inline-block px-2 py-1 ${gradeColor[absence]} rounded text-sm font-bold">
+              ${absence}
+            </span>
+          </div>
+          <div class="text-center p-2 bg-gray-50 rounded">
+            <div class="text-xs text-gray-600 mb-1">遅刻</div>
+            <span class="inline-block px-2 py-1 ${gradeColor[lateness]} rounded text-sm font-bold">
+              ${lateness}
+            </span>
+          </div>
+          <div class="text-center p-2 bg-gray-50 rounded">
+            <div class="text-xs text-gray-600 mb-1">ミッション</div>
+            <span class="inline-block px-2 py-1 ${gradeColor[mission]} rounded text-sm font-bold">
+              ${mission}
+            </span>
+          </div>
+          <div class="text-center p-2 bg-gray-50 rounded">
+            <div class="text-xs text-gray-600 mb-1">支払い</div>
+            <span class="inline-block px-2 py-1 ${gradeColor[payment]} rounded text-sm font-bold">
+              ${payment}
+            </span>
+          </div>
+          <div class="text-center p-2 bg-gray-50 rounded">
+            <div class="text-xs text-gray-600 mb-1">傾聴力</div>
+            <span class="inline-block px-2 py-1 ${gradeColor[activeListening]} rounded text-sm font-bold">
+              ${activeListening}
+            </span>
+          </div>
+          <div class="text-center p-2 bg-gray-50 rounded">
+            <div class="text-xs text-gray-600 mb-1">理解度</div>
+            <span class="inline-block px-2 py-1 ${gradeColor[comprehension]} rounded text-sm font-bold">
+              ${comprehension}
+            </span>
+          </div>
+        </div>
+
+        ${comments ? `
+          <div class="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+            <div class="text-xs font-semibold text-blue-900 mb-1">
+              <i class="fas fa-comment-alt"></i> 評価コメント
+            </div>
+            <p class="text-sm text-gray-700 whitespace-pre-line">${comments}</p>
+          </div>
+        ` : ''}
       </div>
     `;
   }).join('');

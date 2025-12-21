@@ -53,6 +53,47 @@ app.get('/', (c) => {
   
   return c.render(
     <div class="space-y-8">
+      {/* 学籍番号検索セクション */}
+      <div class="bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg shadow-lg p-6 border border-blue-200">
+        <h2 class="text-2xl font-bold text-gray-800 mb-4">
+          <i class="fas fa-search text-blue-600 mr-2"></i>
+          評価結果を検索
+        </h2>
+        <div class="flex items-end gap-4">
+          <div class="flex-1">
+            <label for="search-student-id" class="block text-sm font-medium text-gray-700 mb-2">
+              学籍番号
+            </label>
+            <input 
+              type="text" 
+              id="search-student-id" 
+              placeholder="例: OLTS240488-AR"
+              class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+          <button 
+            id="search-results-btn"
+            class="px-6 py-2 bg-gradient-to-r from-blue-600 to-cyan-600 text-white font-bold rounded-lg hover:from-blue-700 hover:to-cyan-700 transition shadow-md">
+            <i class="fas fa-search mr-2"></i>
+            検索
+          </button>
+        </div>
+        <p class="text-sm text-gray-600 mt-3">
+          <i class="fas fa-info-circle mr-1"></i>
+          学籍番号を入力して過去の評価結果を検索できます
+        </p>
+      </div>
+
+      {/* 検索結果表示セクション */}
+      <div id="search-results-section" class="hidden bg-white rounded-lg shadow-lg p-6">
+        <h2 class="text-2xl font-bold text-gray-800 mb-4">
+          <i class="fas fa-list text-green-600 mr-2"></i>
+          <span id="search-results-title">検索結果</span>
+        </h2>
+        <div id="search-results-list" class="space-y-4">
+        </div>
+      </div>
+
       {/* 採点実行セクション */}
       <div class="bg-white rounded-lg shadow-lg p-6">
         <h2 class="text-2xl font-bold text-gray-800 mb-4">
@@ -68,6 +109,17 @@ app.get('/', (c) => {
               type="month" 
               id="evaluation-month" 
               value={currentMonth}
+              class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+            />
+          </div>
+          <div class="flex-1">
+            <label for="student-ids-input" class="block text-sm font-medium text-gray-700 mb-2">
+              学籍番号（オプション）
+            </label>
+            <input 
+              type="text" 
+              id="student-ids-input" 
+              placeholder="例: OLTS240488-AR,OLST230057-TQ（カンマ区切り、空欄で全生徒）"
               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
             />
           </div>
@@ -117,6 +169,11 @@ app.get('/', (c) => {
             <span class="px-2 py-1 bg-green-100 text-green-800 rounded font-mono text-xs">POST</span>
             <code class="text-gray-700">/api/evaluate</code>
             <span class="text-gray-600">- 採点を実行</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded font-mono text-xs">GET</span>
+            <code class="text-gray-700">/api/results/:studentId</code>
+            <span class="text-gray-600">- 評価結果を検索</span>
           </div>
           <div class="flex items-center gap-2">
             <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded font-mono text-xs">GET</span>
@@ -546,5 +603,135 @@ app.post('/api/evaluate', async (c) => {
     }, 500)
   }
 })
+
+// 評価結果検索エンドポイント
+app.get('/api/results/:studentId', async (c) => {
+  try {
+    const studentId = c.req.param('studentId')
+    const GOOGLE_SERVICE_ACCOUNT = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT')
+    const RESULT_SPREADSHEET_ID = getEnv(c, 'RESULT_SPREADSHEET_ID')
+    
+    if (!studentId) {
+      return c.json({ success: false, message: '学籍番号が指定されていません' }, 400)
+    }
+
+    // Google Sheets APIで評価結果を検索
+    const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
+    
+    // スプレッドシートのすべてのシート名を取得
+    const sheetsResponse = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${RESULT_SPREADSHEET_ID}`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      }
+    )
+    
+    if (!sheetsResponse.ok) {
+      throw new Error('スプレッドシートの取得に失敗しました')
+    }
+    
+    const sheetsData = await sheetsResponse.json()
+    const sheets = sheetsData.sheets || []
+    
+    // 評価結果シートのみをフィルタ（評価結果_で始まるシート名）
+    const resultSheets = sheets
+      .map((s: any) => s.properties.title)
+      .filter((title: string) => title.startsWith('評価結果_'))
+      .sort()
+      .reverse() // 新しい順にソート
+    
+    const results = []
+    
+    // 各シートから学籍番号に一致する行を検索
+    for (const sheetName of resultSheets) {
+      const valuesResponse = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${RESULT_SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        }
+      )
+      
+      if (!valuesResponse.ok) continue
+      
+      const valuesData = await valuesResponse.json()
+      const rows = valuesData.values || []
+      
+      if (rows.length < 2) continue
+      
+      const header = rows[0]
+      const dataRows = rows.slice(1)
+      
+      // 学籍番号列のインデックスを取得
+      const studentIdIndex = header.findIndex((h: string) => h === '学籍番号')
+      
+      if (studentIdIndex === -1) continue
+      
+      // 該当する学籍番号の行を検索
+      for (const row of dataRows) {
+        if (row[studentIdIndex] === studentId) {
+          const result: any = {}
+          header.forEach((h: string, i: number) => {
+            result[h] = row[i] || ''
+          })
+          results.push(result)
+        }
+      }
+    }
+    
+    return c.json({
+      success: true,
+      studentId,
+      count: results.length,
+      results
+    })
+  } catch (error: any) {
+    console.error('Results search error:', error)
+    return c.json({ success: false, message: error.message }, 500)
+  }
+})
+
+// アクセストークン取得ヘルパー
+async function getAccessToken(serviceAccountJson: string): Promise<string> {
+  const serviceAccount = JSON.parse(serviceAccountJson)
+  
+  const header = {
+    alg: 'RS256',
+    typ: 'JWT',
+  }
+  
+  const now = Math.floor(Date.now() / 1000)
+  const payload = {
+    iss: serviceAccount.client_email,
+    scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.readonly',
+    aud: 'https://oauth2.googleapis.com/token',
+    exp: now + 3600,
+    iat: now,
+  }
+  
+  // JWT生成（簡易実装 - 本番環境では適切なライブラリを使用）
+  const base64Header = btoa(JSON.stringify(header))
+  const base64Payload = btoa(JSON.stringify(payload))
+  const signatureInput = `${base64Header}.${base64Payload}`
+  
+  // RS256署名（Node.js環境）
+  const crypto = await import('crypto')
+  const sign = crypto.createSign('RSA-SHA256')
+  sign.update(signatureInput)
+  const signature = sign.sign(serviceAccount.private_key, 'base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '')
+  
+  const jwt = `${base64Header}.${base64Payload}.${signature}`
+  
+  const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${jwt}`,
+  })
+  
+  const tokenData = await tokenResponse.json()
+  return tokenData.access_token
+}
 
 export default app
