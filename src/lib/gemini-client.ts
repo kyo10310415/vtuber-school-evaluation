@@ -7,29 +7,8 @@ export class GeminiAnalyzer {
 
   constructor(apiKey: string) {
     this.genAI = new GoogleGenerativeAI(apiKey);
-    // Gemini 1.5 Flash を使用
-    // Note: @google/generative-ai v0.24+ では "gemini-1.5-flash" がデフォルト
-    this.model = this.genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-    
-    // デバッグ: 利用可能なモデルをログ出力
-    this.listAvailableModels(apiKey).catch(err => {
-      console.error('[GeminiAnalyzer] Failed to list models:', err.message);
-    });
-  }
-  
-  // 利用可能なモデルをリストアップ（デバッグ用）
-  private async listAvailableModels(apiKey: string): Promise<void> {
-    try {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
-      );
-      const data = await response.json();
-      console.log('[GeminiAnalyzer] Available models:', 
-        data.models?.map((m: any) => m.name).slice(0, 10) || 'No models found'
-      );
-    } catch (error) {
-      console.error('[GeminiAnalyzer] Error listing models:', error);
-    }
+    // Gemini 2.5 Flash を使用（2025年1月時点で利用可能な最新モデル）
+    this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
   }
 
   // トークメモを分析して評価を返す
