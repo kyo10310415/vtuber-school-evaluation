@@ -7,8 +7,8 @@ export class GeminiAnalyzer {
 
   constructor(apiKey: string) {
     this.genAI = new GoogleGenerativeAI(apiKey);
-    // v1beta APIでは -latest サフィックスが必要
-    this.model = this.genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
+    // Gemini API v1betaでは具体的なバージョン番号を使用
+    this.model = this.genAI.getGenerativeModel({ model: 'gemini-1.5-flash-002' });
   }
 
   // トークメモを分析して評価を返す
