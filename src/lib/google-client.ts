@@ -553,22 +553,88 @@ export async function writeResultsToSheet(
     'アクティブリスニング',
     '理解度',
     '総合評価',
+    'コメント',
     '評価日時',
   ];
 
   const values = [headers, ...results];
 
-  await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A1:append?valueInputOption=RAW`,
-    {
-      method: 'PUT',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        values,
-      }),
+  try {
+    // シートが存在するか確認
+    const getResponse = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
+
+    const spreadsheet = await getResponse.json();
+    const sheetExists = spreadsheet.sheets?.some(
+      (sheet: any) => sheet.properties?.title === sheetName
+    );
+
+    if (!sheetExists) {
+      // シートを新規作成
+      await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            requests: [
+              {
+                addSheet: {
+                  properties: {
+                    title: sheetName,
+                  },
+                },
+              },
+            ],
+          }),
+        }
+      );
+      
+      console.log(`[writeResultsToSheet] Created new sheet: ${sheetName}`);
+      
+      // 新しいシートにヘッダーとデータを書き込み
+      await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A1?valueInputOption=RAW`,
+        {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            values,
+          }),
+        }
+      );
+    } else {
+      // 既存シートに追記（ヘッダーはスキップ）
+      await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A:Z:append?valueInputOption=RAW`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            values: results, // ヘッダーなし、データのみ
+          }),
+        }
+      );
     }
-  );
+    
+    console.log(`[writeResultsToSheet] Successfully wrote ${results.length} records to ${sheetName}`);
+  } catch (error) {
+    console.error('[writeResultsToSheet] Error:', error);
+    throw error;
+  }
 }

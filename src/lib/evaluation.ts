@@ -134,16 +134,17 @@ function generateComments(scores: ProLevelScores, analysis: GeminiAnalysisResult
 // 評価結果をスプレッドシート用の配列に変換
 export function convertResultToArray(result: EvaluationResult): any[] {
   return [
-    result.evaluationMonth,
-    result.studentId,
-    result.studentName,
-    result.scores.absence,
-    result.scores.lateness,
-    result.scores.mission,
-    result.scores.payment,
-    result.scores.activeListening,
-    result.scores.comprehension,
-    result.overallGrade,
-    result.evaluatedAt,
+    result.evaluationMonth,    // 評価月
+    result.studentId,          // 学籍番号
+    result.studentName,        // 氏名
+    result.scores.absence,     // 欠席
+    result.scores.lateness,    // 遅刻
+    result.scores.mission,     // ミッション
+    result.scores.payment,     // 支払い
+    result.scores.activeListening,  // アクティブリスニング
+    result.scores.comprehension,    // 理解度
+    result.overallGrade,       // 総合評価
+    result.comments,           // コメント
+    result.evaluatedAt,        // 評価日時
   ];
 }
