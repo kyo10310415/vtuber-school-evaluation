@@ -155,30 +155,48 @@ app.get('/', (c) => {
         </h2>
         
         {/* ステータスタブ */}
-        <div class="flex gap-2 mb-4 border-b border-gray-200">
+        <div class="flex flex-wrap gap-2 mb-4 border-b border-gray-200 pb-2">
           <button 
-            class="status-tab px-4 py-2 font-medium transition border-b-2 border-purple-600 text-purple-600"
+            class="status-tab px-4 py-2 font-medium transition border-b-2 border-purple-600 text-purple-600 text-sm"
             data-status="アクティブ">
             <i class="fas fa-user-check mr-1"></i>
             アクティブ
           </button>
           <button 
-            class="status-tab px-4 py-2 font-medium text-gray-600 hover:text-purple-600 transition border-b-2 border-transparent"
-            data-status="休会中">
+            class="status-tab px-4 py-2 font-medium text-gray-600 hover:text-purple-600 transition border-b-2 border-transparent text-sm"
+            data-status="レッスン準備中">
+            <i class="fas fa-clock mr-1"></i>
+            レッスン準備中
+          </button>
+          <button 
+            class="status-tab px-4 py-2 font-medium text-gray-600 hover:text-purple-600 transition border-b-2 border-transparent text-sm"
+            data-status="休会">
             <i class="fas fa-pause-circle mr-1"></i>
-            休会中
+            休会
           </button>
           <button 
-            class="status-tab px-4 py-2 font-medium text-gray-600 hover:text-purple-600 transition border-b-2 border-transparent"
-            data-status="退会">
+            class="status-tab px-4 py-2 font-medium text-gray-600 hover:text-purple-600 transition border-b-2 border-transparent text-sm"
+            data-status="正規退会">
             <i class="fas fa-user-times mr-1"></i>
-            退会
+            正規退会
           </button>
           <button 
-            class="status-tab px-4 py-2 font-medium text-gray-600 hover:text-purple-600 transition border-b-2 border-transparent"
-            data-status="全て">
-            <i class="fas fa-list mr-1"></i>
-            全て
+            class="status-tab px-4 py-2 font-medium text-gray-600 hover:text-purple-600 transition border-b-2 border-transparent text-sm"
+            data-status="無断キャンセル">
+            <i class="fas fa-ban mr-1"></i>
+            無断キャンセル
+          </button>
+          <button 
+            class="status-tab px-4 py-2 font-medium text-gray-600 hover:text-purple-600 transition border-b-2 border-transparent text-sm"
+            data-status="クーリングオフ">
+            <i class="fas fa-undo mr-1"></i>
+            クーリングオフ
+          </button>
+          <button 
+            class="status-tab px-4 py-2 font-medium text-gray-600 hover:text-purple-600 transition border-b-2 border-transparent text-sm"
+            data-status="在籍中">
+            <i class="fas fa-user mr-1"></i>
+            在籍中
           </button>
         </div>
         
