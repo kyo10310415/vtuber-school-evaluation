@@ -2,6 +2,7 @@
 
 let students = [];
 let evaluationResults = [];
+let currentStatusFilter = 'アクティブ'; // デフォルトはアクティブ
 
 // 初期化
 document.addEventListener('DOMContentLoaded', async () => {
@@ -18,7 +19,7 @@ async function loadStudents() {
     
     if (data.success) {
       students = data.students;
-      renderStudentList(students);
+      renderStudentList(students, currentStatusFilter);
       hideLoading();
     } else {
       showError('生徒情報の読み込みに失敗しました');
@@ -29,30 +30,39 @@ async function loadStudents() {
 }
 
 // 生徒一覧を表示
-function renderStudentList(studentList) {
+function renderStudentList(studentList, statusFilter = '全て') {
   const container = document.getElementById('student-list');
   
-  if (studentList.length === 0) {
-    container.innerHTML = '<p class="text-gray-500">生徒が登録されていません</p>';
+  // ステータスでフィルタリング
+  let filteredStudents = studentList;
+  if (statusFilter !== '全て') {
+    filteredStudents = studentList.filter(student => student.status === statusFilter);
+  }
+  
+  if (filteredStudents.length === 0) {
+    container.innerHTML = `<p class="text-gray-500">「${statusFilter}」の生徒が見つかりません</p>`;
     return;
   }
 
-  const html = studentList.map(student => `
-    <div class="bg-white rounded-lg shadow p-4 hover:shadow-md transition">
+  const html = filteredStudents.map(student => `
+    <div class="bg-white rounded-lg shadow p-4 hover:shadow-md transition cursor-pointer student-card" data-student-id="${student.studentId}">
       <div class="flex items-center justify-between">
         <div>
-          <h3 class="font-bold text-lg">${student.name}</h3>
+          <h3 class="font-bold text-lg text-blue-600 hover:text-blue-800 student-name">
+            ${student.name}
+          </h3>
           <p class="text-gray-600 text-sm">学籍番号: ${student.studentId}</p>
         </div>
         <div class="text-right">
-          <span class="inline-block px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm">
-            ${student.status || '在籍中'}
+          <span class="inline-block px-3 py-1 ${getStatusColor(student.status)} rounded-full text-sm">
+            ${student.status || 'アクティブ'}
           </span>
         </div>
       </div>
       ${student.talkMemoFolderUrl ? `
         <a href="${student.talkMemoFolderUrl}" target="_blank" 
-           class="text-blue-600 hover:text-blue-800 text-sm mt-2 inline-block">
+           class="text-blue-600 hover:text-blue-800 text-sm mt-2 inline-block"
+           onclick="event.stopPropagation()">
           <i class="fas fa-folder"></i> トークメモフォルダ
         </a>
       ` : ''}
@@ -60,6 +70,33 @@ function renderStudentList(studentList) {
   `).join('');
 
   container.innerHTML = html;
+  
+  // 生徒カードにクリックイベントを追加
+  document.querySelectorAll('.student-card').forEach(card => {
+    card.addEventListener('click', (e) => {
+      const studentId = card.dataset.studentId;
+      showStudentHistory(studentId);
+    });
+  });
+}
+
+// ステータスの色を取得
+function getStatusColor(status) {
+  const colors = {
+    'アクティブ': 'bg-green-100 text-green-800',
+    '休会中': 'bg-yellow-100 text-yellow-800',
+    '退会': 'bg-gray-100 text-gray-800',
+  };
+  return colors[status] || 'bg-blue-100 text-blue-800';
+}
+
+// 生徒の評価履歴を表示
+async function showStudentHistory(studentId) {
+  // 検索欄に学籍番号を設定
+  document.getElementById('search-student-id').value = studentId;
+  
+  // 検索を実行
+  await searchResults();
 }
 
 // イベントリスナー設定
@@ -75,6 +112,25 @@ function setupEventListeners() {
     if (e.key === 'Enter') {
       searchResults();
     }
+  });
+  
+  // ステータスタブ
+  document.querySelectorAll('.status-tab').forEach(tab => {
+    tab.addEventListener('click', (e) => {
+      const status = tab.dataset.status;
+      currentStatusFilter = status;
+      
+      // タブのアクティブ状態を更新
+      document.querySelectorAll('.status-tab').forEach(t => {
+        t.classList.remove('border-purple-600', 'text-purple-600');
+        t.classList.add('border-transparent', 'text-gray-600');
+      });
+      tab.classList.remove('border-transparent', 'text-gray-600');
+      tab.classList.add('border-purple-600', 'text-purple-600');
+      
+      // 生徒一覧を再レンダリング
+      renderStudentList(students, status);
+    });
   });
 }
 

@@ -153,6 +153,35 @@ app.get('/', (c) => {
           <i class="fas fa-users text-purple-600 mr-2"></i>
           生徒一覧
         </h2>
+        
+        {/* ステータスタブ */}
+        <div class="flex gap-2 mb-4 border-b border-gray-200">
+          <button 
+            class="status-tab px-4 py-2 font-medium transition border-b-2 border-purple-600 text-purple-600"
+            data-status="アクティブ">
+            <i class="fas fa-user-check mr-1"></i>
+            アクティブ
+          </button>
+          <button 
+            class="status-tab px-4 py-2 font-medium text-gray-600 hover:text-purple-600 transition border-b-2 border-transparent"
+            data-status="休会中">
+            <i class="fas fa-pause-circle mr-1"></i>
+            休会中
+          </button>
+          <button 
+            class="status-tab px-4 py-2 font-medium text-gray-600 hover:text-purple-600 transition border-b-2 border-transparent"
+            data-status="退会">
+            <i class="fas fa-user-times mr-1"></i>
+            退会
+          </button>
+          <button 
+            class="status-tab px-4 py-2 font-medium text-gray-600 hover:text-purple-600 transition border-b-2 border-transparent"
+            data-status="全て">
+            <i class="fas fa-list mr-1"></i>
+            全て
+          </button>
+        </div>
+        
         <div id="student-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <p class="text-gray-500">読み込み中...</p>
         </div>
