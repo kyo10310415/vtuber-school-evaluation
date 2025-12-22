@@ -219,7 +219,21 @@ function findStudentIdFromCalendar(accountEmail, targetDate) {
     const startTime = new Date(targetDate.getTime() - 30 * 60 * 1000);
     const endTime = new Date(targetDate.getTime() + 30 * 60 * 1000);
     
-    const calendar = CalendarApp.getDefaultCalendar();
+    // アカウントのメールアドレスを使用してカレンダーを取得
+    let calendar;
+    try {
+      calendar = CalendarApp.getCalendarById(accountEmail);
+      if (!calendar) {
+        console.warn(`カレンダーが見つかりません: ${accountEmail}`);
+        // フォールバック: デフォルトカレンダーを使用
+        calendar = CalendarApp.getDefaultCalendar();
+      }
+    } catch (error) {
+      console.warn(`カレンダーへのアクセスエラー: ${accountEmail}`, error);
+      // フォールバック: デフォルトカレンダーを使用
+      calendar = CalendarApp.getDefaultCalendar();
+    }
+    
     const events = calendar.getEvents(startTime, endTime);
     
     for (const event of events) {
@@ -333,12 +347,13 @@ function testCalendarEvents() {
   const startTime = new Date(now.getTime() - 24 * 60 * 60 * 1000); // 24時間前
   const endTime = now;
   
-  const calendar = CalendarApp.getDefaultCalendar();
-  const events = calendar.getEvents(startTime, endTime);
+  // デフォルトカレンダーのテスト
+  console.log('\n【デフォルトカレンダー】');
+  const defaultCalendar = CalendarApp.getDefaultCalendar();
+  const defaultEvents = defaultCalendar.getEvents(startTime, endTime);
+  console.log(`イベント数: ${defaultEvents.length}`);
   
-  console.log(`イベント数: ${events.length}`);
-  
-  for (const event of events) {
+  for (const event of defaultEvents) {
     const title = event.getTitle();
     const description = event.getDescription();
     const matches = description ? description.match(STUDENT_ID_PATTERN) : null;
@@ -346,5 +361,44 @@ function testCalendarEvents() {
     console.log(`\nイベント: ${title}`);
     console.log(`説明: ${description ? description.substring(0, 100) : '(なし)'}`);
     console.log(`学籍番号: ${matches ? matches.join(', ') : '(なし)'}`);
+  }
+  
+  // アカウントマッピングからカレンダーをテスト
+  console.log('\n\n【各アカウントのカレンダー】');
+  try {
+    const accountMappings = getAccountMappings();
+    
+    for (const mapping of accountMappings) {
+      console.log(`\n--- ${mapping.email} ---`);
+      
+      try {
+        const calendar = CalendarApp.getCalendarById(mapping.email);
+        
+        if (!calendar) {
+          console.log(`カレンダーが見つかりません`);
+          continue;
+        }
+        
+        const events = calendar.getEvents(startTime, endTime);
+        console.log(`イベント数: ${events.length}`);
+        
+        for (const event of events) {
+          const title = event.getTitle();
+          const description = event.getDescription();
+          const matches = description ? description.match(STUDENT_ID_PATTERN) : null;
+          
+          if (matches) {
+            console.log(`イベント: ${title}`);
+            console.log(`学籍番号: ${matches.join(', ')}`);
+          }
+        }
+        
+      } catch (error) {
+        console.error(`カレンダーへのアクセスエラー:`, error.message);
+      }
+    }
+    
+  } catch (error) {
+    console.error('テスト実行エラー:', error);
   }
 }
