@@ -1,4 +1,4 @@
-// VTuberスクール成長度リザルトシステム - フロントエンド
+// WannaV成長度リザルトシステム - フロントエンド
 
 let students = [];
 let evaluationResults = [];

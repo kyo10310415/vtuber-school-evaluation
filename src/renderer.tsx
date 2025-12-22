@@ -6,7 +6,7 @@ export const renderer = jsxRenderer(({ children }) => {
       <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>VTuberスクール成長度リザルトシステム</title>
+        <title>WannaV成長度リザルトシステム</title>
         <script src="https://cdn.tailwindcss.com"></script>
         <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet" />
         <link href="/static/style.css" rel="stylesheet" />
@@ -17,7 +17,7 @@ export const renderer = jsxRenderer(({ children }) => {
             <div class="container mx-auto px-4">
               <h1 class="text-3xl font-bold">
                 <i class="fas fa-graduation-cap mr-2"></i>
-                VTuberスクール成長度リザルトシステム
+                WannaV成長度リザルトシステム
               </h1>
               <p class="text-purple-100 mt-2">プロレベルセクション評価システム</p>
             </div>
@@ -29,7 +29,7 @@ export const renderer = jsxRenderer(({ children }) => {
 
           <footer class="bg-gray-800 text-white py-6 mt-12">
             <div class="container mx-auto px-4 text-center">
-              <p>&copy; 2024 VTuberスクール. All rights reserved.</p>
+              <p>&copy; 2024 WannaV. All rights reserved.</p>
             </div>
           </footer>
         </div>
