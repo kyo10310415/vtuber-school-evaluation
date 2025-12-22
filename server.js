@@ -1,4 +1,6 @@
 import { serve } from '@hono/node-server'
+import { serveStatic } from '@hono/node-server/serve-static'
+import { Hono } from 'hono'
 import app from './dist/_worker.js'
 
 const port = parseInt(process.env.PORT || '3000', 10)
@@ -12,11 +14,19 @@ console.log('- ABSENCE_SPREADSHEET_ID:', process.env.ABSENCE_SPREADSHEET_ID || '
 console.log('- PAYMENT_SPREADSHEET_ID:', process.env.PAYMENT_SPREADSHEET_ID || 'Missing ✗')
 console.log('- RESULT_SPREADSHEET_ID:', process.env.RESULT_SPREADSHEET_ID || 'Missing ✗')
 
+// 新しいHonoアプリを作成して静的ファイル配信を追加
+const wrappedApp = new Hono()
+
+// 静的ファイル配信を追加
+wrappedApp.use('/static/*', serveStatic({ root: './dist' }))
+
+// メインアプリのすべてのルートを追加
+wrappedApp.route('/', app)
+
 serve({
   fetch: (req) => {
     // Pass environment variables directly to the app
-    // Hono expects them in the second parameter
-    return app.fetch(req, {
+    return wrappedApp.fetch(req, {
       GOOGLE_SERVICE_ACCOUNT: process.env.GOOGLE_SERVICE_ACCOUNT,
       GEMINI_API_KEY: process.env.GEMINI_API_KEY,
       STUDENT_MASTER_SPREADSHEET_ID: process.env.STUDENT_MASTER_SPREADSHEET_ID,
