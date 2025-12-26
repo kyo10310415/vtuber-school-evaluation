@@ -190,7 +190,14 @@ function processMeetRecordingsFolder(meetRecordingsFolderId, accountEmail) {
         console.log(`  → 移動完了: ${studentFolder.getName()}`);
         
       } catch (error) {
-        console.error(`  → ファイル処理エラー: ${file.getName()}`, error);
+        // アクセス権限エラーの詳細情報を記録
+        if (error.message && error.message.includes('Access denied')) {
+          console.error(`  → 【アクセス拒否】ファイル処理エラー: ${file.getName()}`);
+          console.error(`     エラー詳細: ${error.message}`);
+          console.error(`     対処法: このファイルの所有者に、実行アカウントへの「編集者」権限付与を依頼してください`);
+        } else {
+          console.error(`  → ファイル処理エラー: ${file.getName()}`, error);
+        }
         errors++;
       }
     }
