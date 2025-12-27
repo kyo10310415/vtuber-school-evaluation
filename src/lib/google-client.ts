@@ -121,6 +121,8 @@ export async function fetchStudents(
     enrollmentDate: row[2] || '',      // C列: プラン（入学年月の代わりに使用）
     status: row[3] || '在籍中',        // D列: 会員ステータス
     talkMemoFolderUrl: row[4] || '',   // E列: トークメモフォルダURL
+    youtubeChannelId: row[5] || '',    // F列: YouTubeチャンネルID
+    xAccount: row[6] || '',            // G列: Xアカウント
   }));
 }
 

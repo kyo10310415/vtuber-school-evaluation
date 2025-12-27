@@ -8,6 +8,8 @@ export interface Student {
   talkMemoFolderUrl: string; // トークメモフォルダURL
   enrollmentDate?: string;   // 入学年月
   status?: string;           // ステータス
+  youtubeChannelId?: string; // YouTubeチャンネルID
+  xAccount?: string;         // Xアカウント（@なし）
 }
 
 // プロレベルセクションの評価項目
