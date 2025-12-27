@@ -14,6 +14,10 @@ type Bindings = {
   ABSENCE_SPREADSHEET_ID: string;
   PAYMENT_SPREADSHEET_ID: string;
   RESULT_SPREADSHEET_ID: string;
+  NOTION_API_TOKEN: string;
+  NOTION_DATABASE_ID: string;
+  YOUTUBE_API_KEY: string;
+  X_BEARER_TOKEN: string;
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -260,6 +264,49 @@ app.get('/', (c) => {
 // ヘルスチェック
 app.get('/api/health', (c) => {
   return c.json({ status: 'ok', timestamp: new Date().toISOString() })
+})
+
+// NotionからSNSアカウント情報を同期
+app.post('/api/sync-notion', async (c) => {
+  try {
+    const GOOGLE_SERVICE_ACCOUNT = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT')
+    const STUDENT_MASTER_SPREADSHEET_ID = getEnv(c, 'STUDENT_MASTER_SPREADSHEET_ID')
+    const NOTION_API_TOKEN = getEnv(c, 'NOTION_API_TOKEN')
+    const NOTION_DATABASE_ID = getEnv(c, 'NOTION_DATABASE_ID')
+
+    if (!NOTION_API_TOKEN || !NOTION_DATABASE_ID) {
+      return c.json({ 
+        success: false, 
+        error: 'Notion API環境変数が設定されていません (NOTION_API_TOKEN, NOTION_DATABASE_ID)' 
+      }, 400)
+    }
+
+    const { fetchNotionStudentData, updateStudentMasterWithSNS } = await import('./lib/notion-client')
+
+    // Notionからデータ取得
+    console.log('[Notion Sync] Notionデータ取得開始...')
+    const notionData = await fetchNotionStudentData(NOTION_API_TOKEN, NOTION_DATABASE_ID)
+    console.log(`[Notion Sync] Notion取得完了: ${notionData.length}件`)
+
+    // Google Sheetsに書き込み
+    console.log('[Notion Sync] 生徒マスタ更新開始...')
+    const serviceAccount = JSON.parse(GOOGLE_SERVICE_ACCOUNT)
+    await updateStudentMasterWithSNS(serviceAccount, STUDENT_MASTER_SPREADSHEET_ID, notionData)
+    console.log('[Notion Sync] 生徒マスタ更新完了')
+
+    return c.json({
+      success: true,
+      message: `${notionData.length}件の生徒データを同期しました`,
+      count: notionData.length
+    })
+  } catch (error: any) {
+    console.error('[Notion Sync] エラー:', error.message, error.stack)
+    return c.json({ 
+      success: false, 
+      error: error.message, 
+      stack: error.stack 
+    }, 500)
+  }
 })
 
 // 環境変数チェック（デバッグ用）
