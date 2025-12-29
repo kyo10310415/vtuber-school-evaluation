@@ -96,11 +96,9 @@ function getStatusColor(status) {
 
 // 生徒の評価履歴を表示
 async function showStudentHistory(studentId) {
-  // 検索欄に学籍番号を設定
-  document.getElementById('search-student-id').value = studentId;
-  
-  // 検索を実行
-  await searchResults();
+  // 評価詳細ページに遷移
+  const currentMonth = new Date().toISOString().substring(0, 7);
+  window.location.href = `/evaluation-detail?studentId=${studentId}&month=${currentMonth}`;
 }
 
 // イベントリスナー設定

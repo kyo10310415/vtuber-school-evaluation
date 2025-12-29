@@ -50,6 +50,242 @@ app.use('/api/*', cors())
 // メインレンダラー
 app.use(renderer)
 
+// 月次レポートページ
+app.get('/monthly-report', (c) => {
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>月次レポート - WannaV成長度リザルトシステム</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+      <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+      <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    </head>
+    <body class="bg-gray-100">
+      <!-- ローディングオーバーレイ -->
+      <div id="loading-overlay" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg p-8 max-w-sm w-full mx-4">
+          <div class="flex flex-col items-center">
+            <div class="animate-spin rounded-full h-16 w-16 border-b-4 border-purple-600 mb-4"></div>
+            <p id="loading-text" class="text-gray-700 text-center font-semibold">読み込み中...</p>
+          </div>
+        </div>
+      </div>
+      
+      <div class="container mx-auto px-4 py-8">
+        <div class="mb-6">
+          <h1 class="text-3xl font-bold text-gray-800">
+            <i class="fas fa-chart-area text-purple-600 mr-2"></i>
+            月次レポート（複数月比較）
+          </h1>
+        </div>
+        
+        <!-- 検索セクション -->
+        <div id="loading-section" class="bg-white rounded-lg shadow-lg p-6 mb-6">
+          <div class="flex items-end gap-4">
+            <div class="flex-1">
+              <label for="student-id-input" class="block text-sm font-medium text-gray-700 mb-2">
+                学籍番号
+              </label>
+              <input 
+                type="text" 
+                id="student-id-input" 
+                placeholder="例: OLTS240488-AR"
+                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              />
+            </div>
+            <div class="flex-1">
+              <label for="months-input" class="block text-sm font-medium text-gray-700 mb-2">
+                評価月（カンマ区切り）
+              </label>
+              <input 
+                type="text" 
+                id="months-input"
+                placeholder="例: 2024-11,2024-12,2025-01"
+                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              />
+            </div>
+            <button 
+              id="load-btn"
+              class="px-6 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-bold rounded-lg hover:from-purple-700 hover:to-pink-700 transition shadow-md">
+              <i class="fas fa-search mr-2"></i>
+              読み込み
+            </button>
+            <button 
+              id="back-btn"
+              class="px-6 py-2 bg-gray-600 text-white font-bold rounded-lg hover:bg-gray-700 transition shadow-md">
+              <i class="fas fa-arrow-left mr-2"></i>
+              戻る
+            </button>
+          </div>
+          <p class="text-sm text-gray-600 mt-3">
+            <i class="fas fa-info-circle mr-1"></i>
+            例: 2024-11,2024-12,2025-01 のようにカンマ区切りで入力してください
+          </p>
+        </div>
+        
+        <!-- レポートセクション -->
+        <div id="report-section" class="hidden">
+          <!-- ヘッダー -->
+          <div class="bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg shadow-lg p-6 mb-6 border border-purple-200">
+            <div class="flex items-center justify-between">
+              <div>
+                <h2 class="text-2xl font-bold text-gray-800" id="student-name">生徒名</h2>
+                <p class="text-gray-600">学籍番号: <span id="display-student-id">-</span></p>
+              </div>
+            </div>
+          </div>
+          
+          <!-- YouTube比較 -->
+          <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
+            <h3 class="text-2xl font-bold text-gray-800 mb-6">
+              <i class="fab fa-youtube text-red-600 mr-2"></i>
+              YouTube成長推移
+            </h3>
+            <div id="youtube-comparison-section"></div>
+          </div>
+          
+          <!-- X比較 -->
+          <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
+            <h3 class="text-2xl font-bold text-gray-800 mb-6">
+              <i class="fab fa-x-twitter text-blue-600 mr-2"></i>
+              X (Twitter) 成長推移
+            </h3>
+            <div id="x-comparison-section"></div>
+          </div>
+          
+          <!-- 詳細テーブル -->
+          <div class="bg-white rounded-lg shadow-lg p-6">
+            <h3 class="text-2xl font-bold text-gray-800 mb-6">
+              <i class="fas fa-table text-purple-600 mr-2"></i>
+              詳細データ
+            </h3>
+            <div id="detail-table-section"></div>
+          </div>
+        </div>
+      </div>
+      
+      <script src="/static/monthly-report.js"></script>
+    </body>
+    </html>
+  `)
+})
+
+// 評価詳細ページ
+app.get('/evaluation-detail', (c) => {
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>評価結果詳細 - WannaV成長度リザルトシステム</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+      <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+      <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    </head>
+    <body class="bg-gray-100">
+      <!-- ローディングオーバーレイ -->
+      <div id="loading-overlay" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg p-8 max-w-sm w-full mx-4">
+          <div class="flex flex-col items-center">
+            <div class="animate-spin rounded-full h-16 w-16 border-b-4 border-purple-600 mb-4"></div>
+            <p id="loading-text" class="text-gray-700 text-center font-semibold">読み込み中...</p>
+          </div>
+        </div>
+      </div>
+      
+      <div class="container mx-auto px-4 py-8">
+        <div class="mb-6">
+          <h1 class="text-3xl font-bold text-gray-800">
+            <i class="fas fa-chart-line text-purple-600 mr-2"></i>
+            評価結果詳細
+          </h1>
+        </div>
+        
+        <!-- 検索セクション -->
+        <div id="loading-section" class="bg-white rounded-lg shadow-lg p-6 mb-6">
+          <div class="flex items-end gap-4">
+            <div class="flex-1">
+              <label for="student-id-input" class="block text-sm font-medium text-gray-700 mb-2">
+                学籍番号
+              </label>
+              <input 
+                type="text" 
+                id="student-id-input" 
+                placeholder="例: OLTS240488-AR"
+                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              />
+            </div>
+            <div class="flex-1">
+              <label for="month-input" class="block text-sm font-medium text-gray-700 mb-2">
+                評価月
+              </label>
+              <input 
+                type="month" 
+                id="month-input"
+                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              />
+            </div>
+            <button 
+              id="load-btn"
+              class="px-6 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-bold rounded-lg hover:from-purple-700 hover:to-pink-700 transition shadow-md">
+              <i class="fas fa-search mr-2"></i>
+              読み込み
+            </button>
+            <button 
+              id="back-btn"
+              class="px-6 py-2 bg-gray-600 text-white font-bold rounded-lg hover:bg-gray-700 transition shadow-md">
+              <i class="fas fa-arrow-left mr-2"></i>
+              戻る
+            </button>
+          </div>
+        </div>
+        
+        <!-- 評価結果セクション -->
+        <div id="evaluation-section" class="hidden">
+          <!-- ヘッダー -->
+          <div class="bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg shadow-lg p-6 mb-6 border border-purple-200">
+            <div class="flex items-center justify-between">
+              <div>
+                <h2 class="text-2xl font-bold text-gray-800" id="student-name">生徒名</h2>
+                <p class="text-gray-600">学籍番号: <span id="display-student-id">-</span></p>
+              </div>
+              <div class="text-right">
+                <p class="text-sm text-gray-600">評価月</p>
+                <p class="text-xl font-bold text-purple-600" id="display-month">-</p>
+              </div>
+            </div>
+          </div>
+          
+          <!-- YouTube評価 -->
+          <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
+            <h3 class="text-2xl font-bold text-gray-800 mb-6">
+              <i class="fab fa-youtube text-red-600 mr-2"></i>
+              YouTube評価
+            </h3>
+            <div id="youtube-section"></div>
+          </div>
+          
+          <!-- X評価 -->
+          <div class="bg-white rounded-lg shadow-lg p-6">
+            <h3 class="text-2xl font-bold text-gray-800 mb-6">
+              <i class="fab fa-x-twitter text-blue-600 mr-2"></i>
+              X (Twitter) 評価
+            </h3>
+            <div id="x-section"></div>
+          </div>
+        </div>
+      </div>
+      
+      <script src="/static/evaluation-detail.js"></script>
+    </body>
+    </html>
+  `)
+})
+
 // トップページ
 app.get('/', (c) => {
   const today = new Date();
@@ -213,28 +449,67 @@ app.get('/', (c) => {
       <div class="bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg p-6 border border-blue-200">
         <h2 class="text-xl font-bold text-gray-800 mb-3">
           <i class="fas fa-code text-blue-600 mr-2"></i>
-          API エンドポイント
+          API エンドポイント & ページ
         </h2>
-        <div class="space-y-2 text-sm">
-          <div class="flex items-center gap-2">
-            <span class="px-2 py-1 bg-green-100 text-green-800 rounded font-mono text-xs">POST</span>
-            <code class="text-gray-700">/api/evaluate</code>
-            <span class="text-gray-600">- 採点を実行</span>
+        
+        <div class="mb-4">
+          <h3 class="text-sm font-bold text-gray-700 mb-2">
+            <i class="fas fa-desktop mr-1"></i> Webページ
+          </h3>
+          <div class="space-y-2 text-sm">
+            <div class="flex items-center gap-2">
+              <a href="/evaluation-detail" class="text-blue-600 hover:text-blue-800 font-semibold">
+                <i class="fas fa-chart-line mr-1"></i> 評価結果詳細（グラフ・チャート）
+              </a>
+            </div>
+            <div class="flex items-center gap-2">
+              <a href="/monthly-report" class="text-blue-600 hover:text-blue-800 font-semibold">
+                <i class="fas fa-chart-area mr-1"></i> 月次レポート（複数月比較）
+              </a>
+            </div>
           </div>
-          <div class="flex items-center gap-2">
-            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded font-mono text-xs">GET</span>
-            <code class="text-gray-700">/api/results/:studentId</code>
-            <span class="text-gray-600">- 評価結果を検索</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded font-mono text-xs">GET</span>
-            <code class="text-gray-700">/api/students</code>
-            <span class="text-gray-600">- 生徒一覧を取得</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded font-mono text-xs">GET</span>
-            <code class="text-gray-700">/api/health</code>
-            <span class="text-gray-600">- ヘルスチェック</span>
+        </div>
+        
+        <div>
+          <h3 class="text-sm font-bold text-gray-700 mb-2">
+            <i class="fas fa-code mr-1"></i> APIエンドポイント
+          </h3>
+          <div class="space-y-2 text-sm">
+            <div class="flex items-center gap-2">
+              <span class="px-2 py-1 bg-green-100 text-green-800 rounded font-mono text-xs">POST</span>
+              <code class="text-gray-700">/api/evaluate</code>
+              <span class="text-gray-600">- 採点を実行</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded font-mono text-xs">GET</span>
+              <code class="text-gray-700">/api/results/:studentId</code>
+              <span class="text-gray-600">- 評価結果を検索</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded font-mono text-xs">GET</span>
+              <code class="text-gray-700">/api/youtube/evaluate/:studentId</code>
+              <span class="text-gray-600">- YouTube評価</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded font-mono text-xs">GET</span>
+              <code class="text-gray-700">/api/x/evaluate/:studentId</code>
+              <span class="text-gray-600">- X評価</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded font-mono text-xs">GET</span>
+              <code class="text-gray-700">/api/monthly-report/:studentId</code>
+              <span class="text-gray-600">- 月次レポート</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded font-mono text-xs">GET</span>
+              <code class="text-gray-700">/api/students</code>
+              <span class="text-gray-600">- 生徒一覧を取得</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded font-mono text-xs">GET</span>
+              <code class="text-gray-700">/api/health</code>
+              <span class="text-gray-600">- ヘルスチェック</span>
+            </div>
           </div>
         </div>
         
@@ -243,7 +518,7 @@ app.get('/', (c) => {
           <pre class="text-xs bg-gray-50 p-3 rounded overflow-x-auto">
 {`function runMonthlyEvaluation() {
   const url = 'https://your-app.pages.dev/api/evaluate';
-  const payload = { month: '2024-12' };
+  const payload = { month: '2025-12' };
   
   const options = {
     method: 'POST',
@@ -439,6 +714,86 @@ app.get('/api/youtube/evaluate/:studentId', async (c) => {
     })
   } catch (error: any) {
     console.error('[/api/youtube/evaluate] Error:', error.message, error.stack)
+    return c.json({ success: false, error: error.message, stack: error.stack }, 500)
+  }
+})
+
+// 月次レポート - 複数月の比較
+app.get('/api/monthly-report/:studentId', async (c) => {
+  try {
+    const GOOGLE_SERVICE_ACCOUNT = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT')
+    const STUDENT_MASTER_SPREADSHEET_ID = getEnv(c, 'STUDENT_MASTER_SPREADSHEET_ID')
+    const YOUTUBE_API_KEY = getEnv(c, 'YOUTUBE_API_KEY')
+    const X_BEARER_TOKEN = getEnv(c, 'X_BEARER_TOKEN')
+    const studentId = c.req.param('studentId')
+    const monthsParam = c.req.query('months') // カンマ区切りの月リスト (例: 2024-11,2024-12,2025-01)
+    
+    if (!monthsParam) {
+      return c.json({ success: false, error: '評価月のリスト (months) が必要です' }, 400)
+    }
+    
+    const months = monthsParam.split(',').map(m => m.trim())
+    
+    if (months.length === 0) {
+      return c.json({ success: false, error: '少なくとも1つの月を指定してください' }, 400)
+    }
+    
+    // 生徒情報を取得
+    const students = await fetchStudents(GOOGLE_SERVICE_ACCOUNT, STUDENT_MASTER_SPREADSHEET_ID)
+    const student = students.find(s => s.studentId === studentId)
+    
+    if (!student) {
+      return c.json({ success: false, error: '生徒が見つかりません' }, 404)
+    }
+    
+    const { evaluateYouTubeChannel } = await import('./lib/youtube-client')
+    const { evaluateXAccount } = await import('./lib/x-client')
+    
+    const report = []
+    
+    // 各月のデータを取得
+    for (const month of months) {
+      const monthData: any = { month }
+      
+      // YouTube評価
+      if (YOUTUBE_API_KEY && student.youtubeChannelId) {
+        try {
+          const youtubeEval = await evaluateYouTubeChannel(
+            YOUTUBE_API_KEY,
+            student.youtubeChannelId,
+            month
+          )
+          monthData.youtube = youtubeEval
+        } catch (error: any) {
+          monthData.youtube = { error: error.message }
+        }
+      }
+      
+      // X評価
+      if (X_BEARER_TOKEN && student.xAccount) {
+        try {
+          const xEval = await evaluateXAccount(
+            X_BEARER_TOKEN,
+            student.xAccount,
+            month
+          )
+          monthData.x = xEval
+        } catch (error: any) {
+          monthData.x = { error: error.message }
+        }
+      }
+      
+      report.push(monthData)
+    }
+    
+    return c.json({
+      success: true,
+      studentId,
+      studentName: student.name,
+      report
+    })
+  } catch (error: any) {
+    console.error('[/api/monthly-report] Error:', error.message, error.stack)
     return c.json({ success: false, error: error.message, stack: error.stack }, 500)
   }
 })
