@@ -317,6 +317,8 @@ app.get('/api/debug/env-check', (c) => {
   const ABSENCE_SPREADSHEET_ID = getEnv(c, 'ABSENCE_SPREADSHEET_ID')
   const PAYMENT_SPREADSHEET_ID = getEnv(c, 'PAYMENT_SPREADSHEET_ID')
   const RESULT_SPREADSHEET_ID = getEnv(c, 'RESULT_SPREADSHEET_ID')
+  const YOUTUBE_API_KEY = getEnv(c, 'YOUTUBE_API_KEY')
+  const X_BEARER_TOKEN = getEnv(c, 'X_BEARER_TOKEN')
   
   return c.json({
     env_status: {
@@ -357,6 +359,16 @@ app.get('/api/debug/env-check', (c) => {
       RESULT_SPREADSHEET_ID: {
         defined: !!RESULT_SPREADSHEET_ID,
         value: RESULT_SPREADSHEET_ID || '',
+      },
+      YOUTUBE_API_KEY: {
+        defined: !!YOUTUBE_API_KEY,
+        length: YOUTUBE_API_KEY?.length || 0,
+        first20: YOUTUBE_API_KEY?.substring(0, 20) || '',
+      },
+      X_BEARER_TOKEN: {
+        defined: !!X_BEARER_TOKEN,
+        length: X_BEARER_TOKEN?.length || 0,
+        first20: X_BEARER_TOKEN?.substring(0, 20) || '',
       },
     }
   })
