@@ -13,6 +13,8 @@ console.log('- STUDENT_MASTER_SPREADSHEET_ID:', process.env.STUDENT_MASTER_SPREA
 console.log('- ABSENCE_SPREADSHEET_ID:', process.env.ABSENCE_SPREADSHEET_ID || 'Missing ✗')
 console.log('- PAYMENT_SPREADSHEET_ID:', process.env.PAYMENT_SPREADSHEET_ID || 'Missing ✗')
 console.log('- RESULT_SPREADSHEET_ID:', process.env.RESULT_SPREADSHEET_ID || 'Missing ✗')
+console.log('- YOUTUBE_API_KEY:', process.env.YOUTUBE_API_KEY ? 'Defined ✓' : 'Missing ✗')
+console.log('- X_BEARER_TOKEN:', process.env.X_BEARER_TOKEN ? 'Defined ✓' : 'Missing ✗')
 
 // 新しいHonoアプリを作成して静的ファイル配信を追加
 const wrappedApp = new Hono()
@@ -33,6 +35,8 @@ serve({
       ABSENCE_SPREADSHEET_ID: process.env.ABSENCE_SPREADSHEET_ID,
       PAYMENT_SPREADSHEET_ID: process.env.PAYMENT_SPREADSHEET_ID,
       RESULT_SPREADSHEET_ID: process.env.RESULT_SPREADSHEET_ID,
+      YOUTUBE_API_KEY: process.env.YOUTUBE_API_KEY,
+      X_BEARER_TOKEN: process.env.X_BEARER_TOKEN,
     })
   },
   port
