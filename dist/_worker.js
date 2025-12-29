@@ -1,1 +1,2 @@
-export { default } from '../src/index.tsx';
+import app from '../src/index.tsx';
+export default app;
