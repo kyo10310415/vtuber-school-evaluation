@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
+import { serveStatic } from 'hono/cloudflare-workers'
 import { renderer } from './renderer'
 import type { EvaluationRequest, EvaluationResponse, EvaluationResult } from './types'
 import { fetchStudents, fetchAbsenceData, fetchDocumentsInFolder, fetchDocumentContent, writeResultsToSheet } from './lib/google-client'
@@ -46,6 +47,9 @@ function getEnv(c: any, key: keyof Bindings): string {
 
 // CORS設定
 app.use('/api/*', cors())
+
+// 静的ファイルの配信
+app.use('/static/*', serveStatic({ root: './public' }))
 
 // メインレンダラー
 app.use(renderer)

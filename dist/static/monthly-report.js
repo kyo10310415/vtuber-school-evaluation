@@ -1,0 +1,539 @@
+// 月次レポート画面 - 複数月の比較
+
+let currentStudentId = null;
+let reportData = null;
+
+// 初期化
+document.addEventListener('DOMContentLoaded', () => {
+  // URLパラメータから学籍番号を取得
+  const params = new URLSearchParams(window.location.search);
+  currentStudentId = params.get('studentId');
+  
+  if (currentStudentId) {
+    document.getElementById('student-id-input').value = currentStudentId;
+  }
+  
+  // デフォルトで直近3ヶ月を設定
+  const months = getRecentMonths(3);
+  document.getElementById('months-input').value = months.join(',');
+  
+  setupEventListeners();
+  
+  // 学籍番号があれば自動読み込み
+  if (currentStudentId) {
+    loadMonthlyReport();
+  }
+});
+
+// 直近N ヶ月のリストを取得
+function getRecentMonths(n) {
+  const months = [];
+  const now = new Date();
+  
+  for (let i = n - 1; i >= 0; i--) {
+    const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const month = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    months.push(month);
+  }
+  
+  return months;
+}
+
+// イベントリスナー設定
+function setupEventListeners() {
+  document.getElementById('load-btn').addEventListener('click', loadMonthlyReport);
+  document.getElementById('back-btn').addEventListener('click', () => {
+    window.location.href = '/';
+  });
+}
+
+// 月次レポートを読み込み
+async function loadMonthlyReport() {
+  currentStudentId = document.getElementById('student-id-input').value.trim();
+  const monthsInput = document.getElementById('months-input').value.trim();
+  
+  if (!currentStudentId) {
+    showError('学籍番号を入力してください');
+    return;
+  }
+  
+  if (!monthsInput) {
+    showError('評価月を入力してください（カンマ区切り）');
+    return;
+  }
+  
+  try {
+    showLoading('月次レポートを読み込み中...');
+    
+    const response = await fetch(`/api/monthly-report/${currentStudentId}?months=${encodeURIComponent(monthsInput)}`);
+    const result = await response.json();
+    
+    hideLoading();
+    
+    if (!result.success) {
+      showError('月次レポートの取得に失敗しました: ' + result.error);
+      return;
+    }
+    
+    reportData = result;
+    
+    // 画面を表示
+    document.getElementById('loading-section').classList.add('hidden');
+    document.getElementById('report-section').classList.remove('hidden');
+    
+    // データを表示
+    renderMonthlyReport();
+    
+  } catch (error) {
+    hideLoading();
+    showError('エラー: ' + error.message);
+  }
+}
+
+// 月次レポートを表示
+function renderMonthlyReport() {
+  // ヘッダー情報を表示
+  document.getElementById('student-name').textContent = reportData.studentName;
+  document.getElementById('display-student-id').textContent = reportData.studentId;
+  
+  // YouTube比較チャート
+  renderYouTubeComparisonCharts();
+  
+  // X比較チャート
+  renderXComparisonCharts();
+  
+  // 詳細テーブル
+  renderDetailTable();
+}
+
+// YouTube比較チャートを描画
+function renderYouTubeComparisonCharts() {
+  const section = document.getElementById('youtube-comparison-section');
+  
+  // データ抽出
+  const months = reportData.report.map(r => r.month);
+  const subscribers = reportData.report.map(r => r.youtube?.subscriberCount || 0);
+  const views = reportData.report.map(r => r.youtube?.totalViews || 0);
+  const videos = reportData.report.map(r => r.youtube?.videosInMonth || 0);
+  const avgDuration = reportData.report.map(r => r.youtube?.averageStreamDuration || 0);
+  const engagement = reportData.report.map(r => r.youtube?.engagementRate || 0);
+  
+  const chartsHtml = `
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+      <div class="bg-white rounded-lg shadow p-6">
+        <h4 class="text-lg font-bold mb-4">登録者数の推移</h4>
+        <canvas id="youtube-subscribers-chart"></canvas>
+      </div>
+      
+      <div class="bg-white rounded-lg shadow p-6">
+        <h4 class="text-lg font-bold mb-4">再生回数の推移</h4>
+        <canvas id="youtube-views-chart"></canvas>
+      </div>
+      
+      <div class="bg-white rounded-lg shadow p-6">
+        <h4 class="text-lg font-bold mb-4">月間動画数の推移</h4>
+        <canvas id="youtube-videos-chart"></canvas>
+      </div>
+      
+      <div class="bg-white rounded-lg shadow p-6">
+        <h4 class="text-lg font-bold mb-4">平均配信時間の推移</h4>
+        <canvas id="youtube-duration-chart"></canvas>
+      </div>
+      
+      <div class="bg-white rounded-lg shadow p-6">
+        <h4 class="text-lg font-bold mb-4">エンゲージメント率の推移</h4>
+        <canvas id="youtube-engagement-chart"></canvas>
+      </div>
+    </div>
+  `;
+  
+  section.innerHTML = chartsHtml;
+  
+  // 登録者数チャート
+  new Chart(document.getElementById('youtube-subscribers-chart'), {
+    type: 'line',
+    data: {
+      labels: months,
+      datasets: [{
+        label: '登録者数',
+        data: subscribers,
+        borderColor: '#EF4444',
+        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+        fill: true,
+        tension: 0.4
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      scales: {
+        y: {
+          beginAtZero: false
+        }
+      },
+      plugins: {
+        legend: {
+          display: false
+        }
+      }
+    }
+  });
+  
+  // 再生回数チャート
+  new Chart(document.getElementById('youtube-views-chart'), {
+    type: 'line',
+    data: {
+      labels: months,
+      datasets: [{
+        label: '再生回数',
+        data: views,
+        borderColor: '#3B82F6',
+        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+        fill: true,
+        tension: 0.4
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      scales: {
+        y: {
+          beginAtZero: true
+        }
+      },
+      plugins: {
+        legend: {
+          display: false
+        }
+      }
+    }
+  });
+  
+  // 月間動画数チャート
+  new Chart(document.getElementById('youtube-videos-chart'), {
+    type: 'bar',
+    data: {
+      labels: months,
+      datasets: [{
+        label: '動画数',
+        data: videos,
+        backgroundColor: '#8B5CF6',
+        borderWidth: 0
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      scales: {
+        y: {
+          beginAtZero: true
+        }
+      },
+      plugins: {
+        legend: {
+          display: false
+        }
+      }
+    }
+  });
+  
+  // 平均配信時間チャート
+  new Chart(document.getElementById('youtube-duration-chart'), {
+    type: 'line',
+    data: {
+      labels: months,
+      datasets: [{
+        label: '平均配信時間（分）',
+        data: avgDuration,
+        borderColor: '#10B981',
+        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+        fill: true,
+        tension: 0.4
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      scales: {
+        y: {
+          beginAtZero: true
+        }
+      },
+      plugins: {
+        legend: {
+          display: false
+        }
+      }
+    }
+  });
+  
+  // エンゲージメント率チャート
+  new Chart(document.getElementById('youtube-engagement-chart'), {
+    type: 'line',
+    data: {
+      labels: months,
+      datasets: [{
+        label: 'エンゲージメント率（%）',
+        data: engagement,
+        borderColor: '#F59E0B',
+        backgroundColor: 'rgba(245, 158, 11, 0.1)',
+        fill: true,
+        tension: 0.4
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      scales: {
+        y: {
+          beginAtZero: true
+        }
+      },
+      plugins: {
+        legend: {
+          display: false
+        }
+      }
+    }
+  });
+}
+
+// X比較チャートを描画
+function renderXComparisonCharts() {
+  const section = document.getElementById('x-comparison-section');
+  
+  // データ抽出
+  const months = reportData.report.map(r => r.month);
+  const followers = reportData.report.map(r => r.x?.followersCount || 0);
+  const tweets = reportData.report.map(r => r.x?.tweetsInMonth || 0);
+  const impressions = reportData.report.map(r => r.x?.totalImpressions || 0);
+  const engagement = reportData.report.map(r => r.x?.engagementRate || 0);
+  
+  const chartsHtml = `
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+      <div class="bg-white rounded-lg shadow p-6">
+        <h4 class="text-lg font-bold mb-4">フォロワー数の推移</h4>
+        <canvas id="x-followers-chart"></canvas>
+      </div>
+      
+      <div class="bg-white rounded-lg shadow p-6">
+        <h4 class="text-lg font-bold mb-4">月間投稿数の推移</h4>
+        <canvas id="x-tweets-chart"></canvas>
+      </div>
+      
+      <div class="bg-white rounded-lg shadow p-6">
+        <h4 class="text-lg font-bold mb-4">インプレッション数の推移</h4>
+        <canvas id="x-impressions-chart"></canvas>
+      </div>
+      
+      <div class="bg-white rounded-lg shadow p-6">
+        <h4 class="text-lg font-bold mb-4">エンゲージメント率の推移</h4>
+        <canvas id="x-engagement-chart"></canvas>
+      </div>
+    </div>
+  `;
+  
+  section.innerHTML = chartsHtml;
+  
+  // フォロワー数チャート
+  new Chart(document.getElementById('x-followers-chart'), {
+    type: 'line',
+    data: {
+      labels: months,
+      datasets: [{
+        label: 'フォロワー数',
+        data: followers,
+        borderColor: '#3B82F6',
+        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+        fill: true,
+        tension: 0.4
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      scales: {
+        y: {
+          beginAtZero: false
+        }
+      },
+      plugins: {
+        legend: {
+          display: false
+        }
+      }
+    }
+  });
+  
+  // 月間投稿数チャート
+  new Chart(document.getElementById('x-tweets-chart'), {
+    type: 'bar',
+    data: {
+      labels: months,
+      datasets: [{
+        label: '投稿数',
+        data: tweets,
+        backgroundColor: '#8B5CF6',
+        borderWidth: 0
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      scales: {
+        y: {
+          beginAtZero: true
+        }
+      },
+      plugins: {
+        legend: {
+          display: false
+        }
+      }
+    }
+  });
+  
+  // インプレッション数チャート
+  new Chart(document.getElementById('x-impressions-chart'), {
+    type: 'line',
+    data: {
+      labels: months,
+      datasets: [{
+        label: 'インプレッション数',
+        data: impressions,
+        borderColor: '#10B981',
+        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+        fill: true,
+        tension: 0.4
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      scales: {
+        y: {
+          beginAtZero: true
+        }
+      },
+      plugins: {
+        legend: {
+          display: false
+        }
+      }
+    }
+  });
+  
+  // エンゲージメント率チャート
+  new Chart(document.getElementById('x-engagement-chart'), {
+    type: 'line',
+    data: {
+      labels: months,
+      datasets: [{
+        label: 'エンゲージメント率（%）',
+        data: engagement,
+        borderColor: '#F59E0B',
+        backgroundColor: 'rgba(245, 158, 11, 0.1)',
+        fill: true,
+        tension: 0.4
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      scales: {
+        y: {
+          beginAtZero: true
+        }
+      },
+      plugins: {
+        legend: {
+          display: false
+        }
+      }
+    }
+  });
+}
+
+// 詳細テーブルを表示
+function renderDetailTable() {
+  const section = document.getElementById('detail-table-section');
+  
+  const tableHtml = `
+    <div class="overflow-x-auto">
+      <table class="min-w-full bg-white">
+        <thead class="bg-gray-100">
+          <tr>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">評価月</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">YouTube登録者数</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">YouTube動画数</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Xフォロワー数</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">X投稿数</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">詳細</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200">
+          ${reportData.report.map(r => `
+            <tr class="hover:bg-gray-50">
+              <td class="px-4 py-3 whitespace-nowrap font-semibold text-purple-600">${r.month}</td>
+              <td class="px-4 py-3 whitespace-nowrap">${r.youtube?.subscriberCount?.toLocaleString() || '-'}</td>
+              <td class="px-4 py-3 whitespace-nowrap">${r.youtube?.videosInMonth || '-'}</td>
+              <td class="px-4 py-3 whitespace-nowrap">${r.x?.followersCount?.toLocaleString() || '-'}</td>
+              <td class="px-4 py-3 whitespace-nowrap">${r.x?.tweetsInMonth || '-'}</td>
+              <td class="px-4 py-3 whitespace-nowrap">
+                <a href="/evaluation-detail?studentId=${reportData.studentId}&month=${r.month}" 
+                   class="text-blue-600 hover:text-blue-800 font-semibold">
+                  <i class="fas fa-external-link-alt mr-1"></i>詳細を見る
+                </a>
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+  
+  section.innerHTML = tableHtml;
+}
+
+// ローディング表示
+function showLoading(message) {
+  const overlay = document.getElementById('loading-overlay');
+  const text = document.getElementById('loading-text');
+  text.textContent = message;
+  overlay.classList.remove('hidden');
+}
+
+function hideLoading() {
+  const overlay = document.getElementById('loading-overlay');
+  overlay.classList.add('hidden');
+}
+
+// エラーメッセージ表示
+function showError(message) {
+  showToast(message, 'error');
+}
+
+// トースト通知
+function showToast(message, type = 'info') {
+  const toast = document.createElement('div');
+  const colors = {
+    success: 'bg-green-500',
+    error: 'bg-red-500',
+    warning: 'bg-yellow-500',
+    info: 'bg-blue-500',
+  };
+
+  toast.className = `fixed top-4 right-4 ${colors[type]} text-white px-6 py-4 rounded-lg shadow-lg z-50 max-w-md`;
+  toast.innerHTML = `
+    <div class="flex items-center">
+      <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : 'info-circle'} mr-3"></i>
+      <span>${message}</span>
+    </div>
+  `;
+
+  document.body.appendChild(toast);
+
+  setTimeout(() => {
+    toast.remove();
+  }, 5000);
+}
