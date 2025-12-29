@@ -19,8 +19,8 @@ console.log('- X_BEARER_TOKEN:', process.env.X_BEARER_TOKEN ? 'Defined ✓' : 'M
 // 新しいHonoアプリを作成して静的ファイル配信を追加
 const wrappedApp = new Hono()
 
-// 静的ファイル配信を追加（public/staticから配信）
-wrappedApp.use('/static/*', serveStatic({ root: './public' }))
+// 静的ファイル配信を追加（dist/staticから配信）
+wrappedApp.use('/static/*', serveStatic({ root: './dist' }))
 
 // メインアプリのすべてのルートを追加
 wrappedApp.route('/', app)
