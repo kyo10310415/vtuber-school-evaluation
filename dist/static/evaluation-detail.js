@@ -32,6 +32,26 @@ function setupEventListeners() {
   document.getElementById('back-btn').addEventListener('click', () => {
     window.location.href = '/';
   });
+  
+  // ナビゲーションボタン（評価結果セクション内）
+  const backToHomeBtn = document.getElementById('back-to-home-btn');
+  const goToMonthlyReportBtn = document.getElementById('go-to-monthly-report-btn');
+  
+  if (backToHomeBtn) {
+    backToHomeBtn.addEventListener('click', () => {
+      window.location.href = '/';
+    });
+  }
+  
+  if (goToMonthlyReportBtn) {
+    goToMonthlyReportBtn.addEventListener('click', () => {
+      if (currentStudentId) {
+        window.location.href = `/monthly-report?studentId=${currentStudentId}`;
+      } else {
+        alert('学籍番号が設定されていません');
+      }
+    });
+  }
 }
 
 // 評価データを読み込み

@@ -45,6 +45,51 @@ function setupEventListeners() {
   document.getElementById('back-btn').addEventListener('click', () => {
     window.location.href = '/';
   });
+  
+  // ナビゲーションボタン（レポートセクション内）
+  const backToHomeFromReportBtn = document.getElementById('back-to-home-from-report-btn');
+  const goToDetailFromReportBtn = document.getElementById('go-to-detail-from-report-btn');
+  
+  if (backToHomeFromReportBtn) {
+    backToHomeFromReportBtn.addEventListener('click', () => {
+      window.location.href = '/';
+    });
+  }
+  
+  if (goToDetailFromReportBtn) {
+    goToDetailFromReportBtn.addEventListener('click', () => {
+      if (currentStudentId) {
+        const currentMonth = new Date().toISOString().substring(0, 7);
+        window.location.href = `/evaluation-detail?studentId=${currentStudentId}&month=${currentMonth}`;
+      } else {
+        alert('学籍番号が設定されていません');
+      }
+    });
+  }
+  
+  // 期間選択ドロップダウン
+  const monthsSelect = document.getElementById('months-select');
+  const customMonthsContainer = document.getElementById('custom-months-input-container');
+  
+  if (monthsSelect) {
+    monthsSelect.addEventListener('change', (e) => {
+      if (e.target.value === 'custom') {
+        customMonthsContainer?.classList.remove('hidden');
+      } else {
+        customMonthsContainer?.classList.add('hidden');
+        
+        // 自動的に月リストを生成
+        const numMonths = parseInt(e.target.value);
+        const months = getRecentMonths(numMonths);
+        document.getElementById('months-input').value = months.join(',');
+      }
+    });
+    
+    // 初期値を設定
+    monthsSelect.value = '3';
+    const months = getRecentMonths(3);
+    document.getElementById('months-input').value = months.join(',');
+  }
 }
 
 // 月次レポートを読み込み

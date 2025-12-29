@@ -101,6 +101,20 @@ app.get('/monthly-report', (c) => {
               />
             </div>
             <div class="flex-1">
+              <label for="months-select" class="block text-sm font-medium text-gray-700 mb-2">
+                比較期間
+              </label>
+              <select 
+                id="months-select"
+                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              >
+                <option value="3">直近3ヶ月</option>
+                <option value="6">直近6ヶ月</option>
+                <option value="12">直近12ヶ月</option>
+                <option value="custom">カスタム期間</option>
+              </select>
+            </div>
+            <div class="flex-1 hidden" id="custom-months-input-container">
               <label for="months-input" class="block text-sm font-medium text-gray-700 mb-2">
                 評価月（カンマ区切り）
               </label>
@@ -132,6 +146,22 @@ app.get('/monthly-report', (c) => {
         
         <!-- レポートセクション -->
         <div id="report-section" class="hidden">
+          <!-- ナビゲーションボタン -->
+          <div class="flex gap-3 mb-6">
+            <button 
+              id="back-to-home-from-report-btn"
+              class="px-6 py-2 bg-gray-600 text-white font-bold rounded-lg hover:bg-gray-700 transition shadow-md">
+              <i class="fas fa-home mr-2"></i>
+              トップページへ戻る
+            </button>
+            <button 
+              id="go-to-detail-from-report-btn"
+              class="px-6 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-bold rounded-lg hover:from-purple-700 hover:to-pink-700 transition shadow-md">
+              <i class="fas fa-chart-bar mr-2"></i>
+              評価詳細を見る
+            </button>
+          </div>
+          
           <!-- ヘッダー -->
           <div class="bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg shadow-lg p-6 mb-6 border border-purple-200">
             <div class="flex items-center justify-between">
@@ -250,6 +280,22 @@ app.get('/evaluation-detail', (c) => {
         
         <!-- 評価結果セクション -->
         <div id="evaluation-section" class="hidden">
+          <!-- ナビゲーションボタン -->
+          <div class="flex gap-3 mb-6">
+            <button 
+              id="back-to-home-btn"
+              class="px-6 py-2 bg-gray-600 text-white font-bold rounded-lg hover:bg-gray-700 transition shadow-md">
+              <i class="fas fa-home mr-2"></i>
+              トップページへ戻る
+            </button>
+            <button 
+              id="go-to-monthly-report-btn"
+              class="px-6 py-2 bg-gradient-to-r from-blue-600 to-cyan-600 text-white font-bold rounded-lg hover:from-blue-700 hover:to-cyan-700 transition shadow-md">
+              <i class="fas fa-chart-line mr-2"></i>
+              月次レポートを見る
+            </button>
+          </div>
+          
           <!-- ヘッダー -->
           <div class="bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg shadow-lg p-6 mb-6 border border-purple-200">
             <div class="flex items-center justify-between">
