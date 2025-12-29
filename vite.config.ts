@@ -11,5 +11,14 @@ export default defineConfig({
       entry: 'src/index.tsx'
     })
   ],
-  publicDir: 'public'
+  publicDir: 'public',
+  build: {
+    minify: false, // ビルド時のメモリ使用量を削減
+    sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks: undefined // チャンク分割を無効化
+      }
+    }
+  }
 })
