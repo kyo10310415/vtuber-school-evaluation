@@ -381,6 +381,106 @@ app.get('/api/students', async (c) => {
   }
 })
 
+// YouTube評価取得
+app.get('/api/youtube/evaluate/:studentId', async (c) => {
+  try {
+    const GOOGLE_SERVICE_ACCOUNT = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT')
+    const STUDENT_MASTER_SPREADSHEET_ID = getEnv(c, 'STUDENT_MASTER_SPREADSHEET_ID')
+    const YOUTUBE_API_KEY = getEnv(c, 'YOUTUBE_API_KEY')
+    const studentId = c.req.param('studentId')
+    const month = c.req.query('month') || new Date().toISOString().substring(0, 7) // YYYY-MM
+
+    if (!YOUTUBE_API_KEY) {
+      return c.json({ success: false, error: 'YOUTUBE_API_KEY が設定されていません' }, 400)
+    }
+
+    // 生徒情報を取得
+    const students = await fetchStudents(GOOGLE_SERVICE_ACCOUNT, STUDENT_MASTER_SPREADSHEET_ID)
+    const student = students.find(s => s.studentId === studentId)
+
+    if (!student) {
+      return c.json({ success: false, error: '生徒が見つかりません' }, 404)
+    }
+
+    if (!student.youtubeChannelId) {
+      return c.json({ success: false, error: 'YouTubeチャンネルIDが設定されていません' }, 400)
+    }
+
+    // YouTube評価を実行
+    const { evaluateYouTubeChannel } = await import('./lib/youtube-client')
+    const evaluation = await evaluateYouTubeChannel(
+      YOUTUBE_API_KEY,
+      student.youtubeChannelId,
+      month
+    )
+
+    if (!evaluation) {
+      return c.json({ success: false, error: 'YouTube評価の取得に失敗しました' }, 500)
+    }
+
+    return c.json({
+      success: true,
+      studentId,
+      studentName: student.name,
+      month,
+      evaluation
+    })
+  } catch (error: any) {
+    console.error('[/api/youtube/evaluate] Error:', error.message, error.stack)
+    return c.json({ success: false, error: error.message, stack: error.stack }, 500)
+  }
+})
+
+// X評価取得
+app.get('/api/x/evaluate/:studentId', async (c) => {
+  try {
+    const GOOGLE_SERVICE_ACCOUNT = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT')
+    const STUDENT_MASTER_SPREADSHEET_ID = getEnv(c, 'STUDENT_MASTER_SPREADSHEET_ID')
+    const X_BEARER_TOKEN = getEnv(c, 'X_BEARER_TOKEN')
+    const studentId = c.req.param('studentId')
+    const month = c.req.query('month') || new Date().toISOString().substring(0, 7) // YYYY-MM
+
+    if (!X_BEARER_TOKEN) {
+      return c.json({ success: false, error: 'X_BEARER_TOKEN が設定されていません' }, 400)
+    }
+
+    // 生徒情報を取得
+    const students = await fetchStudents(GOOGLE_SERVICE_ACCOUNT, STUDENT_MASTER_SPREADSHEET_ID)
+    const student = students.find(s => s.studentId === studentId)
+
+    if (!student) {
+      return c.json({ success: false, error: '生徒が見つかりません' }, 404)
+    }
+
+    if (!student.xAccount) {
+      return c.json({ success: false, error: 'Xアカウントが設定されていません' }, 400)
+    }
+
+    // X評価を実行
+    const { evaluateXAccount } = await import('./lib/x-client')
+    const evaluation = await evaluateXAccount(
+      X_BEARER_TOKEN,
+      student.xAccount,
+      month
+    )
+
+    if (!evaluation) {
+      return c.json({ success: false, error: 'X評価の取得に失敗しました' }, 500)
+    }
+
+    return c.json({
+      success: true,
+      studentId,
+      studentName: student.name,
+      month,
+      evaluation
+    })
+  } catch (error: any) {
+    console.error('[/api/x/evaluate] Error:', error.message, error.stack)
+    return c.json({ success: false, error: error.message, stack: error.stack }, 500)
+  }
+})
+
 // トークメモフォルダのドキュメント一覧をテスト（デバッグ用）
 app.get('/api/debug/check-folder/:studentId', async (c) => {
   try {
