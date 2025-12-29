@@ -1,5 +1,5 @@
 # prod
-dist/
+# dist/ コメントアウト - Renderでビルド不要にするため
 
 # dev
 .yarn/
