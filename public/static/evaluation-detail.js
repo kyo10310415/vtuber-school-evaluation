@@ -2,8 +2,7 @@
 
 let currentStudentId = null;
 let currentMonth = null;
-let youtubeData = null;
-let xData = null;
+let evaluationData = null;
 
 // 初期化
 document.addEventListener('DOMContentLoaded', () => {
@@ -53,25 +52,18 @@ async function loadEvaluationData() {
   try {
     showLoading('評価データを読み込み中...');
     
-    // 並行してYouTubeとXの評価を取得
-    const [youtubeResponse, xResponse] = await Promise.all([
-      fetch(`/api/youtube/evaluate/${currentStudentId}?month=${currentMonth}`),
-      fetch(`/api/x/evaluate/${currentStudentId}?month=${currentMonth}`)
-    ]);
-    
-    const youtubeResult = await youtubeResponse.json();
-    const xResult = await xResponse.json();
+    // 統合評価APIを使用
+    const response = await fetch(`/api/evaluation/complete/${currentStudentId}?month=${currentMonth}`);
+    const result = await response.json();
     
     hideLoading();
     
-    // データを保存
-    youtubeData = youtubeResult.success ? youtubeResult : null;
-    xData = xResult.success ? xResult : null;
-    
-    if (!youtubeData && !xData) {
-      showError('評価データの取得に失敗しました');
+    if (!result.success) {
+      showError('評価データの取得に失敗しました: ' + result.error);
       return;
     }
+    
+    evaluationData = result;
     
     // 画面を表示
     document.getElementById('loading-section').classList.add('hidden');
@@ -89,14 +81,21 @@ async function loadEvaluationData() {
 // 評価データを表示
 function renderEvaluationData() {
   // ヘッダー情報を表示
-  const studentName = youtubeData?.studentName || xData?.studentName || '不明';
-  document.getElementById('student-name').textContent = studentName;
-  document.getElementById('display-student-id').textContent = currentStudentId;
-  document.getElementById('display-month').textContent = currentMonth;
+  document.getElementById('student-name').textContent = evaluationData.studentName;
+  document.getElementById('display-student-id').textContent = evaluationData.studentId;
+  document.getElementById('display-month').textContent = evaluationData.month;
+  
+  // プロレベルセクション評価を表示
+  if (evaluationData.proLevel) {
+    renderProLevelEvaluation(evaluationData.proLevel);
+    document.getElementById('prolevel-section').classList.remove('hidden');
+  } else {
+    document.getElementById('prolevel-section').classList.add('hidden');
+  }
   
   // YouTube評価を表示
-  if (youtubeData && youtubeData.evaluation) {
-    renderYouTubeEvaluation(youtubeData.evaluation);
+  if (evaluationData.youtube && !evaluationData.youtube.error) {
+    renderYouTubeEvaluation(evaluationData.youtube);
   } else {
     document.getElementById('youtube-section').innerHTML = `
       <div class="bg-red-50 border border-red-200 rounded-lg p-4">
@@ -109,8 +108,8 @@ function renderEvaluationData() {
   }
   
   // X評価を表示
-  if (xData && xData.evaluation) {
-    renderXEvaluation(xData.evaluation);
+  if (evaluationData.x && !evaluationData.x.error) {
+    renderXEvaluation(evaluationData.x);
   } else {
     document.getElementById('x-section').innerHTML = `
       <div class="bg-red-50 border border-red-200 rounded-lg p-4">
@@ -123,9 +122,79 @@ function renderEvaluationData() {
   }
 }
 
+// プロレベルセクション評価を表示
+function renderProLevelEvaluation(proLevel) {
+  const section = document.getElementById('prolevel-content');
+  
+  const gradeColor = {
+    'S': 'bg-purple-100 text-purple-800 border-purple-300',
+    'A': 'bg-blue-100 text-blue-800 border-blue-300',
+    'B': 'bg-green-100 text-green-800 border-green-300',
+    'C': 'bg-yellow-100 text-yellow-800 border-yellow-300',
+    'D': 'bg-red-100 text-red-800 border-red-300',
+  };
+  
+  const html = `
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+      <!-- 総合評価 -->
+      <div class="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-6 border-2 ${gradeColor[proLevel['総合評価']] || 'border-gray-300'}">
+        <div class="text-center">
+          <p class="text-sm text-gray-600 mb-2">総合評価</p>
+          <div class="text-6xl font-bold ${gradeColor[proLevel['総合評価']]?.split(' ')[1] || 'text-gray-800'}">
+            ${proLevel['総合評価'] || '-'}
+          </div>
+        </div>
+      </div>
+      
+      <!-- 各項目評価 -->
+      <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+        ${['欠席', '遅刻', 'ミッション', '支払い', 'アクティブリスニング', '理解度'].map(item => `
+          <div class="bg-white rounded-lg p-4 border-2 ${gradeColor[proLevel[item]] || 'border-gray-200'} text-center">
+            <p class="text-xs text-gray-600 mb-2">${item}</p>
+            <div class="text-3xl font-bold ${gradeColor[proLevel[item]]?.split(' ')[1] || 'text-gray-800'}">
+              ${proLevel[item] || '-'}
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+    
+    ${proLevel['コメント'] ? `
+      <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+        <h4 class="font-bold text-blue-900 mb-2">
+          <i class="fas fa-comment-alt mr-2"></i>評価コメント
+        </h4>
+        <p class="text-gray-700 whitespace-pre-line">${proLevel['コメント']}</p>
+      </div>
+    ` : ''}
+    
+    <div class="text-sm text-gray-500 text-right">
+      評価日時: ${proLevel['評価日時'] ? new Date(proLevel['評価日時']).toLocaleString('ja-JP') : '-'}
+    </div>
+  `;
+  
+  section.innerHTML = html;
+}
+
 // YouTube評価を表示
 function renderYouTubeEvaluation(evaluation) {
   const section = document.getElementById('youtube-section');
+  
+  const gradeColor = {
+    'S': 'from-purple-500 to-purple-600 text-white',
+    'A': 'from-blue-500 to-blue-600 text-white',
+    'B': 'from-green-500 to-green-600 text-white',
+    'C': 'from-yellow-500 to-yellow-600 text-white',
+    'D': 'from-red-500 to-red-600 text-white',
+  };
+  
+  // 総合評価カード
+  const overallGradeHtml = evaluation.overallGrade ? `
+    <div class="bg-gradient-to-br ${gradeColor[evaluation.overallGrade] || 'from-gray-500 to-gray-600 text-white'} rounded-lg p-6 mb-6 text-center shadow-lg">
+      <p class="text-sm opacity-90 mb-2">YouTube 総合評価</p>
+      <div class="text-6xl font-bold">${evaluation.overallGrade}</div>
+    </div>
+  ` : '';
   
   // サマリーカード
   const summaryHtml = `
@@ -226,7 +295,7 @@ function renderYouTubeEvaluation(evaluation) {
     </div>
   ` : '';
   
-  section.innerHTML = summaryHtml + chartsHtml + videosHtml;
+  section.innerHTML = overallGradeHtml + summaryHtml + chartsHtml + videosHtml;
   
   // チャートを描画
   renderYouTubeCharts(evaluation);
@@ -317,6 +386,22 @@ function renderYouTubeCharts(evaluation) {
 // X評価を表示
 function renderXEvaluation(evaluation) {
   const section = document.getElementById('x-section');
+  
+  const gradeColor = {
+    'S': 'from-purple-500 to-purple-600 text-white',
+    'A': 'from-blue-500 to-blue-600 text-white',
+    'B': 'from-green-500 to-green-600 text-white',
+    'C': 'from-yellow-500 to-yellow-600 text-white',
+    'D': 'from-red-500 to-red-600 text-white',
+  };
+  
+  // 総合評価カード
+  const overallGradeHtml = evaluation.overallGrade ? `
+    <div class="bg-gradient-to-br ${gradeColor[evaluation.overallGrade] || 'from-gray-500 to-gray-600 text-white'} rounded-lg p-6 mb-6 text-center shadow-lg">
+      <p class="text-sm opacity-90 mb-2">X (Twitter) 総合評価</p>
+      <div class="text-6xl font-bold">${evaluation.overallGrade}</div>
+    </div>
+  ` : '';
   
   // サマリーカード
   const summaryHtml = `
@@ -413,7 +498,7 @@ function renderXEvaluation(evaluation) {
     </div>
   ` : '';
   
-  section.innerHTML = summaryHtml + chartsHtml + tweetsHtml;
+  section.innerHTML = overallGradeHtml + summaryHtml + chartsHtml + tweetsHtml;
   
   // チャートを描画
   renderXCharts(evaluation);

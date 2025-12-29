@@ -283,7 +283,7 @@ function renderResults(results) {
   container.innerHTML = html;
 }
 
-// 結果を検索
+// 結果を検索（評価詳細ページに遷移）
 async function searchResults() {
   const studentId = document.getElementById('search-student-id').value.trim();
   
@@ -292,32 +292,9 @@ async function searchResults() {
     return;
   }
 
-  try {
-    showLoading('評価結果を検索中...');
-    
-    const response = await fetch(`/api/results/${encodeURIComponent(studentId)}`);
-    const data = await response.json();
-    hideLoading();
-
-    if (data.success) {
-      if (data.count === 0) {
-        showWarning(`学籍番号「${studentId}」の評価結果が見つかりませんでした`);
-        document.getElementById('search-results-section').classList.add('hidden');
-      } else {
-        showSuccess(`${data.count}件の評価結果が見つかりました`);
-        renderSearchResults(data.results, studentId);
-        document.getElementById('search-results-section').classList.remove('hidden');
-        
-        // 結果表示位置にスクロール
-        document.getElementById('search-results-section').scrollIntoView({ behavior: 'smooth' });
-      }
-    } else {
-      showError('検索に失敗しました: ' + data.message);
-    }
-  } catch (error) {
-    hideLoading();
-    showError('エラー: ' + error.message);
-  }
+  // 評価詳細ページに遷移
+  const currentMonth = new Date().toISOString().substring(0, 7);
+  window.location.href = `/evaluation-detail?studentId=${studentId}&month=${currentMonth}`;
 }
 
 // 検索結果を表示

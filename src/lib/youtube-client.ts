@@ -3,6 +3,8 @@
  * YouTubeチャンネルの統計情報と動画データを取得
  */
 
+import { calculateYouTubeGrade } from './grade-calculator'
+
 export interface YouTubeChannelStats {
   channelId: string;
   subscriberCount: number;
@@ -44,6 +46,9 @@ export interface YouTubeEvaluation {
   // 品質評価
   titleQuality: 'Good' | 'Fair' | 'Poor';
   thumbnailQuality: 'Good' | 'Fair' | 'Poor';
+  
+  // 5段階評価
+  overallGrade: 'S' | 'A' | 'B' | 'C' | 'D';
   
   // 動画リスト
   recentVideos: YouTubeVideo[];
@@ -230,7 +235,7 @@ export async function evaluateYouTubeChannel(
   // 9. サムネ品質を評価（高解像度サムネがあるか）
   const thumbnailQuality = evaluateThumbnailQuality(monthVideos);
 
-  return {
+  const evaluation = {
     subscriberCount: stats.subscriberCount,
     subscriberGrowthRate,
     totalViews,
@@ -245,7 +250,13 @@ export async function evaluateYouTubeChannel(
     titleQuality,
     thumbnailQuality,
     recentVideos: monthVideos.slice(0, 10), // 最新10件のみ
+    overallGrade: 'C' as 'S' | 'A' | 'B' | 'C' | 'D', // 仮の値
   };
+
+  // 10. 総合評価を計算
+  evaluation.overallGrade = calculateYouTubeGrade(evaluation);
+
+  return evaluation;
 }
 
 /**

@@ -3,6 +3,8 @@
  * Xアカウントのユーザー情報、ツイート、エンゲージメントを取得
  */
 
+import { calculateXGrade } from './grade-calculator'
+
 export interface XUserMetrics {
   userId: string;
   username: string;
@@ -55,6 +57,9 @@ export interface XEvaluation {
   // エンゲージメント伸び率
   engagementGrowthRate: number;
   impressionGrowthRate: number;
+  
+  // 5段階評価
+  overallGrade: 'S' | 'A' | 'B' | 'C' | 'D';
   
   // 最近のツイート
   recentTweets: XTweet[];
@@ -306,7 +311,7 @@ export async function evaluateXAccount(
   // following_countの増加から推定
   const dailyFollows = 0; // Basicプランでは正確な取得不可
 
-  return {
+  const evaluation = {
     followersCount: user.followersCount,
     followingCount: user.followingCount,
     followerGrowthRate,
@@ -325,5 +330,11 @@ export async function evaluateXAccount(
     engagementGrowthRate,
     impressionGrowthRate,
     recentTweets: monthTweets.slice(0, 10), // 最新10件のみ
+    overallGrade: 'C' as 'S' | 'A' | 'B' | 'C' | 'D', // 仮の値
   };
+
+  // 総合評価を計算
+  evaluation.overallGrade = calculateXGrade(evaluation);
+
+  return evaluation;
 }

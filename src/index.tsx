@@ -264,6 +264,15 @@ app.get('/evaluation-detail', (c) => {
             </div>
           </div>
           
+          <!-- プロレベルセクション評価 -->
+          <div id="prolevel-section" class="bg-white rounded-lg shadow-lg p-6 mb-6 hidden">
+            <h3 class="text-2xl font-bold text-gray-800 mb-6">
+              <i class="fas fa-star text-yellow-500 mr-2"></i>
+              プロレベルセクション評価
+            </h3>
+            <div id="prolevel-content"></div>
+          </div>
+          
           <!-- YouTube評価 -->
           <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
             <h3 class="text-2xl font-bold text-gray-800 mb-6">
@@ -802,6 +811,116 @@ app.get('/api/monthly-report/:studentId', async (c) => {
   }
 })
 
+// 統合評価取得（プロレベルセクション + YouTube + X）
+app.get('/api/evaluation/complete/:studentId', async (c) => {
+  try {
+    const GOOGLE_SERVICE_ACCOUNT = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT')
+    const STUDENT_MASTER_SPREADSHEET_ID = getEnv(c, 'STUDENT_MASTER_SPREADSHEET_ID')
+    const RESULT_SPREADSHEET_ID = getEnv(c, 'RESULT_SPREADSHEET_ID')
+    const YOUTUBE_API_KEY = getEnv(c, 'YOUTUBE_API_KEY')
+    const X_BEARER_TOKEN = getEnv(c, 'X_BEARER_TOKEN')
+    const studentId = c.req.param('studentId')
+    const month = c.req.query('month') || new Date().toISOString().substring(0, 7)
+    
+    // 生徒情報を取得
+    const students = await fetchStudents(GOOGLE_SERVICE_ACCOUNT, STUDENT_MASTER_SPREADSHEET_ID)
+    const student = students.find(s => s.studentId === studentId)
+    
+    if (!student) {
+      return c.json({ success: false, error: '生徒が見つかりません' }, 404)
+    }
+    
+    const result: any = {
+      studentId,
+      studentName: student.name,
+      month
+    }
+    
+    // プロレベルセクション評価を取得
+    try {
+      const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
+      const sheetsResponse = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${RESULT_SPREADSHEET_ID}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      )
+      
+      if (sheetsResponse.ok) {
+        const sheetsData = await sheetsResponse.json()
+        const resultSheets = sheetsData.sheets
+          ?.map((s: any) => s.properties.title)
+          .filter((title: string) => title.startsWith('評価結果_'))
+          .sort()
+          .reverse() || []
+        
+        for (const sheetName of resultSheets) {
+          const valuesResponse = await fetch(
+            `https://sheets.googleapis.com/v4/spreadsheets/${RESULT_SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}`,
+            { headers: { Authorization: `Bearer ${accessToken}` } }
+          )
+          
+          if (valuesResponse.ok) {
+            const valuesData = await valuesResponse.json()
+            const rows = valuesData.values || []
+            
+            if (rows.length >= 2) {
+              const header = rows[0]
+              const studentIdIndex = header.findIndex((h: string) => h === '学籍番号')
+              const monthIndex = header.findIndex((h: string) => h === '評価月')
+              
+              for (const row of rows.slice(1)) {
+                if (row[studentIdIndex] === studentId && row[monthIndex] === month) {
+                  result.proLevel = {}
+                  header.forEach((h: string, i: number) => {
+                    result.proLevel[h] = row[i] || ''
+                  })
+                  break
+                }
+              }
+            }
+          }
+          
+          if (result.proLevel) break
+        }
+      }
+    } catch (error: any) {
+      console.log('[プロレベルセクション取得エラー]', error.message)
+    }
+    
+    // YouTube評価
+    if (YOUTUBE_API_KEY && student.youtubeChannelId) {
+      try {
+        const { evaluateYouTubeChannel } = await import('./lib/youtube-client')
+        result.youtube = await evaluateYouTubeChannel(
+          YOUTUBE_API_KEY,
+          student.youtubeChannelId,
+          month
+        )
+      } catch (error: any) {
+        result.youtube = { error: error.message }
+      }
+    }
+    
+    // X評価
+    if (X_BEARER_TOKEN && student.xAccount) {
+      try {
+        const { evaluateXAccount } = await import('./lib/x-client')
+        result.x = await evaluateXAccount(
+          X_BEARER_TOKEN,
+          student.xAccount,
+          month
+        )
+      } catch (error: any) {
+        result.x = { error: error.message }
+      }
+    }
+    
+    return c.json({ success: true, ...result })
+  } catch (error: any) {
+    console.error('[/api/evaluation/complete] Error:', error.message, error.stack)
+    return c.json({ success: false, error: error.message, stack: error.stack }, 500)
+  }
+})
+
 // X評価取得
 app.get('/api/x/evaluate/:studentId', async (c) => {
   try {
@@ -849,6 +968,88 @@ app.get('/api/x/evaluate/:studentId', async (c) => {
   } catch (error: any) {
     console.error('[/api/x/evaluate] Error:', error.message, error.stack)
     return c.json({ success: false, error: error.message, stack: error.stack }, 500)
+  }
+})
+
+// プロレベルセクション評価を取得
+app.get('/api/prolevel/:studentId', async (c) => {
+  try {
+    const GOOGLE_SERVICE_ACCOUNT = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT')
+    const RESULT_SPREADSHEET_ID = getEnv(c, 'RESULT_SPREADSHEET_ID')
+    const studentId = c.req.param('studentId')
+    const month = c.req.query('month') || new Date().toISOString().substring(0, 7) // YYYY-MM
+    
+    if (!studentId) {
+      return c.json({ success: false, message: '学籍番号が指定されていません' }, 400)
+    }
+
+    // Google Sheets APIで評価結果を検索
+    const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
+    
+    // 評価結果シートからデータを取得（月次シート: 評価結果_YYYY-MM）
+    const sheetName = `評価結果_${month}`
+    
+    try {
+      const response = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${RESULT_SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        }
+      )
+
+      if (!response.ok) {
+        return c.json({ success: false, error: `シート ${sheetName} が見つかりません` }, 404)
+      }
+
+      const data = await response.json()
+      const rows = data.values || []
+      
+      if (rows.length < 2) {
+        return c.json({ success: false, error: '評価データがありません' }, 404)
+      }
+
+      // ヘッダー行から列インデックスを取得
+      const headers = rows[0]
+      const studentIdIndex = headers.indexOf('学籍番号')
+      const nameIndex = headers.indexOf('氏名')
+      const overallGradeIndex = headers.indexOf('総合評価')
+      const absenceIndex = headers.indexOf('欠席・遅刻評価')
+      const missionIndex = headers.indexOf('ミッション評価')
+      const paymentIndex = headers.indexOf('支払い評価')
+      const listeningIndex = headers.indexOf('傾聴力評価')
+      const comprehensionIndex = headers.indexOf('理解度評価')
+      const commentIndex = headers.indexOf('評価コメント')
+      
+      // 生徒データを検索
+      const studentRow = rows.slice(1).find(row => row[studentIdIndex] === studentId)
+      
+      if (!studentRow) {
+        return c.json({ success: false, error: '該当する評価データが見つかりません' }, 404)
+      }
+
+      // 評価データを返す
+      return c.json({
+        success: true,
+        studentId,
+        studentName: studentRow[nameIndex] || '',
+        month,
+        evaluation: {
+          '総合評価': studentRow[overallGradeIndex] || '-',
+          '欠席・遅刻評価': studentRow[absenceIndex] || '-',
+          'ミッション評価': studentRow[missionIndex] || '-',
+          '支払い評価': studentRow[paymentIndex] || '-',
+          '傾聴力評価': studentRow[listeningIndex] || '-',
+          '理解度評価': studentRow[comprehensionIndex] || '-',
+          '評価コメント': studentRow[commentIndex] || ''
+        }
+      })
+    } catch (error: any) {
+      console.error('[/api/prolevel] Sheet read error:', error.message)
+      return c.json({ success: false, error: error.message }, 500)
+    }
+  } catch (error: any) {
+    console.error('[/api/prolevel] Error:', error.message, error.stack)
+    return c.json({ success: false, error: error.message }, 500)
   }
 })
 
