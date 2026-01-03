@@ -79,7 +79,7 @@ export async function fetchXUserByUsername(
   // @を除去
   const cleanUsername = username.replace('@', '');
 
-  const url = `https://api.x.com/2/users/by/username/${cleanUsername}?user.fields=public_metrics`;
+  const url = `https://api.twitter.com/2/users/by/username/${cleanUsername}?user.fields=public_metrics`;
 
   const response = await fetch(url, {
     headers: {
@@ -124,7 +124,7 @@ export async function fetchXUserById(
     return null;
   }
 
-  const url = `https://api.x.com/2/users/${userId}?user.fields=public_metrics`;
+  const url = `https://api.twitter.com/2/users/${userId}?user.fields=public_metrics`;
 
   const response = await fetch(url, {
     headers: {
@@ -170,7 +170,7 @@ export async function fetchRecentTweets(
     return [];
   }
 
-  const url = `https://api.x.com/2/users/${userId}/tweets?max_results=${maxResults}&tweet.fields=created_at,public_metrics`;
+  const url = `https://api.twitter.com/2/users/${userId}/tweets?max_results=${maxResults}&tweet.fields=created_at,public_metrics`;
 
   const response = await fetch(url, {
     headers: {
