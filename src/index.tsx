@@ -620,6 +620,43 @@ app.get('/api/debug/env', (c) => {
   })
 })
 
+// 診断エンドポイント（YouTube APIテスト）
+app.get('/api/debug/youtube/:channelId', async (c) => {
+  try {
+    const YOUTUBE_API_KEY = getEnv(c, 'YOUTUBE_API_KEY')
+    const channelId = c.req.param('channelId')
+    
+    if (!YOUTUBE_API_KEY) {
+      return c.json({ error: 'YOUTUBE_API_KEY not set' }, 400)
+    }
+    
+    // 直接YouTube APIを呼び出す
+    const url = `https://www.googleapis.com/youtube/v3/channels?part=statistics&id=${channelId}&key=${YOUTUBE_API_KEY}`
+    
+    console.log(`[Debug] Calling YouTube API: ${url.replace(YOUTUBE_API_KEY, 'API_KEY_HIDDEN')}`)
+    
+    const response = await fetch(url)
+    const status = response.status
+    const statusText = response.statusText
+    
+    let data
+    try {
+      data = await response.json()
+    } catch (e) {
+      data = await response.text()
+    }
+    
+    return c.json({
+      status,
+      statusText,
+      ok: response.ok,
+      data
+    })
+  } catch (error: any) {
+    return c.json({ error: error.message, stack: error.stack }, 500)
+  }
+})
+
 // NotionからSNSアカウント情報を同期
 app.post('/api/sync-notion', async (c) => {
   try {
