@@ -72,6 +72,37 @@ POST /api/auto-evaluate?month=YYYY-MM
 }
 ```
 
+## GitHub Actions ワークフローの設定
+
+### ⚠️ 重要: 手動セットアップが必要です
+GitHub Appの権限制限により、ワークフローファイルはリポジトリに直接コミットできません。
+以下の手順で手動セットアップしてください。
+
+### セットアップ手順
+
+1. **GitHubリポジトリを開く**
+   - https://github.com/kyo10310415/vtuber-school-evaluation に移動
+
+2. **Actions タブを有効化**
+   - リポジトリの "Actions" タブをクリック
+   - "I understand my workflows, go ahead and enable them" をクリック
+
+3. **ワークフローファイルを作成**
+   - リポジトリのトップページで `.github/workflows` ディレクトリに移動
+   - `monthly-evaluation.yml` ファイルを作成
+   - `/home/user/webapp/docs/monthly-evaluation.yml` の内容をコピー＆ペースト
+   - "Commit changes" をクリック
+
+4. **ワークフローを確認**
+   - "Actions" タブで "Monthly Auto Evaluation" が表示されることを確認
+
+### 手動実行でテスト
+
+1. "Actions" タブ → "Monthly Auto Evaluation" を選択
+2. "Run workflow" ボタンをクリック
+3. "Run workflow" を再度クリックして実行
+4. 実行結果を確認
+
 ### 3. GitHub Actions ワークフロー
 **毎月1日の午前3時（JST）に自動実行**
 
