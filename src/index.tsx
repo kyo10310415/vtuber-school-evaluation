@@ -347,8 +347,8 @@ app.get('/evaluation-detail', (c) => {
 
 // トップページ
 app.get('/', (c) => {
-  const today = new Date();
-  const currentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+  // デフォルトを前月に設定
+  const currentMonth = getPreviousMonth();
   
   return c.render(
     <div class="space-y-8">
