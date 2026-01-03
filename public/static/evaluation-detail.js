@@ -125,11 +125,12 @@ function renderEvaluationData() {
   if (evaluationData.youtube && !evaluationData.youtube.error) {
     renderYouTubeEvaluation(evaluationData.youtube);
   } else {
+    const errorMessage = evaluationData.youtube?.error || 'YouTube評価データがありません';
     document.getElementById('youtube-section').innerHTML = `
       <div class="bg-red-50 border border-red-200 rounded-lg p-4">
         <p class="text-red-800">
           <i class="fas fa-exclamation-triangle mr-2"></i>
-          YouTube評価データがありません
+          ${errorMessage}
         </p>
       </div>
     `;
@@ -139,11 +140,12 @@ function renderEvaluationData() {
   if (evaluationData.x && !evaluationData.x.error) {
     renderXEvaluation(evaluationData.x);
   } else {
+    const errorMessage = evaluationData.x?.error || 'X評価データがありません';
     document.getElementById('x-section').innerHTML = `
       <div class="bg-red-50 border border-red-200 rounded-lg p-4">
         <p class="text-red-800">
           <i class="fas fa-exclamation-triangle mr-2"></i>
-          X評価データがありません
+          ${errorMessage}
         </p>
       </div>
     `;
