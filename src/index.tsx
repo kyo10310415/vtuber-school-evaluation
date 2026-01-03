@@ -657,6 +657,48 @@ app.get('/api/debug/youtube/:channelId', async (c) => {
   }
 })
 
+// 診断エンドポイント（X APIテスト）
+app.get('/api/debug/x/:username', async (c) => {
+  try {
+    const X_BEARER_TOKEN = getEnv(c, 'X_BEARER_TOKEN')
+    const username = c.req.param('username')
+    
+    if (!X_BEARER_TOKEN) {
+      return c.json({ error: 'X_BEARER_TOKEN not set' }, 400)
+    }
+    
+    // 直接X APIを呼び出す
+    const url = `https://api.twitter.com/2/users/by/username/${username}`
+    
+    console.log(`[Debug] Calling X API: ${url}`)
+    
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${X_BEARER_TOKEN}`
+      }
+    })
+    
+    const status = response.status
+    const statusText = response.statusText
+    
+    let data
+    try {
+      data = await response.json()
+    } catch (e) {
+      data = await response.text()
+    }
+    
+    return c.json({
+      status,
+      statusText,
+      ok: response.ok,
+      data
+    })
+  } catch (error: any) {
+    return c.json({ error: error.message, stack: error.stack }, 500)
+  }
+})
+
 // NotionからSNSアカウント情報を同期
 app.post('/api/sync-notion', async (c) => {
   try {
@@ -937,6 +979,7 @@ app.get('/api/evaluation/complete/:studentId', async (c) => {
     const X_BEARER_TOKEN = getEnv(c, 'X_BEARER_TOKEN')
     const studentId = c.req.param('studentId')
     const month = c.req.query('month') || getPreviousMonth()
+    const useCache = c.req.query('cache') !== 'false' // デフォルトでキャッシュを使用
     
     // 生徒情報を取得
     const students = await fetchStudents(GOOGLE_SERVICE_ACCOUNT, STUDENT_MASTER_SPREADSHEET_ID)
@@ -952,9 +995,11 @@ app.get('/api/evaluation/complete/:studentId', async (c) => {
       month
     }
     
+    // アクセストークンを取得（キャッシュとプロレベル評価で使用）
+    const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
+    
     // プロレベルセクション評価を取得
     try {
-      const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
       const sheetsResponse = await fetch(
         `https://sheets.googleapis.com/v4/spreadsheets/${RESULT_SPREADSHEET_ID}`,
         { headers: { Authorization: `Bearer ${accessToken}` } }
@@ -1002,16 +1047,57 @@ app.get('/api/evaluation/complete/:studentId', async (c) => {
       console.log('[プロレベルセクション取得エラー]', error.message)
     }
     
-    // YouTube評価
+    // YouTube評価（キャッシュ対応）
     if (student.youtubeChannelId) {
       if (YOUTUBE_API_KEY) {
         try {
-          const { evaluateYouTubeChannel } = await import('./lib/youtube-client')
-          result.youtube = await evaluateYouTubeChannel(
-            YOUTUBE_API_KEY,
-            student.youtubeChannelId,
-            month
-          )
+          // キャッシュを確認
+          let cachedData = null
+          if (useCache) {
+            const { getCachedEvaluation } = await import('./lib/evaluation-cache')
+            cachedData = await getCachedEvaluation(
+              accessToken,
+              RESULT_SPREADSHEET_ID,
+              studentId,
+              month,
+              'youtube'
+            )
+          }
+          
+          if (cachedData) {
+            result.youtube = { ...cachedData, cached: true }
+            console.log(`[YouTube評価] キャッシュ使用: ${studentId}`)
+          } else {
+            // APIから取得
+            const { evaluateYouTubeChannel } = await import('./lib/youtube-client')
+            const evaluation = await evaluateYouTubeChannel(
+              YOUTUBE_API_KEY,
+              student.youtubeChannelId,
+              month
+            )
+            
+            if (evaluation) {
+              result.youtube = evaluation
+              
+              // キャッシュに保存
+              if (useCache) {
+                const { saveCachedEvaluation } = await import('./lib/evaluation-cache')
+                await saveCachedEvaluation(
+                  accessToken,
+                  RESULT_SPREADSHEET_ID,
+                  studentId,
+                  student.name,
+                  month,
+                  'youtube',
+                  evaluation
+                )
+              }
+              
+              console.log(`[YouTube評価] API使用: ${studentId}`)
+            } else {
+              result.youtube = { error: 'YouTube評価の取得に失敗しました（APIクォータ超過の可能性）' }
+            }
+          }
         } catch (error: any) {
           console.error('[YouTube評価エラー]', error.message)
           result.youtube = { error: error.message }
@@ -1023,16 +1109,57 @@ app.get('/api/evaluation/complete/:studentId', async (c) => {
       result.youtube = { error: 'YouTubeチャンネルIDが設定されていません' }
     }
     
-    // X評価
+    // X評価（キャッシュ対応）
     if (student.xAccount) {
       if (X_BEARER_TOKEN) {
         try {
-          const { evaluateXAccount } = await import('./lib/x-client')
-          result.x = await evaluateXAccount(
-            X_BEARER_TOKEN,
-            student.xAccount,
-            month
-          )
+          // キャッシュを確認
+          let cachedData = null
+          if (useCache) {
+            const { getCachedEvaluation } = await import('./lib/evaluation-cache')
+            cachedData = await getCachedEvaluation(
+              accessToken,
+              RESULT_SPREADSHEET_ID,
+              studentId,
+              month,
+              'x'
+            )
+          }
+          
+          if (cachedData) {
+            result.x = { ...cachedData, cached: true }
+            console.log(`[X評価] キャッシュ使用: ${studentId}`)
+          } else {
+            // APIから取得
+            const { evaluateXAccount } = await import('./lib/x-client')
+            const evaluation = await evaluateXAccount(
+              X_BEARER_TOKEN,
+              student.xAccount,
+              month
+            )
+            
+            if (evaluation) {
+              result.x = evaluation
+              
+              // キャッシュに保存
+              if (useCache) {
+                const { saveCachedEvaluation } = await import('./lib/evaluation-cache')
+                await saveCachedEvaluation(
+                  accessToken,
+                  RESULT_SPREADSHEET_ID,
+                  studentId,
+                  student.name,
+                  month,
+                  'x',
+                  evaluation
+                )
+              }
+              
+              console.log(`[X評価] API使用: ${studentId}`)
+            } else {
+              result.x = { error: 'X評価の取得に失敗しました' }
+            }
+          }
         } catch (error: any) {
           console.error('[X評価エラー]', error.message)
           result.x = { error: error.message }
