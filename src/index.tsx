@@ -774,6 +774,9 @@ app.get('/api/youtube/evaluate/:studentId', async (c) => {
 
     // YouTube評価を実行
     const { evaluateYouTubeChannel } = await import('./lib/youtube-client')
+    
+    console.log(`[/api/youtube/evaluate] Starting evaluation for ${studentId}, channel: ${student.youtubeChannelId}, month: ${month}`)
+    
     const evaluation = await evaluateYouTubeChannel(
       YOUTUBE_API_KEY,
       student.youtubeChannelId,
@@ -781,7 +784,17 @@ app.get('/api/youtube/evaluate/:studentId', async (c) => {
     )
 
     if (!evaluation) {
-      return c.json({ success: false, error: 'YouTube評価の取得に失敗しました' }, 500)
+      console.error(`[/api/youtube/evaluate] Evaluation returned null for ${studentId}`)
+      return c.json({ 
+        success: false, 
+        error: 'YouTube評価の取得に失敗しました。詳細はサーバーログを確認してください。',
+        details: {
+          studentId,
+          channelId: student.youtubeChannelId,
+          month,
+          apiKeyExists: !!YOUTUBE_API_KEY
+        }
+      }, 500)
     }
 
     return c.json({
