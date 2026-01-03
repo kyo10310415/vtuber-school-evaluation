@@ -167,12 +167,19 @@ function renderProLevelEvaluation(proLevel) {
       </div>
       
       <!-- 各項目評価 -->
-      <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
-        ${['欠席', '遅刻', 'ミッション', '支払い', 'アクティブリスニング', '理解度'].map(item => `
-          <div class="bg-white rounded-lg p-4 border-2 ${gradeColor[proLevel[item]] || 'border-gray-200'} text-center">
-            <p class="text-xs text-gray-600 mb-2">${item}</p>
-            <div class="text-3xl font-bold ${gradeColor[proLevel[item]]?.split(' ')[1] || 'text-gray-800'}">
-              ${proLevel[item] || '-'}
+      <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+        ${[
+          {key: '欠席', label: '欠席'},
+          {key: '遅刻', label: '遅刻'},
+          {key: 'ミッション', label: 'ミッション'},
+          {key: '支払い', label: '支払い'},
+          {key: 'アクティブリスニング', label: '傾聴力'},
+          {key: '理解度', label: '理解度'}
+        ].map(item => `
+          <div class="bg-white rounded-lg p-3 border-2 ${gradeColor[proLevel[item.key]] || 'border-gray-200'} text-center">
+            <p class="text-xs text-gray-600 mb-1">${item.label}</p>
+            <div class="text-2xl font-bold ${gradeColor[proLevel[item.key]]?.split(' ')[1] || 'text-gray-800'}">
+              ${proLevel[item.key] || '-'}
             </div>
           </div>
         `).join('')}

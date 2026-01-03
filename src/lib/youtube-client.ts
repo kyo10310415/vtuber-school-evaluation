@@ -208,7 +208,15 @@ export async function evaluateYouTubeChannel(
 
   // 4. 配信頻度を計算
   const videosInMonth = monthVideos.length;
-  const weeklyStreamCount = videosInMonth / 4; // 月を4週間と仮定
+  
+  // 月の実際の週数を計算（より正確に）
+  const [year, month] = targetMonth.split('-').map(Number);
+  const firstDay = new Date(year, month - 1, 1);
+  const lastDay = new Date(year, month, 0);
+  const daysInMonth = lastDay.getDate();
+  const actualWeeks = daysInMonth / 7; // 実際の週数
+  
+  const weeklyStreamCount = videosInMonth / actualWeeks;
 
   // 5. 配信時間を計算
   const durations = monthVideos.map((v) => parseDuration(v.duration));
