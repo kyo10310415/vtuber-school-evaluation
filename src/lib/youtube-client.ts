@@ -62,35 +62,50 @@ export async function fetchYouTubeChannelStats(
   channelId: string
 ): Promise<YouTubeChannelStats | null> {
   if (!channelId) {
+    console.error('[YouTube API] Channel ID is missing');
     return null;
   }
 
   const url = `https://www.googleapis.com/youtube/v3/channels?part=statistics&id=${channelId}&key=${apiKey}`;
 
-  const response = await fetch(url);
+  try {
+    const response = await fetch(url);
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error(`[YouTube API] Channel stats error: ${response.status} - ${errorText}`);
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[YouTube API] Channel stats error: ${response.status} - ${errorText}`);
+      
+      // エラーの詳細をパース
+      try {
+        const errorData = JSON.parse(errorText);
+        console.error('[YouTube API] Error details:', JSON.stringify(errorData, null, 2));
+      } catch (e) {
+        // JSONパースエラーは無視
+      }
+      
+      return null;
+    }
+
+    const data = await response.json();
+
+    if (!data.items || data.items.length === 0) {
+      console.warn(`[YouTube API] Channel not found: ${channelId}`);
+      return null;
+    }
+
+    const item = data.items[0];
+    const stats = item.statistics;
+
+    return {
+      channelId,
+      subscriberCount: parseInt(stats.subscriberCount || '0'),
+      viewCount: parseInt(stats.viewCount || '0'),
+      videoCount: parseInt(stats.videoCount || '0'),
+    };
+  } catch (error: any) {
+    console.error('[YouTube API] Fetch error:', error.message);
     return null;
   }
-
-  const data = await response.json();
-
-  if (!data.items || data.items.length === 0) {
-    console.warn(`[YouTube API] Channel not found: ${channelId}`);
-    return null;
-  }
-
-  const item = data.items[0];
-  const stats = item.statistics;
-
-  return {
-    channelId,
-    subscriberCount: parseInt(stats.subscriberCount || '0'),
-    viewCount: parseInt(stats.viewCount || '0'),
-    videoCount: parseInt(stats.videoCount || '0'),
-  };
 }
 
 /**
@@ -186,85 +201,99 @@ export async function evaluateYouTubeChannel(
   previousSubscriberCount?: number
 ): Promise<YouTubeEvaluation | null> {
   if (!channelId) {
+    console.error('[YouTube Evaluation] Channel ID is missing');
+    return null;
+  }
+  
+  if (!apiKey) {
+    console.error('[YouTube Evaluation] API Key is missing');
     return null;
   }
 
   console.log(`[YouTube Evaluation] Evaluating channel: ${channelId} for ${targetMonth}`);
+  console.log(`[YouTube Evaluation] API Key exists: ${!!apiKey}, length: ${apiKey?.length || 0}`);
 
-  // 1. チャンネル統計を取得
-  const stats = await fetchYouTubeChannelStats(apiKey, channelId);
-  if (!stats) {
-    console.warn(`[YouTube Evaluation] Failed to fetch channel stats: ${channelId}`);
+  try {
+    // 1. チャンネル統計を取得
+    const stats = await fetchYouTubeChannelStats(apiKey, channelId);
+    if (!stats) {
+      console.warn(`[YouTube Evaluation] Failed to fetch channel stats: ${channelId}`);
+      return null;
+    }
+
+    // 2. 最近の動画を取得（最大50件）
+    const recentVideos = await fetchRecentVideos(apiKey, channelId, 50);
+
+    // 3. 対象月の動画をフィルタリング
+    const monthVideos = filterVideosByMonth(recentVideos, targetMonth);
+
+    console.log(`[YouTube Evaluation] Found ${monthVideos.length} videos in ${targetMonth}`);
+
+    // 4. 配信頻度を計算
+    const videosInMonth = monthVideos.length;
+    
+    // 月の実際の週数を計算（より正確に）
+    const [year, month] = targetMonth.split('-').map(Number);
+    const firstDay = new Date(year, month - 1, 1);
+    const lastDay = new Date(year, month, 0);
+    const daysInMonth = lastDay.getDate();
+    const actualWeeks = daysInMonth / 7; // 実際の週数
+    
+    const weeklyStreamCount = videosInMonth / actualWeeks;
+
+    // 5. 配信時間を計算
+    const durations = monthVideos.map((v) => parseDuration(v.duration));
+    const averageStreamDuration = durations.length > 0
+      ? durations.reduce((sum, d) => sum + d, 0) / durations.length
+      : 0;
+
+    // 6. エンゲージメントを計算
+    const totalLikes = monthVideos.reduce((sum, v) => sum + v.likeCount, 0);
+    const totalComments = monthVideos.reduce((sum, v) => sum + v.commentCount, 0);
+    const totalViews = monthVideos.reduce((sum, v) => sum + v.viewCount, 0);
+    const engagementRate = totalViews > 0
+      ? ((totalLikes + totalComments) / totalViews) * 100
+      : 0;
+
+    // 7. 登録者数の伸び率を計算
+    const subscriberGrowthRate = previousSubscriberCount && previousSubscriberCount > 0
+      ? ((stats.subscriberCount - previousSubscriberCount) / previousSubscriberCount) * 100
+      : 0;
+
+    // 8. タイトル品質を評価（簡易）
+    const titleQuality = evaluateTitleQuality(monthVideos);
+
+    // 9. サムネ品質を評価（高解像度サムネがあるか）
+    const thumbnailQuality = evaluateThumbnailQuality(monthVideos);
+
+    const evaluation = {
+      subscriberCount: stats.subscriberCount,
+      subscriberGrowthRate,
+      totalViews,
+      videosInMonth,
+      weeklyStreamCount,
+      meetsWeekly4StreamsGoal: weeklyStreamCount >= 4,
+      averageStreamDuration,
+      meetsMinimum90MinutesGoal: averageStreamDuration >= 90,
+      totalLikes,
+      totalComments,
+      engagementRate,
+      titleQuality,
+      thumbnailQuality,
+      recentVideos: monthVideos.slice(0, 10), // 最新10件のみ
+      overallGrade: 'C' as 'S' | 'A' | 'B' | 'C' | 'D', // 仮の値
+    };
+
+    // 10. 総合評価を計算
+    evaluation.overallGrade = calculateYouTubeGrade(evaluation);
+
+    console.log(`[YouTube Evaluation] Evaluation completed: Grade ${evaluation.overallGrade}`);
+
+    return evaluation;
+  } catch (error: any) {
+    console.error('[YouTube Evaluation] Error:', error.message, error.stack);
     return null;
   }
-
-  // 2. 最近の動画を取得（最大50件）
-  const recentVideos = await fetchRecentVideos(apiKey, channelId, 50);
-
-  // 3. 対象月の動画をフィルタリング
-  const monthVideos = filterVideosByMonth(recentVideos, targetMonth);
-
-  console.log(`[YouTube Evaluation] Found ${monthVideos.length} videos in ${targetMonth}`);
-
-  // 4. 配信頻度を計算
-  const videosInMonth = monthVideos.length;
-  
-  // 月の実際の週数を計算（より正確に）
-  const [year, month] = targetMonth.split('-').map(Number);
-  const firstDay = new Date(year, month - 1, 1);
-  const lastDay = new Date(year, month, 0);
-  const daysInMonth = lastDay.getDate();
-  const actualWeeks = daysInMonth / 7; // 実際の週数
-  
-  const weeklyStreamCount = videosInMonth / actualWeeks;
-
-  // 5. 配信時間を計算
-  const durations = monthVideos.map((v) => parseDuration(v.duration));
-  const averageStreamDuration = durations.length > 0
-    ? durations.reduce((sum, d) => sum + d, 0) / durations.length
-    : 0;
-
-  // 6. エンゲージメントを計算
-  const totalLikes = monthVideos.reduce((sum, v) => sum + v.likeCount, 0);
-  const totalComments = monthVideos.reduce((sum, v) => sum + v.commentCount, 0);
-  const totalViews = monthVideos.reduce((sum, v) => sum + v.viewCount, 0);
-  const engagementRate = totalViews > 0
-    ? ((totalLikes + totalComments) / totalViews) * 100
-    : 0;
-
-  // 7. 登録者数の伸び率を計算
-  const subscriberGrowthRate = previousSubscriberCount && previousSubscriberCount > 0
-    ? ((stats.subscriberCount - previousSubscriberCount) / previousSubscriberCount) * 100
-    : 0;
-
-  // 8. タイトル品質を評価（簡易）
-  const titleQuality = evaluateTitleQuality(monthVideos);
-
-  // 9. サムネ品質を評価（高解像度サムネがあるか）
-  const thumbnailQuality = evaluateThumbnailQuality(monthVideos);
-
-  const evaluation = {
-    subscriberCount: stats.subscriberCount,
-    subscriberGrowthRate,
-    totalViews,
-    videosInMonth,
-    weeklyStreamCount,
-    meetsWeekly4StreamsGoal: weeklyStreamCount >= 4,
-    averageStreamDuration,
-    meetsMinimum90MinutesGoal: averageStreamDuration >= 90,
-    totalLikes,
-    totalComments,
-    engagementRate,
-    titleQuality,
-    thumbnailQuality,
-    recentVideos: monthVideos.slice(0, 10), // 最新10件のみ
-    overallGrade: 'C' as 'S' | 'A' | 'B' | 'C' | 'D', // 仮の値
-  };
-
-  // 10. 総合評価を計算
-  evaluation.overallGrade = calculateYouTubeGrade(evaluation);
-
-  return evaluation;
 }
 
 /**
