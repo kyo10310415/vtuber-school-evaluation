@@ -699,6 +699,28 @@ app.get('/api/debug/x/:username', async (c) => {
   }
 })
 
+// キャッシュシート初期化エンドポイント
+app.post('/api/debug/init-cache', async (c) => {
+  try {
+    const GOOGLE_SERVICE_ACCOUNT = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT')
+    const RESULT_SPREADSHEET_ID = getEnv(c, 'RESULT_SPREADSHEET_ID')
+    
+    const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
+    const { initializeCacheSheet } = await import('./lib/evaluation-cache')
+    
+    const youtubeResult = await initializeCacheSheet(accessToken, RESULT_SPREADSHEET_ID, 'youtube')
+    const xResult = await initializeCacheSheet(accessToken, RESULT_SPREADSHEET_ID, 'x')
+    
+    return c.json({
+      success: true,
+      youtube: youtubeResult,
+      x: xResult
+    })
+  } catch (error: any) {
+    return c.json({ error: error.message, stack: error.stack }, 500)
+  }
+})
+
 // NotionからSNSアカウント情報を同期
 app.post('/api/sync-notion', async (c) => {
   try {

@@ -248,25 +248,35 @@ export async function evaluateXAccount(
   previousImpressions?: number
 ): Promise<XEvaluation | null> {
   if (!username) {
+    console.error('[X Evaluation] Username is missing');
+    return null;
+  }
+  
+  if (!bearerToken) {
+    console.error('[X Evaluation] Bearer token is missing');
     return null;
   }
 
   console.log(`[X Evaluation] Evaluating account: ${username} for ${targetMonth}`);
+  console.log(`[X Evaluation] Bearer token exists: ${!!bearerToken}, length: ${bearerToken?.length || 0}`);
 
-  // 1. ユーザー情報を取得
-  const user = await fetchXUserByUsername(bearerToken, username);
-  if (!user) {
-    console.warn(`[X Evaluation] Failed to fetch user: ${username}`);
-    return null;
-  }
+  try {
+    // 1. ユーザー情報を取得
+    const user = await fetchXUserByUsername(bearerToken, username);
+    if (!user) {
+      console.warn(`[X Evaluation] Failed to fetch user: ${username}`);
+      return null;
+    }
 
-  // 2. 最近のツイートを取得（最大100件）
-  const recentTweets = await fetchRecentTweets(bearerToken, user.userId, 100);
+    console.log(`[X Evaluation] User fetched: ${user.username} (ID: ${user.userId})`);
 
-  // 3. 対象月のツイートをフィルタリング
-  const monthTweets = filterTweetsByMonth(recentTweets, targetMonth);
+    // 2. 最近のツイートを取得（最大100件）
+    const recentTweets = await fetchRecentTweets(bearerToken, user.userId, 100);
 
-  console.log(`[X Evaluation] Found ${monthTweets.length} tweets in ${targetMonth}`);
+    // 3. 対象月のツイートをフィルタリング
+    const monthTweets = filterTweetsByMonth(recentTweets, targetMonth);
+
+    console.log(`[X Evaluation] Found ${monthTweets.length} tweets in ${targetMonth}`);
 
   // 4. 投稿頻度を計算
   const tweetsInMonth = monthTweets.length;
@@ -336,5 +346,11 @@ export async function evaluateXAccount(
   // 総合評価を計算
   evaluation.overallGrade = calculateXGrade(evaluation);
 
+  console.log(`[X Evaluation] Evaluation completed: Grade ${evaluation.overallGrade}`);
+
   return evaluation;
+  } catch (error: any) {
+    console.error('[X Evaluation] Error:', error.message, error.stack);
+    return null;
+  }
 }
