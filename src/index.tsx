@@ -933,31 +933,45 @@ app.get('/api/evaluation/complete/:studentId', async (c) => {
     }
     
     // YouTube評価
-    if (YOUTUBE_API_KEY && student.youtubeChannelId) {
-      try {
-        const { evaluateYouTubeChannel } = await import('./lib/youtube-client')
-        result.youtube = await evaluateYouTubeChannel(
-          YOUTUBE_API_KEY,
-          student.youtubeChannelId,
-          month
-        )
-      } catch (error: any) {
-        result.youtube = { error: error.message }
+    if (student.youtubeChannelId) {
+      if (YOUTUBE_API_KEY) {
+        try {
+          const { evaluateYouTubeChannel } = await import('./lib/youtube-client')
+          result.youtube = await evaluateYouTubeChannel(
+            YOUTUBE_API_KEY,
+            student.youtubeChannelId,
+            month
+          )
+        } catch (error: any) {
+          console.error('[YouTube評価エラー]', error.message)
+          result.youtube = { error: error.message }
+        }
+      } else {
+        result.youtube = { error: 'YOUTUBE_API_KEY が設定されていません' }
       }
+    } else {
+      result.youtube = { error: 'YouTubeチャンネルIDが設定されていません' }
     }
     
     // X評価
-    if (X_BEARER_TOKEN && student.xAccount) {
-      try {
-        const { evaluateXAccount } = await import('./lib/x-client')
-        result.x = await evaluateXAccount(
-          X_BEARER_TOKEN,
-          student.xAccount,
-          month
-        )
-      } catch (error: any) {
-        result.x = { error: error.message }
+    if (student.xAccount) {
+      if (X_BEARER_TOKEN) {
+        try {
+          const { evaluateXAccount } = await import('./lib/x-client')
+          result.x = await evaluateXAccount(
+            X_BEARER_TOKEN,
+            student.xAccount,
+            month
+          )
+        } catch (error: any) {
+          console.error('[X評価エラー]', error.message)
+          result.x = { error: error.message }
+        }
+      } else {
+        result.x = { error: 'X_BEARER_TOKEN が設定されていません' }
       }
+    } else {
+      result.x = { error: 'Xアカウントが設定されていません' }
     }
     
     return c.json({ success: true, ...result })
@@ -1535,35 +1549,47 @@ app.post('/api/auto-evaluate', async (c) => {
         }
         
         // YouTube評価
-        if (YOUTUBE_API_KEY && student.youtubeChannelId) {
-          try {
-            const { evaluateYouTubeChannel } = await import('./lib/youtube-client')
-            result.evaluations.youtube = await evaluateYouTubeChannel(
-              YOUTUBE_API_KEY,
-              student.youtubeChannelId,
-              month
-            )
-            console.log(`[Auto Evaluate] YouTube評価完了: ${student.studentId}`)
-          } catch (error: any) {
-            result.evaluations.youtube = { error: error.message }
-            console.error(`[Auto Evaluate] YouTube評価エラー: ${student.studentId}`, error.message)
+        if (student.youtubeChannelId) {
+          if (YOUTUBE_API_KEY) {
+            try {
+              const { evaluateYouTubeChannel } = await import('./lib/youtube-client')
+              result.evaluations.youtube = await evaluateYouTubeChannel(
+                YOUTUBE_API_KEY,
+                student.youtubeChannelId,
+                month
+              )
+              console.log(`[Auto Evaluate] YouTube評価完了: ${student.studentId}`)
+            } catch (error: any) {
+              result.evaluations.youtube = { error: error.message }
+              console.error(`[Auto Evaluate] YouTube評価エラー: ${student.studentId}`, error.message)
+            }
+          } else {
+            result.evaluations.youtube = { error: 'YOUTUBE_API_KEY が設定されていません' }
           }
+        } else {
+          result.evaluations.youtube = { error: 'YouTubeチャンネルIDが設定されていません' }
         }
         
         // X評価
-        if (X_BEARER_TOKEN && student.xAccount) {
-          try {
-            const { evaluateXAccount } = await import('./lib/x-client')
-            result.evaluations.x = await evaluateXAccount(
-              X_BEARER_TOKEN,
-              student.xAccount,
-              month
-            )
-            console.log(`[Auto Evaluate] X評価完了: ${student.studentId}`)
-          } catch (error: any) {
-            result.evaluations.x = { error: error.message }
-            console.error(`[Auto Evaluate] X評価エラー: ${student.studentId}`, error.message)
+        if (student.xAccount) {
+          if (X_BEARER_TOKEN) {
+            try {
+              const { evaluateXAccount } = await import('./lib/x-client')
+              result.evaluations.x = await evaluateXAccount(
+                X_BEARER_TOKEN,
+                student.xAccount,
+                month
+              )
+              console.log(`[Auto Evaluate] X評価完了: ${student.studentId}`)
+            } catch (error: any) {
+              result.evaluations.x = { error: error.message }
+              console.error(`[Auto Evaluate] X評価エラー: ${student.studentId}`, error.message)
+            }
+          } else {
+            result.evaluations.x = { error: 'X_BEARER_TOKEN が設定されていません' }
           }
+        } else {
+          result.evaluations.x = { error: 'Xアカウントが設定されていません' }
         }
         
         results.push(result)
