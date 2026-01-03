@@ -8,9 +8,16 @@
 - 全生徒（1,377名）の評価実行でクォータを消費
 
 ### X評価が表示されない原因
-- **X API エンドポイントのURL誤り**
-- `api.x.com` → `api.twitter.com` に修正が必要
-- Bearer Tokenは正常に設定されている
+1. **X API エンドポイントのURL誤り** ✅ 修正完了
+   - `api.x.com` → `api.twitter.com` に修正が必要
+   - Bearer Tokenは正常に設定されている
+
+2. **X API Rate Limit超過** ⚠️ 現在発生中
+   - エラー: 429 Too Many Requests
+   - X API Basicプランのレート制限:
+     - User lookup: 25 requests / 15 minutes
+     - User tweets: 75 requests / 15 minutes
+   - 全生徒（1,377名）の評価実行でレート制限に到達
 
 ## ✅ 実装した解決策
 
@@ -197,13 +204,20 @@ const response = await fetch(`/api/monthly-report/OLTS240488-AR?months=2025-10,2
 
 ### X評価が失敗する
 - **原因**: 
-  1. Xアカウントが設定されていない
-  2. X API Bearer Tokenが無効
-  3. API制限に達している
+  1. ❌ ~~Xアカウントが設定されていない~~
+  2. ❌ ~~X API Bearer Tokenが無効~~
+  3. ✅ **X API Rate Limit超過** (429 Too Many Requests)
+     - User lookup: 25 requests / 15 minutes
+     - User tweets: 75 requests / 15 minutes
+     - 全生徒の評価実行でレート制限に到達
 - **解決策**: 
-  1. 生徒マスタースプレッドシートを確認
-  2. 環境変数 `X_BEARER_TOKEN` を確認
-  3. `/api/debug/x/:username` でAPIテスト
+  1. ⏰ **レート制限リセットを待つ**（15分ごとにリセット）
+  2. 📦 **キャッシュを活用**：既存の評価結果を使用
+  3. 🎯 **評価対象を絞る**：YouTubeチャンネルID/Xアカウント設定済みの生徒のみ評価
+  4. 🔍 **診断エンドポイント**でテスト：
+     ```bash
+     curl "https://vtuber-school-evaluation.onrender.com/api/debug/x/IbushiGin_Vt"
+     ```
 
 ### キャッシュが作成されない
 - **原因**: キャッシュシートが存在しない
@@ -215,7 +229,10 @@ const response = await fetch(`/api/monthly-report/OLTS240488-AR?months=2025-10,2
 ## 📄 変更履歴
 
 - **2026-01-03**: 
-  - YouTubeキャッシング機能実装
-  - X APIエンドポイント修正
-  - 診断エンドポイント追加
-  - エラーハンドリング改善
+  - ✅ YouTubeキャッシング機能実装
+  - ✅ X APIエンドポイント修正（api.x.com → api.twitter.com）
+  - ✅ 診断エンドポイント追加
+  - ✅ エラーハンドリング改善
+  - ✅ X API詳細ログ追加（Rate Limit検出機能）
+  - ⚠️ X API Rate Limit検出（429エラー）
+  - ⏰ レート制限リセット待ち（15分ごとにリセット）
