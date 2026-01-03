@@ -73,44 +73,68 @@ export async function fetchXUserByUsername(
   username: string
 ): Promise<XUserMetrics | null> {
   if (!username) {
+    console.error('[X API] Username is empty');
+    return null;
+  }
+
+  if (!bearerToken) {
+    console.error('[X API] Bearer token is empty');
     return null;
   }
 
   // @を除去
   const cleanUsername = username.replace('@', '');
+  console.log(`[X API] Fetching user: ${cleanUsername}`);
 
   const url = `https://api.twitter.com/2/users/by/username/${cleanUsername}?user.fields=public_metrics`;
 
-  const response = await fetch(url, {
-    headers: {
-      'Authorization': `Bearer ${bearerToken}`,
-    },
-  });
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${bearerToken}`,
+      },
+    });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error(`[X API] User fetch error: ${response.status} - ${errorText}`);
+    console.log(`[X API] Response status: ${response.status}`);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[X API] User fetch error: ${response.status} - ${errorText}`);
+      
+      // エラーメッセージを詳細に解析
+      try {
+        const errorJson = JSON.parse(errorText);
+        console.error(`[X API] Error details:`, errorJson);
+      } catch {
+        // JSON解析に失敗した場合はそのままテキストを出力
+      }
+      
+      return null;
+    }
+
+    const data = await response.json();
+    console.log(`[X API] Response data:`, JSON.stringify(data).substring(0, 200));
+
+    if (!data.data) {
+      console.warn(`[X API] User not found: ${username}`);
+      return null;
+    }
+
+    const user = data.data;
+    const metrics = user.public_metrics;
+
+    return {
+      userId: user.id,
+      username: user.username,
+      followersCount: metrics.followers_count || 0,
+      followingCount: metrics.following_count || 0,
+      tweetCount: metrics.tweet_count || 0,
+      listedCount: metrics.listed_count || 0,
+    };
+  } catch (error: any) {
+    console.error(`[X API] Fetch exception:`, error);
     return null;
   }
-
-  const data = await response.json();
-
-  if (!data.data) {
-    console.warn(`[X API] User not found: ${username}`);
-    return null;
-  }
-
-  const user = data.data;
-  const metrics = user.public_metrics;
-
-  return {
-    userId: user.id,
-    username: user.username,
-    followersCount: metrics.followers_count || 0,
-    followingCount: metrics.following_count || 0,
-    tweetCount: metrics.tweet_count || 0,
-    listedCount: metrics.listed_count || 0,
-  };
 }
 
 /**
@@ -167,26 +191,51 @@ export async function fetchRecentTweets(
   maxResults: number = 100
 ): Promise<XTweet[]> {
   if (!userId) {
+    console.error('[X API] userId is empty in fetchRecentTweets');
     return [];
   }
 
+  if (!bearerToken) {
+    console.error('[X API] bearerToken is empty in fetchRecentTweets');
+    return [];
+  }
+
+  console.log(`[X API] Fetching tweets for user: ${userId}, maxResults: ${maxResults}`);
   const url = `https://api.twitter.com/2/users/${userId}/tweets?max_results=${maxResults}&tweet.fields=created_at,public_metrics`;
 
-  const response = await fetch(url, {
-    headers: {
-      'Authorization': `Bearer ${bearerToken}`,
-    },
-  });
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${bearerToken}`,
+      },
+    });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error(`[X API] Tweets fetch error: ${response.status} - ${errorText}`);
-    return [];
-  }
+    console.log(`[X API] Tweets fetch response status: ${response.status}`);
 
-  const data = await response.json();
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[X API] Tweets fetch error: ${response.status} - ${errorText}`);
+      
+      // エラーメッセージを詳細に解析
+      try {
+        const errorJson = JSON.parse(errorText);
+        console.error(`[X API] Tweets error details:`, errorJson);
+      } catch {
+        // JSON解析に失敗した場合はそのままテキストを出力
+      }
+      
+      return [];
+    }
 
-  if (!data.data || data.data.length === 0) {
+    const data = await response.json();
+    console.log(`[X API] Retrieved ${data.data?.length || 0} tweets`);
+
+    if (!data.data || data.data.length === 0) {
+      console.log(`[X API] No tweets found for user: ${userId}`);
+      return [];
+    }
+  } catch (error: any) {
+    console.error(`[X API] Fetch tweets exception:`, error);
     return [];
   }
 
@@ -262,16 +311,27 @@ export async function evaluateXAccount(
 
   try {
     // 1. ユーザー情報を取得
+    console.log(`[X Evaluation] Starting evaluation for: ${username}`);
+    console.log(`[X Evaluation] Bearer token length: ${bearerToken?.length || 0}`);
+    console.log(`[X Evaluation] Target month: ${targetMonth}`);
+    
     const user = await fetchXUserByUsername(bearerToken, username);
     if (!user) {
-      console.warn(`[X Evaluation] Failed to fetch user: ${username}`);
+      console.error(`[X Evaluation] Failed to fetch user: ${username}`);
+      console.error(`[X Evaluation] This may be due to:`);
+      console.error(`  - Invalid bearer token`);
+      console.error(`  - User not found`);
+      console.error(`  - API rate limit exceeded`);
+      console.error(`  - Network error`);
       return null;
     }
 
-    console.log(`[X Evaluation] User fetched: ${user.username} (ID: ${user.userId})`);
+    console.log(`[X Evaluation] User fetched successfully: ${user.username} (ID: ${user.userId})`);
 
     // 2. 最近のツイートを取得（最大100件）
+    console.log(`[X Evaluation] Fetching recent tweets for user ID: ${user.userId}`);
     const recentTweets = await fetchRecentTweets(bearerToken, user.userId, 100);
+    console.log(`[X Evaluation] Retrieved ${recentTweets.length} total tweets`);
 
     // 3. 対象月のツイートをフィルタリング
     const monthTweets = filterTweetsByMonth(recentTweets, targetMonth);
