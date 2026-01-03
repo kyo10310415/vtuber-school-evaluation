@@ -600,6 +600,26 @@ app.get('/api/health', (c) => {
   return c.json({ status: 'ok', timestamp: new Date().toISOString() })
 })
 
+// 診断エンドポイント（環境変数の確認）
+app.get('/api/debug/env', (c) => {
+  const YOUTUBE_API_KEY = getEnv(c, 'YOUTUBE_API_KEY')
+  const X_BEARER_TOKEN = getEnv(c, 'X_BEARER_TOKEN')
+  
+  return c.json({
+    youtube: {
+      exists: !!YOUTUBE_API_KEY,
+      length: YOUTUBE_API_KEY?.length || 0,
+      firstChars: YOUTUBE_API_KEY?.substring(0, 10) || 'N/A'
+    },
+    x: {
+      exists: !!X_BEARER_TOKEN,
+      length: X_BEARER_TOKEN?.length || 0,
+      firstChars: X_BEARER_TOKEN?.substring(0, 20) || 'N/A'
+    },
+    envKeys: c.env ? Object.keys(c.env) : []
+  })
+})
+
 // NotionからSNSアカウント情報を同期
 app.post('/api/sync-notion', async (c) => {
   try {
