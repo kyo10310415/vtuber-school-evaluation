@@ -25,18 +25,29 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-// 直近N ヶ月のリストを取得
+// 直近N ヶ月のリストを取得（前月まで）
 function getRecentMonths(n) {
   const months = [];
   const now = new Date();
+  // 前月から数える
+  const startMonth = now.getMonth() - 1; // 0-indexed
   
-  for (let i = n - 1; i >= 0; i--) {
-    const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const month = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-    months.push(month);
+  for (let i = 0; i < n; i++) {
+    const targetMonth = startMonth - i;
+    let year = now.getFullYear();
+    let month = targetMonth;
+    
+    // 年を跨ぐ場合の調整
+    if (month < 0) {
+      year += Math.floor(month / 12);
+      month = 12 + (month % 12);
+    }
+    
+    const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+    months.push(monthStr);
   }
   
-  return months;
+  return months.reverse(); // 古い順に並び替え
 }
 
 // イベントリスナー設定
@@ -59,8 +70,12 @@ function setupEventListeners() {
   if (goToDetailFromReportBtn) {
     goToDetailFromReportBtn.addEventListener('click', () => {
       if (currentStudentId) {
-        const currentMonth = new Date().toISOString().substring(0, 7);
-        window.location.href = `/evaluation-detail?studentId=${currentStudentId}&month=${currentMonth}`;
+        // 前月を取得
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = now.getMonth(); // 0-11
+        const previousMonth = month === 0 ? `${year - 1}-12` : `${year}-${String(month).padStart(2, '0')}`;
+        window.location.href = `/evaluation-detail?studentId=${currentStudentId}&month=${previousMonth}`;
       } else {
         alert('学籍番号が設定されていません');
       }

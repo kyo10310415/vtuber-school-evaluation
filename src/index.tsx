@@ -734,7 +734,7 @@ app.get('/api/youtube/evaluate/:studentId', async (c) => {
     const STUDENT_MASTER_SPREADSHEET_ID = getEnv(c, 'STUDENT_MASTER_SPREADSHEET_ID')
     const YOUTUBE_API_KEY = getEnv(c, 'YOUTUBE_API_KEY')
     const studentId = c.req.param('studentId')
-    const month = c.req.query('month') || new Date().toISOString().substring(0, 7) // YYYY-MM
+    const month = c.req.query('month') || getPreviousMonth() // YYYY-MM
 
     if (!YOUTUBE_API_KEY) {
       return c.json({ success: false, error: 'YOUTUBE_API_KEY が設定されていません' }, 400)
@@ -866,7 +866,7 @@ app.get('/api/evaluation/complete/:studentId', async (c) => {
     const YOUTUBE_API_KEY = getEnv(c, 'YOUTUBE_API_KEY')
     const X_BEARER_TOKEN = getEnv(c, 'X_BEARER_TOKEN')
     const studentId = c.req.param('studentId')
-    const month = c.req.query('month') || new Date().toISOString().substring(0, 7)
+    const month = c.req.query('month') || getPreviousMonth()
     
     // 生徒情報を取得
     const students = await fetchStudents(GOOGLE_SERVICE_ACCOUNT, STUDENT_MASTER_SPREADSHEET_ID)
@@ -974,7 +974,7 @@ app.get('/api/x/evaluate/:studentId', async (c) => {
     const STUDENT_MASTER_SPREADSHEET_ID = getEnv(c, 'STUDENT_MASTER_SPREADSHEET_ID')
     const X_BEARER_TOKEN = getEnv(c, 'X_BEARER_TOKEN')
     const studentId = c.req.param('studentId')
-    const month = c.req.query('month') || new Date().toISOString().substring(0, 7) // YYYY-MM
+    const month = c.req.query('month') || getPreviousMonth() // YYYY-MM
 
     if (!X_BEARER_TOKEN) {
       return c.json({ success: false, error: 'X_BEARER_TOKEN が設定されていません' }, 400)
@@ -1023,7 +1023,7 @@ app.get('/api/prolevel/:studentId', async (c) => {
     const GOOGLE_SERVICE_ACCOUNT = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT')
     const RESULT_SPREADSHEET_ID = getEnv(c, 'RESULT_SPREADSHEET_ID')
     const studentId = c.req.param('studentId')
-    const month = c.req.query('month') || new Date().toISOString().substring(0, 7) // YYYY-MM
+    const month = c.req.query('month') || getPreviousMonth() // YYYY-MM
     
     if (!studentId) {
       return c.json({ success: false, message: '学籍番号が指定されていません' }, 400)
@@ -1501,6 +1501,114 @@ app.get('/api/results/:studentId', async (c) => {
     return c.json({ success: false, message: error.message }, 500)
   }
 })
+
+// 自動評価エンドポイント（GitHub Actions Cronから呼び出される）
+app.post('/api/auto-evaluate', async (c) => {
+  try {
+    const GOOGLE_SERVICE_ACCOUNT = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT')
+    const STUDENT_MASTER_SPREADSHEET_ID = getEnv(c, 'STUDENT_MASTER_SPREADSHEET_ID')
+    const RESULT_SPREADSHEET_ID = getEnv(c, 'RESULT_SPREADSHEET_ID')
+    const YOUTUBE_API_KEY = getEnv(c, 'YOUTUBE_API_KEY')
+    const X_BEARER_TOKEN = getEnv(c, 'X_BEARER_TOKEN')
+    
+    // 評価月（クエリパラメータまたは前月）
+    const month = c.req.query('month') || getPreviousMonth()
+    
+    console.log(`[Auto Evaluate] Starting evaluation for ${month}`)
+    
+    // 全生徒を取得
+    const students = await fetchStudents(GOOGLE_SERVICE_ACCOUNT, STUDENT_MASTER_SPREADSHEET_ID)
+    console.log(`[Auto Evaluate] Found ${students.length} students`)
+    
+    const results = []
+    let successCount = 0
+    let errorCount = 0
+    
+    // 各生徒の評価を実行
+    for (const student of students) {
+      try {
+        const result: any = {
+          studentId: student.studentId,
+          studentName: student.name,
+          month,
+          evaluations: {}
+        }
+        
+        // YouTube評価
+        if (YOUTUBE_API_KEY && student.youtubeChannelId) {
+          try {
+            const { evaluateYouTubeChannel } = await import('./lib/youtube-client')
+            result.evaluations.youtube = await evaluateYouTubeChannel(
+              YOUTUBE_API_KEY,
+              student.youtubeChannelId,
+              month
+            )
+            console.log(`[Auto Evaluate] YouTube評価完了: ${student.studentId}`)
+          } catch (error: any) {
+            result.evaluations.youtube = { error: error.message }
+            console.error(`[Auto Evaluate] YouTube評価エラー: ${student.studentId}`, error.message)
+          }
+        }
+        
+        // X評価
+        if (X_BEARER_TOKEN && student.xAccount) {
+          try {
+            const { evaluateXAccount } = await import('./lib/x-client')
+            result.evaluations.x = await evaluateXAccount(
+              X_BEARER_TOKEN,
+              student.xAccount,
+              month
+            )
+            console.log(`[Auto Evaluate] X評価完了: ${student.studentId}`)
+          } catch (error: any) {
+            result.evaluations.x = { error: error.message }
+            console.error(`[Auto Evaluate] X評価エラー: ${student.studentId}`, error.message)
+          }
+        }
+        
+        results.push(result)
+        successCount++
+      } catch (error: any) {
+        console.error(`[Auto Evaluate] 生徒評価エラー: ${student.studentId}`, error.message)
+        results.push({
+          studentId: student.studentId,
+          studentName: student.name,
+          error: error.message
+        })
+        errorCount++
+      }
+    }
+    
+    console.log(`[Auto Evaluate] 完了 - 成功: ${successCount}, エラー: ${errorCount}`)
+    
+    return c.json({
+      success: true,
+      month,
+      totalStudents: students.length,
+      successCount,
+      errorCount,
+      results
+    })
+  } catch (error: any) {
+    console.error('[/api/auto-evaluate] Error:', error.message, error.stack)
+    return c.json({ success: false, error: error.message, stack: error.stack }, 500)
+  }
+})
+
+// 前月を YYYY-MM 形式で取得
+function getPreviousMonth(): string {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = now.getMonth() // 0-11
+  
+  if (month === 0) {
+    // 1月の場合、前年の12月
+    return `${year - 1}-12`
+  } else {
+    const prevMonth = month // 前月 (0-indexed なので month が既に前月)
+    return `${year}-${String(prevMonth).padStart(2, '0')}`
+  }
+}
 
 // アクセストークン取得ヘルパー
 async function getAccessToken(serviceAccountJson: string): Promise<string> {

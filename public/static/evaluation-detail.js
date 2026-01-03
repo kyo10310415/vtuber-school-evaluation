@@ -20,10 +20,18 @@ document.addEventListener('DOMContentLoaded', () => {
   setupEventListeners();
 });
 
-// 現在の月を取得 (YYYY-MM形式)
+// 前月を取得 (YYYY-MM形式)
 function getCurrentMonth() {
   const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const year = now.getFullYear();
+  const month = now.getMonth(); // 0-11
+  
+  if (month === 0) {
+    // 1月の場合、前年の12月
+    return `${year - 1}-12`;
+  } else {
+    return `${year}-${String(month).padStart(2, '0')}`;
+  }
 }
 
 // イベントリスナー設定

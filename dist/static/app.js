@@ -96,9 +96,12 @@ function getStatusColor(status) {
 
 // 生徒の評価履歴を表示
 async function showStudentHistory(studentId) {
-  // 評価詳細ページに遷移
-  const currentMonth = new Date().toISOString().substring(0, 7);
-  window.location.href = `/evaluation-detail?studentId=${studentId}&month=${currentMonth}`;
+  // 評価詳細ページに遷移（前月）
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth(); // 0-11
+  const previousMonth = month === 0 ? `${year - 1}-12` : `${year}-${String(month).padStart(2, '0')}`;
+  window.location.href = `/evaluation-detail?studentId=${studentId}&month=${previousMonth}`;
 }
 
 // イベントリスナー設定
@@ -292,9 +295,12 @@ async function searchResults() {
     return;
   }
 
-  // 評価詳細ページに遷移
-  const currentMonth = new Date().toISOString().substring(0, 7);
-  window.location.href = `/evaluation-detail?studentId=${studentId}&month=${currentMonth}`;
+  // 評価詳細ページに遷移（前月）
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth(); // 0-11
+  const previousMonth = month === 0 ? `${year - 1}-12` : `${year}-${String(month).padStart(2, '0')}`;
+  window.location.href = `/evaluation-detail?studentId=${studentId}&month=${previousMonth}`;
 }
 
 // 検索結果を表示
