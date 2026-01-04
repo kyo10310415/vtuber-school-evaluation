@@ -1764,15 +1764,40 @@ app.post('/api/auto-evaluate', async (c) => {
     // 評価月（クエリパラメータまたは前月）
     const month = c.req.query('month') || getPreviousMonth()
     
+    // バッチ処理のパラメータ
+    const batchSize = parseInt(c.req.query('batchSize') || '300') // デフォルト300名
+    const batchIndex = parseInt(c.req.query('batchIndex') || '0') // デフォルト0（最初のバッチ）
+    
     console.log(`[Auto Evaluate] Starting evaluation for ${month}`)
+    console.log(`[Auto Evaluate] Batch size: ${batchSize}, Batch index: ${batchIndex}`)
     
     // 全生徒を取得
-    const students = await fetchStudents(GOOGLE_SERVICE_ACCOUNT, STUDENT_MASTER_SPREADSHEET_ID)
-    console.log(`[Auto Evaluate] Found ${students.length} students`)
+    const allStudents = await fetchStudents(GOOGLE_SERVICE_ACCOUNT, STUDENT_MASTER_SPREADSHEET_ID)
+    console.log(`[Auto Evaluate] Found ${allStudents.length} total students`)
+    
+    // フィルタリング: アクティブのみ、永久会員を除外
+    const filteredStudents = allStudents.filter(student => {
+      const status = student.status || ''
+      const isActive = status === 'アクティブ'
+      const isPermanent = status === '永久会員'
+      return isActive && !isPermanent
+    })
+    console.log(`[Auto Evaluate] Filtered to ${filteredStudents.length} active students (excluding 永久会員)`)
+    
+    // バッチ処理: 指定されたバッチのみ処理
+    const startIndex = batchIndex * batchSize
+    const endIndex = Math.min(startIndex + batchSize, filteredStudents.length)
+    const students = filteredStudents.slice(startIndex, endIndex)
+    
+    console.log(`[Auto Evaluate] Processing batch ${batchIndex}: students ${startIndex + 1}-${endIndex} (${students.length} students)`)
     
     const results = []
     let successCount = 0
     let errorCount = 0
+    let skippedCount = 0
+    
+    // アクセストークンを取得（キャッシュ用）
+    const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
     
     // 各生徒の評価を実行
     for (const student of students) {
@@ -1784,17 +1809,51 @@ app.post('/api/auto-evaluate', async (c) => {
           evaluations: {}
         }
         
+        let hasAnyAccount = false
+        
         // YouTube評価
         if (student.youtubeChannelId) {
+          hasAnyAccount = true
           if (YOUTUBE_API_KEY) {
             try {
-              const { evaluateYouTubeChannel } = await import('./lib/youtube-client')
-              result.evaluations.youtube = await evaluateYouTubeChannel(
-                YOUTUBE_API_KEY,
-                student.youtubeChannelId,
-                month
+              // キャッシュを確認
+              const { getCachedEvaluation, saveCachedEvaluation } = await import('./lib/evaluation-cache')
+              let cachedData = await getCachedEvaluation(
+                accessToken,
+                RESULT_SPREADSHEET_ID,
+                student.studentId,
+                month,
+                'youtube'
               )
-              console.log(`[Auto Evaluate] YouTube評価完了: ${student.studentId}`)
+              
+              if (cachedData) {
+                result.evaluations.youtube = { ...cachedData, cached: true }
+                console.log(`[Auto Evaluate] YouTube評価（キャッシュ使用）: ${student.studentId}`)
+              } else {
+                const { evaluateYouTubeChannel } = await import('./lib/youtube-client')
+                const evaluation = await evaluateYouTubeChannel(
+                  YOUTUBE_API_KEY,
+                  student.youtubeChannelId,
+                  month
+                )
+                
+                if (evaluation) {
+                  result.evaluations.youtube = evaluation
+                  // キャッシュに保存
+                  await saveCachedEvaluation(
+                    accessToken,
+                    RESULT_SPREADSHEET_ID,
+                    student.studentId,
+                    student.name,
+                    month,
+                    'youtube',
+                    evaluation
+                  )
+                  console.log(`[Auto Evaluate] YouTube評価完了: ${student.studentId}`)
+                } else {
+                  result.evaluations.youtube = { error: 'YouTube評価の取得に失敗しました' }
+                }
+              }
             } catch (error: any) {
               result.evaluations.youtube = { error: error.message }
               console.error(`[Auto Evaluate] YouTube評価エラー: ${student.studentId}`, error.message)
@@ -1803,20 +1862,52 @@ app.post('/api/auto-evaluate', async (c) => {
             result.evaluations.youtube = { error: 'YOUTUBE_API_KEY が設定されていません' }
           }
         } else {
-          result.evaluations.youtube = { error: 'YouTubeチャンネルIDが設定されていません' }
+          result.evaluations.youtube = { info: 'YouTubeチャンネル情報なし' }
         }
         
         // X評価
         if (student.xAccount) {
+          hasAnyAccount = true
           if (X_BEARER_TOKEN) {
             try {
-              const { evaluateXAccount } = await import('./lib/x-client')
-              result.evaluations.x = await evaluateXAccount(
-                X_BEARER_TOKEN,
-                student.xAccount,
-                month
+              // キャッシュを確認
+              const { getCachedEvaluation, saveCachedEvaluation } = await import('./lib/evaluation-cache')
+              let cachedData = await getCachedEvaluation(
+                accessToken,
+                RESULT_SPREADSHEET_ID,
+                student.studentId,
+                month,
+                'x'
               )
-              console.log(`[Auto Evaluate] X評価完了: ${student.studentId}`)
+              
+              if (cachedData) {
+                result.evaluations.x = { ...cachedData, cached: true }
+                console.log(`[Auto Evaluate] X評価（キャッシュ使用）: ${student.studentId}`)
+              } else {
+                const { evaluateXAccount } = await import('./lib/x-client')
+                const evaluation = await evaluateXAccount(
+                  X_BEARER_TOKEN,
+                  student.xAccount,
+                  month
+                )
+                
+                if (evaluation) {
+                  result.evaluations.x = evaluation
+                  // キャッシュに保存
+                  await saveCachedEvaluation(
+                    accessToken,
+                    RESULT_SPREADSHEET_ID,
+                    student.studentId,
+                    student.name,
+                    month,
+                    'x',
+                    evaluation
+                  )
+                  console.log(`[Auto Evaluate] X評価完了: ${student.studentId}`)
+                } else {
+                  result.evaluations.x = { error: 'X評価の取得に失敗しました' }
+                }
+              }
             } catch (error: any) {
               result.evaluations.x = { error: error.message }
               console.error(`[Auto Evaluate] X評価エラー: ${student.studentId}`, error.message)
@@ -1825,7 +1916,14 @@ app.post('/api/auto-evaluate', async (c) => {
             result.evaluations.x = { error: 'X_BEARER_TOKEN が設定されていません' }
           }
         } else {
-          result.evaluations.x = { error: 'Xアカウントが設定されていません' }
+          result.evaluations.x = { info: 'Xアカウント情報なし' }
+        }
+        
+        // アカウント情報が一つもない場合はスキップ
+        if (!hasAnyAccount) {
+          console.log(`[Auto Evaluate] スキップ（アカウント情報なし）: ${student.studentId}`)
+          skippedCount++
+          continue
         }
         
         results.push(result)
@@ -1841,19 +1939,72 @@ app.post('/api/auto-evaluate', async (c) => {
       }
     }
     
-    console.log(`[Auto Evaluate] 完了 - 成功: ${successCount}, エラー: ${errorCount}`)
+    console.log(`[Auto Evaluate] 完了 - 成功: ${successCount}, エラー: ${errorCount}, スキップ: ${skippedCount}`)
+    
+    // 次のバッチがあるか確認
+    const hasNextBatch = endIndex < filteredStudents.length
+    const nextBatchIndex = hasNextBatch ? batchIndex + 1 : null
+    const totalBatches = Math.ceil(filteredStudents.length / batchSize)
     
     return c.json({
       success: true,
       month,
-      totalStudents: students.length,
+      batchInfo: {
+        batchIndex,
+        batchSize,
+        totalBatches,
+        processedStudents: students.length,
+        totalActiveStudents: filteredStudents.length,
+        hasNextBatch,
+        nextBatchIndex
+      },
       successCount,
       errorCount,
+      skippedCount,
       results
     })
   } catch (error: any) {
     console.error('[/api/auto-evaluate] Error:', error.message, error.stack)
     return c.json({ success: false, error: error.message, stack: error.stack }, 500)
+  }
+})
+
+// バッチ評価の進行状況を確認
+app.get('/api/auto-evaluate/status', async (c) => {
+  try {
+    const GOOGLE_SERVICE_ACCOUNT = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT')
+    const STUDENT_MASTER_SPREADSHEET_ID = getEnv(c, 'STUDENT_MASTER_SPREADSHEET_ID')
+    
+    // 全生徒を取得
+    const allStudents = await fetchStudents(GOOGLE_SERVICE_ACCOUNT, STUDENT_MASTER_SPREADSHEET_ID)
+    
+    // フィルタリング: アクティブのみ、永久会員を除外
+    const filteredStudents = allStudents.filter(student => {
+      const status = student.status || ''
+      const isActive = status === 'アクティブ'
+      const isPermanent = status === '永久会員'
+      return isActive && !isPermanent
+    })
+    
+    // アカウント情報がある生徒のみカウント
+    const studentsWithAccounts = filteredStudents.filter(student => 
+      student.youtubeChannelId || student.xAccount
+    )
+    
+    const batchSize = 300
+    const totalBatches = Math.ceil(studentsWithAccounts.length / batchSize)
+    
+    return c.json({
+      success: true,
+      totalStudents: allStudents.length,
+      activeStudents: filteredStudents.length,
+      studentsWithAccounts: studentsWithAccounts.length,
+      batchSize,
+      totalBatches,
+      estimatedTime: `${totalBatches * 15}分（15分間隔で${totalBatches}バッチ）`
+    })
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500)
   }
 })
 
