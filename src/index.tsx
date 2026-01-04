@@ -1642,7 +1642,8 @@ app.post('/api/evaluate', async (c) => {
     const STUDENT_MASTER_SPREADSHEET_ID = getEnv(c, 'STUDENT_MASTER_SPREADSHEET_ID')
     const ABSENCE_SPREADSHEET_ID = getEnv(c, 'ABSENCE_SPREADSHEET_ID')
     const RESULT_SPREADSHEET_ID = getEnv(c, 'RESULT_SPREADSHEET_ID')
-    // PAYMENT_SPREADSHEET_ID は一旦使用しない
+    const YOUTUBE_API_KEY = getEnv(c, 'YOUTUBE_API_KEY')
+    const X_BEARER_TOKEN = getEnv(c, 'X_BEARER_TOKEN')
     
     const request: EvaluationRequest = await c.req.json()
     
@@ -1653,6 +1654,8 @@ app.post('/api/evaluate', async (c) => {
         message: '評価対象月（month）は必須です（例: 2024-12）',
       }, 400)
     }
+
+    console.log(`[/api/evaluate] Starting evaluation for ${request.month}`)
 
     // Gemini初期化
     const gemini = new GeminiAnalyzer(GEMINI_API_KEY)
@@ -1665,15 +1668,25 @@ app.post('/api/evaluate', async (c) => {
       students = students.filter(s => request.studentIds!.includes(s.studentId))
     }
 
+    console.log(`[/api/evaluate] Evaluating ${students.length} students`)
+
     // 欠席データを取得（直近3ヶ月以内から集計）
     const absenceDataList = await fetchAbsenceData(GOOGLE_SERVICE_ACCOUNT, ABSENCE_SPREADSHEET_ID, request.month)
 
     const results: EvaluationResult[] = []
     const errors: string[] = []
+    const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
+
+    // YouTube/X評価用のモジュールをインポート
+    const { evaluateYouTubeChannel } = await import('./lib/youtube-client')
+    const { evaluateXAccount } = await import('./lib/x-client')
+    const { saveCachedEvaluation } = await import('./lib/evaluation-cache')
 
     // 各生徒を評価
     for (const student of students) {
       try {
+        console.log(`[/api/evaluate] Processing student: ${student.studentId} (${student.name})`)
+        
         // トークメモフォルダからドキュメントを取得
         const documentIds = await fetchDocumentsInFolder(GOOGLE_SERVICE_ACCOUNT, student.talkMemoFolderUrl)
         
@@ -1691,7 +1704,7 @@ app.post('/api/evaluate', async (c) => {
         // 欠席データを取得
         const absenceData = absenceDataList.find(a => a.studentId === student.studentId)
 
-        // 評価を実施（支払いデータは一旦なし）
+        // プロレベル評価を実施
         const result = evaluateStudent(
           student,
           absenceData,
@@ -1701,12 +1714,71 @@ app.post('/api/evaluate', async (c) => {
         )
 
         results.push(result)
+
+        // YouTube評価（YouTubeチャンネルIDがある場合のみ）
+        if (student.youtubeChannelId && YOUTUBE_API_KEY) {
+          try {
+            console.log(`[/api/evaluate] Evaluating YouTube for ${student.studentId}`)
+            const youtubeEval = await evaluateYouTubeChannel(
+              YOUTUBE_API_KEY,
+              student.youtubeChannelId,
+              request.month
+            )
+            
+            if (youtubeEval) {
+              // キャッシュに保存
+              await saveCachedEvaluation(
+                accessToken,
+                RESULT_SPREADSHEET_ID,
+                student.studentId,
+                student.name,
+                request.month,
+                'youtube',
+                youtubeEval
+              )
+              console.log(`[/api/evaluate] YouTube evaluation saved for ${student.studentId}`)
+            }
+          } catch (error: any) {
+            console.error(`[/api/evaluate] YouTube evaluation failed for ${student.studentId}:`, error.message)
+            errors.push(`${student.name}(${student.studentId}): YouTube評価エラー - ${error.message}`)
+          }
+        }
+
+        // X評価（Xアカウントがある場合のみ）
+        if (student.xAccount && X_BEARER_TOKEN) {
+          try {
+            console.log(`[/api/evaluate] Evaluating X for ${student.studentId}`)
+            const xEval = await evaluateXAccount(
+              X_BEARER_TOKEN,
+              student.xAccount,
+              request.month
+            )
+            
+            if (xEval) {
+              // キャッシュに保存
+              await saveCachedEvaluation(
+                accessToken,
+                RESULT_SPREADSHEET_ID,
+                student.studentId,
+                student.name,
+                request.month,
+                'x',
+                xEval
+              )
+              console.log(`[/api/evaluate] X evaluation saved for ${student.studentId}`)
+            }
+          } catch (error: any) {
+            console.error(`[/api/evaluate] X evaluation failed for ${student.studentId}:`, error.message)
+            errors.push(`${student.name}(${student.studentId}): X評価エラー - ${error.message}`)
+          }
+        }
+
       } catch (error: any) {
         errors.push(`${student.name}(${student.studentId}): ${error.message}`)
       }
     }
 
-    // 結果をスプレッドシートに書き込み
+    // プロレベル評価結果をスプレッドシートに書き込み
     if (results.length > 0) {
       const resultArrays = results.map(convertResultToArray)
       await writeResultsToSheet(
@@ -1715,16 +1787,17 @@ app.post('/api/evaluate', async (c) => {
         `評価結果_${request.month}`,
         resultArrays
       )
+      console.log(`[/api/evaluate] Results written to sheet: 評価結果_${request.month}`)
     }
 
     return c.json<EvaluationResponse>({
       success: true,
-      message: `${results.length}件の評価が完了しました`,
+      message: `${results.length}件の評価が完了しました（YouTube/X評価を含む）`,
       results,
       errors: errors.length > 0 ? errors : undefined,
     })
   } catch (error: any) {
-    console.error('Evaluation error:', error)
+    console.error('[/api/evaluate] Error:', error)
     return c.json<EvaluationResponse>({
       success: false,
       message: error.message,
