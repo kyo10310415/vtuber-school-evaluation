@@ -1172,8 +1172,8 @@ app.get('/api/evaluation/complete/:studentId', async (c) => {
             if (evaluation) {
               result.youtube = evaluation
               
-              // キャッシュに保存
-              if (useCache) {
+              // ✅ 動画が1件以上ある場合のみキャッシュに保存
+              if (useCache && evaluation.videosInMonth > 0) {
                 const { saveCachedEvaluation } = await import('./lib/evaluation-cache')
                 await saveCachedEvaluation(
                   accessToken,
@@ -1184,9 +1184,10 @@ app.get('/api/evaluation/complete/:studentId', async (c) => {
                   'youtube',
                   evaluation
                 )
+                console.log(`[YouTube評価] API使用（キャッシュ保存）: ${studentId}`)
+              } else {
+                console.log(`[YouTube評価] API使用（キャッシュスキップ：動画0件）: ${studentId}`)
               }
-              
-              console.log(`[YouTube評価] API使用: ${studentId}`)
             } else {
               result.youtube = { error: 'YouTube評価の取得に失敗しました（APIクォータ超過の可能性）' }
             }
@@ -1234,8 +1235,8 @@ app.get('/api/evaluation/complete/:studentId', async (c) => {
             if (evaluation) {
               result.x = evaluation
               
-              // キャッシュに保存
-              if (useCache) {
+              // ✅ ツイートが1件以上ある、またはユーザー情報が取得できた場合のみキャッシュに保存
+              if (useCache && (evaluation.tweetsInMonth > 0 || evaluation.followersCount > 0)) {
                 const { saveCachedEvaluation } = await import('./lib/evaluation-cache')
                 await saveCachedEvaluation(
                   accessToken,
@@ -1246,9 +1247,10 @@ app.get('/api/evaluation/complete/:studentId', async (c) => {
                   'x',
                   evaluation
                 )
+                console.log(`[X評価] API使用（キャッシュ保存）: ${studentId}`)
+              } else {
+                console.log(`[X評価] API使用（キャッシュスキップ：データ不足）: ${studentId}`)
               }
-              
-              console.log(`[X評価] API使用: ${studentId}`)
             } else {
               result.x = { error: 'X評価の取得に失敗しました' }
             }
@@ -1725,8 +1727,8 @@ app.post('/api/evaluate', async (c) => {
               request.month
             )
             
-            if (youtubeEval) {
-              // キャッシュに保存
+            // ✅ 成功時のみキャッシュに保存（動画が1件以上ある場合）
+            if (youtubeEval && youtubeEval.videosInMonth > 0) {
               await saveCachedEvaluation(
                 accessToken,
                 RESULT_SPREADSHEET_ID,
@@ -1737,6 +1739,8 @@ app.post('/api/evaluate', async (c) => {
                 youtubeEval
               )
               console.log(`[/api/evaluate] YouTube evaluation saved for ${student.studentId}`)
+            } else {
+              console.log(`[/api/evaluate] YouTube evaluation skipped cache (0 videos or API error) for ${student.studentId}`)
             }
           } catch (error: any) {
             console.error(`[/api/evaluate] YouTube evaluation failed for ${student.studentId}:`, error.message)
@@ -1754,8 +1758,8 @@ app.post('/api/evaluate', async (c) => {
               request.month
             )
             
-            if (xEval) {
-              // キャッシュに保存
+            // ✅ 評価が成功した場合のみキャッシュに保存（ツイート1件以上またはユーザー情報取得成功）
+            if (xEval && (xEval.tweetsInMonth > 0 || xEval.followersCount > 0)) {
               await saveCachedEvaluation(
                 accessToken,
                 RESULT_SPREADSHEET_ID,
@@ -1766,7 +1770,14 @@ app.post('/api/evaluate', async (c) => {
                 xEval
               )
               console.log(`[/api/evaluate] X evaluation saved for ${student.studentId}`)
+            } else {
+              console.log(`[/api/evaluate] X evaluation skipped cache (no data or API error) for ${student.studentId}`)
             }
+          } catch (error: any) {
+            console.error(`[/api/evaluate] X evaluation failed for ${student.studentId}:`, error.message)
+            errors.push(`${student.name}(${student.studentId}): X評価エラー - ${error.message}`)
+          }
+        }
           } catch (error: any) {
             console.error(`[/api/evaluate] X evaluation failed for ${student.studentId}:`, error.message)
             errors.push(`${student.name}(${student.studentId}): X評価エラー - ${error.message}`)
