@@ -1243,6 +1243,7 @@ app.get('/api/x/evaluate/:studentId', async (c) => {
     }
 
     // X評価を実行
+    console.log(`[X Evaluate] Starting evaluation for ${studentId}, account: ${student.xAccount}, month: ${month}`)
     const { evaluateXAccount } = await import('./lib/x-client')
     const evaluation = await evaluateXAccount(
       X_BEARER_TOKEN,
@@ -1250,8 +1251,19 @@ app.get('/api/x/evaluate/:studentId', async (c) => {
       month
     )
 
+    console.log(`[X Evaluate] Evaluation result for ${studentId}:`, evaluation ? 'SUCCESS' : 'NULL')
+    
     if (!evaluation) {
-      return c.json({ success: false, error: 'X評価の取得に失敗しました' }, 500)
+      console.error(`[X Evaluate] Failed to get evaluation for ${studentId}`)
+      return c.json({ 
+        success: false, 
+        error: 'X評価の取得に失敗しました。詳細はサーバーログを確認してください。',
+        details: {
+          studentId,
+          xAccount: student.xAccount,
+          month
+        }
+      }, 500)
     }
 
     return c.json({
