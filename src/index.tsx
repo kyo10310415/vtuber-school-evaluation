@@ -716,6 +716,60 @@ app.get('/api/debug/x/:username', async (c) => {
   }
 })
 
+// X API詳細デバッグエンドポイント（ツイート取得まで）
+app.get('/api/debug/x-full/:username', async (c) => {
+  try {
+    const X_BEARER_TOKEN = getEnv(c, 'X_BEARER_TOKEN')
+    const username = c.req.param('username')
+    const month = c.req.query('month') || getPreviousMonth()
+    
+    if (!X_BEARER_TOKEN) {
+      return c.json({ error: 'X_BEARER_TOKEN not set' }, 400)
+    }
+    
+    const { fetchXUserByUsername, fetchRecentTweets } = await import('./lib/x-client')
+    
+    // ステップ1: ユーザー情報取得
+    console.log(`[Debug X Full] Step 1: Fetching user ${username}`)
+    const user = await fetchXUserByUsername(X_BEARER_TOKEN, username)
+    
+    if (!user) {
+      return c.json({ 
+        step: 1, 
+        status: 'failed',
+        error: 'Failed to fetch user',
+        username 
+      })
+    }
+    
+    // ステップ2: ツイート取得
+    console.log(`[Debug X Full] Step 2: Fetching tweets for user ID ${user.userId}`)
+    const tweets = await fetchRecentTweets(X_BEARER_TOKEN, user.userId, 10)
+    
+    return c.json({
+      step: 2,
+      status: 'success',
+      user: {
+        userId: user.userId,
+        username: user.username,
+        followersCount: user.followersCount,
+        followingCount: user.followingCount
+      },
+      tweets: {
+        count: tweets.length,
+        sample: tweets.slice(0, 3).map(t => ({
+          id: t.tweetId,
+          text: t.text.substring(0, 100),
+          createdAt: t.createdAt
+        }))
+      },
+      month
+    })
+  } catch (error: any) {
+    return c.json({ error: error.message, stack: error.stack }, 500)
+  }
+})
+
 // キャッシュシート初期化エンドポイント
 app.post('/api/debug/init-cache', async (c) => {
   try {
