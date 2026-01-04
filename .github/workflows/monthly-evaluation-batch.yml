@@ -28,6 +28,37 @@ jobs:
             echo "Skipping evaluation - not the 1st of the month"
           fi
       
+      # 🔥 新規追加: Renderサービスのウォームアップ
+      - name: Wake up Render service
+        if: steps.check_date.outputs.should_run == 'true'
+        run: |
+          echo "Waking up Render service..."
+          for i in {1..10}; do
+            echo "Attempt $i/10: Pinging health endpoint..."
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://vtuber-school-evaluation.onrender.com/api/health || echo "000")
+            echo "Response status: $STATUS"
+            
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ Service is ready!"
+              break
+            fi
+            
+            if [ $i -lt 10 ]; then
+              echo "Waiting 10 seconds before retry..."
+              sleep 10
+            fi
+          done
+          
+          # 最終確認
+          FINAL_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://vtuber-school-evaluation.onrender.com/api/health || echo "000")
+          if [ "$FINAL_STATUS" != "200" ]; then
+            echo "::error::Service failed to wake up after 10 attempts"
+            exit 1
+          fi
+          
+          echo "Service is fully operational. Waiting 5 more seconds for stability..."
+          sleep 5
+      
       - name: Get previous month
         if: steps.check_date.outputs.should_run == 'true'
         id: get_month
@@ -68,26 +99,41 @@ jobs:
             echo "Processing batch $((i+1))/$TOTAL_BATCHES"
             echo "============================================"
             
-            # バッチ評価を実行
-            RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" \
-              -X POST \
-              "https://vtuber-school-evaluation.onrender.com/api/auto-evaluate?month=$MONTH&batchIndex=$i&batchSize=300")
+            # バッチ評価を実行（リトライロジック付き）
+            MAX_RETRIES=3
+            RETRY_COUNT=0
+            SUCCESS=false
             
-            HTTP_STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS" | cut -d: -f2)
-            BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS/d')
+            while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$SUCCESS" = "false" ]; do
+              if [ $RETRY_COUNT -gt 0 ]; then
+                echo "Retry $RETRY_COUNT/$MAX_RETRIES after 30 seconds..."
+                sleep 30
+              fi
+              
+              RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" \
+                -X POST \
+                "https://vtuber-school-evaluation.onrender.com/api/auto-evaluate?month=$MONTH&batchIndex=$i&batchSize=300")
+              
+              HTTP_STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS" | cut -d: -f2)
+              BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS/d')
+              
+              echo "Response Status: $HTTP_STATUS"
+              
+              if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 400 ]; then
+                SUCCESS=true
+                SUCCESS_COUNT=$(echo "$BODY" | jq -r '.successCount')
+                ERROR_COUNT=$(echo "$BODY" | jq -r '.errorCount')
+                SKIPPED_COUNT=$(echo "$BODY" | jq -r '.skippedCount')
+                echo "✅ Batch $((i+1)) completed: Success=$SUCCESS_COUNT, Error=$ERROR_COUNT, Skipped=$SKIPPED_COUNT"
+              else
+                RETRY_COUNT=$((RETRY_COUNT+1))
+                echo "::warning::Batch $((i+1)) failed with status $HTTP_STATUS (Attempt $RETRY_COUNT/$MAX_RETRIES)"
+              fi
+            done
             
-            echo "Response Status: $HTTP_STATUS"
-            echo "Response Body: $BODY"
-            
-            if [ "$HTTP_STATUS" -ge 400 ]; then
-              echo "::warning::Batch $((i+1)) failed with status $HTTP_STATUS"
-              echo "Response: $BODY"
+            if [ "$SUCCESS" = "false" ]; then
+              echo "::error::Batch $((i+1)) failed after $MAX_RETRIES attempts"
               # エラーでも続行（次のバッチを試行）
-            else
-              SUCCESS_COUNT=$(echo "$BODY" | jq -r '.successCount')
-              ERROR_COUNT=$(echo "$BODY" | jq -r '.errorCount')
-              SKIPPED_COUNT=$(echo "$BODY" | jq -r '.skippedCount')
-              echo "✅ Batch $((i+1)) completed: Success=$SUCCESS_COUNT, Error=$ERROR_COUNT, Skipped=$SKIPPED_COUNT"
             fi
             
             # 次のバッチの前に15分待機（最後のバッチを除く）
