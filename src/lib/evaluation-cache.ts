@@ -153,7 +153,7 @@ export async function saveCachedEvaluation(
 }
 
 /**
- * キャッシュシートを初期化（ヘッダー行を作成）
+ * キャッシュシートを初期化（シートが存在しない場合は作成し、ヘッダー行を作成）
  */
 export async function initializeCacheSheet(
   accessToken: string,
@@ -163,6 +163,61 @@ export async function initializeCacheSheet(
   try {
     const sheetName = evaluationType === 'youtube' ? 'youtube_cache' : 'x_cache'
     
+    // Step 1: シートが存在するか確認
+    const checkResponse = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${cacheSpreadsheetId}`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      }
+    )
+    
+    if (!checkResponse.ok) {
+      console.error(`[Cache] Failed to get spreadsheet info`)
+      return false
+    }
+    
+    const spreadsheetData = await checkResponse.json()
+    const sheets = spreadsheetData.sheets || []
+    const sheetExists = sheets.some((s: any) => s.properties.title === sheetName)
+    
+    // Step 2: シートが存在しない場合は作成
+    if (!sheetExists) {
+      console.log(`[Cache] Creating new sheet: ${sheetName}`)
+      
+      const createResponse = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${cacheSpreadsheetId}:batchUpdate`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            requests: [
+              {
+                addSheet: {
+                  properties: {
+                    title: sheetName
+                  }
+                }
+              }
+            ]
+          })
+        }
+      )
+      
+      if (!createResponse.ok) {
+        const errorText = await createResponse.text()
+        console.error(`[Cache] Failed to create sheet: ${errorText}`)
+        return false
+      }
+      
+      console.log(`[Cache] Sheet created: ${sheetName}`)
+    } else {
+      console.log(`[Cache] Sheet already exists: ${sheetName}`)
+    }
+    
+    // Step 3: ヘッダー行を書き込み
     const header = [
       '学籍番号',
       '氏名',
@@ -172,7 +227,7 @@ export async function initializeCacheSheet(
       '有効期限'
     ]
     
-    const response = await fetch(
+    const headerResponse = await fetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${cacheSpreadsheetId}/values/${encodeURIComponent(sheetName)}!A1:F1?valueInputOption=RAW`,
       {
         method: 'PUT',
@@ -186,9 +241,9 @@ export async function initializeCacheSheet(
       }
     )
     
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.error(`[Cache] Failed to initialize cache sheet: ${errorText}`)
+    if (!headerResponse.ok) {
+      const errorText = await headerResponse.text()
+      console.error(`[Cache] Failed to write header: ${errorText}`)
       return false
     }
     
