@@ -85,16 +85,19 @@ VTuber育成スクールの生徒様の成長度を評価・可視化するシ�
 - リセット: 毎日午前0時（PT）にクォータがリセット
 
 ### X評価
-- ❌ **X API Endpoint-level Rate Limit超過** (429 Too Many Requests)
-- 原因: 
-  - User lookup: 300 requests / 15 minutes（endpoint-level制限）
-  - User tweets: 900 requests / 15 minutes（endpoint-level制限）
-  - 月間制限（1,200,000）には余裕あり
+- ✅ **正常動作中** (2026-01-04修正完了)
+- 修正内容: `fetchRecentTweets` 関数のスコープエラー修正
+  - 問題: `data` 変数がtryブロック外でアクセスされていた
+  - 解決: `return` 文をtryブロック内に移動
 - 対策: 
   - ✅ キャッシュシステム実装済み（24時間以内は再利用）
   - ✅ バッチ処理（300名/15分）で制限内に収める
   - ✅ 15分間隔で段階的に評価
-- リセット: 15分ごとにendpoint-level制限がリセット
+- レート制限: 
+  - User lookup: 300 requests / 15 minutes
+  - User tweets: 900 requests / 15 minutes
+  - 月間制限: 1,200,000（余裕あり）
+- 詳細: [X評価修正サマリー](./docs/X_EVALUATION_FIX_SUMMARY.md)
 
 ### プロレベル評価
 - ✅ 正常動作中
