@@ -23,7 +23,7 @@ export async function getCachedEvaluation(
   evaluationType: 'youtube' | 'x'
 ): Promise<any | null> {
   try {
-    const sheetName = evaluationType === 'youtube' ? 'YouTube評価キャッシュ' : 'X評価キャッシュ'
+    const sheetName = evaluationType === 'youtube' ? 'youtube_cache' : 'x_cache'
     
     // シートのデータを取得
     const response = await fetch(
@@ -103,7 +103,7 @@ export async function saveCachedEvaluation(
   evaluationData: any
 ): Promise<boolean> {
   try {
-    const sheetName = evaluationType === 'youtube' ? 'YouTube評価キャッシュ' : 'X評価キャッシュ'
+    const sheetName = evaluationType === 'youtube' ? 'youtube_cache' : 'x_cache'
     
     // 有効期限: 24時間後
     const expiresAt = new Date()
@@ -161,7 +161,7 @@ export async function initializeCacheSheet(
   evaluationType: 'youtube' | 'x'
 ): Promise<boolean> {
   try {
-    const sheetName = evaluationType === 'youtube' ? 'YouTube評価キャッシュ' : 'X評価キャッシュ'
+    const sheetName = evaluationType === 'youtube' ? 'youtube_cache' : 'x_cache'
     
     const header = [
       '学籍番号',
