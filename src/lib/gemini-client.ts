@@ -16,6 +16,9 @@ export class GeminiAnalyzer {
     const prompt = this.createAnalysisPrompt(talkMemo);
     
     try {
+      console.log('[GeminiAnalyzer] Starting analysis for document:', talkMemo.documentId);
+      console.log('[GeminiAnalyzer] Message count:', talkMemo.messages.length);
+      
       const result = await this.model.generateContent(prompt);
       const response = await result.response;
       const text = response.text();
@@ -43,14 +46,18 @@ export class GeminiAnalyzer {
       
       const analysis = JSON.parse(jsonText);
       return this.normalizeAnalysisResult(analysis);
-    } catch (error) {
-      console.error('Gemini analysis error:', error);
+    } catch (error: any) {
+      console.error('[GeminiAnalyzer] Analysis error:', error);
+      console.error('[GeminiAnalyzer] Error name:', error?.name);
+      console.error('[GeminiAnalyzer] Error message:', error?.message);
+      console.error('[GeminiAnalyzer] Error stack:', error?.stack);
+      
       // エラー時のデフォルト値
       return {
-        lateness: { grade: 'C', reason: '分析エラー' },
-        mission: { grade: 'C', reason: '分析エラー' },
-        activeListening: { grade: 'C', reason: '分析エラー' },
-        comprehension: { grade: 'C', correctAnswers: 0, totalQuestions: 5, reason: '分析エラー' },
+        lateness: { grade: 'C', reason: `分析エラー: ${error?.message || 'Unknown error'}` },
+        mission: { grade: 'C', reason: `分析エラー: ${error?.message || 'Unknown error'}` },
+        activeListening: { grade: 'C', reason: `分析エラー: ${error?.message || 'Unknown error'}` },
+        comprehension: { grade: 'C', correctAnswers: 0, totalQuestions: 5, reason: `分析エラー: ${error?.message || 'Unknown error'}` },
       };
     }
   }
