@@ -234,24 +234,24 @@ export async function fetchRecentTweets(
       console.log(`[X API] No tweets found for user: ${userId}`);
       return [];
     }
+
+    return data.data.map((tweet: any) => ({
+      tweetId: tweet.id,
+      text: tweet.text,
+      createdAt: tweet.created_at,
+      publicMetrics: {
+        retweetCount: tweet.public_metrics?.retweet_count || 0,
+        replyCount: tweet.public_metrics?.reply_count || 0,
+        likeCount: tweet.public_metrics?.like_count || 0,
+        quoteCount: tweet.public_metrics?.quote_count || 0,
+        bookmarkCount: tweet.public_metrics?.bookmark_count || 0,
+        impressionCount: tweet.public_metrics?.impression_count || 0,
+      },
+    }));
   } catch (error: any) {
     console.error(`[X API] Fetch tweets exception:`, error);
     return [];
   }
-
-  return data.data.map((tweet: any) => ({
-    tweetId: tweet.id,
-    text: tweet.text,
-    createdAt: tweet.created_at,
-    publicMetrics: {
-      retweetCount: tweet.public_metrics?.retweet_count || 0,
-      replyCount: tweet.public_metrics?.reply_count || 0,
-      likeCount: tweet.public_metrics?.like_count || 0,
-      quoteCount: tweet.public_metrics?.quote_count || 0,
-      bookmarkCount: tweet.public_metrics?.bookmark_count || 0,
-      impressionCount: tweet.public_metrics?.impression_count || 0,
-    },
-  }));
 }
 
 /**
