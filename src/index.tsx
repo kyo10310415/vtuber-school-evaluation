@@ -604,6 +604,7 @@ app.get('/api/health', (c) => {
 app.get('/api/debug/env', (c) => {
   const YOUTUBE_API_KEY = getEnv(c, 'YOUTUBE_API_KEY')
   const X_BEARER_TOKEN = getEnv(c, 'X_BEARER_TOKEN')
+  const GEMINI_API_KEY = getEnv(c, 'GEMINI_API_KEY')
   
   return c.json({
     youtube: {
@@ -615,6 +616,11 @@ app.get('/api/debug/env', (c) => {
       exists: !!X_BEARER_TOKEN,
       length: X_BEARER_TOKEN?.length || 0,
       firstChars: X_BEARER_TOKEN?.substring(0, 20) || 'N/A'
+    },
+    gemini: {
+      exists: !!GEMINI_API_KEY,
+      length: GEMINI_API_KEY?.length || 0,
+      firstChars: GEMINI_API_KEY?.substring(0, 10) || 'N/A'
     },
     envKeys: c.env ? Object.keys(c.env) : []
   })
