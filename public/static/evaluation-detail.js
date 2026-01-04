@@ -80,8 +80,8 @@ async function loadEvaluationData() {
   try {
     showLoading('評価データを読み込み中...');
     
-    // 統合評価APIを使用
-    const response = await fetch(`/api/evaluation/complete/${currentStudentId}?month=${currentMonth}`);
+    // 統合評価APIを使用（キャッシュ優先）
+    const response = await fetch(`/api/evaluation/complete/${currentStudentId}?month=${currentMonth}&cache=true`);
     const result = await response.json();
     
     hideLoading();
