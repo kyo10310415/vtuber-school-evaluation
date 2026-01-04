@@ -29,14 +29,19 @@ VTuber育成スクールの生徒様の成長度を評価・可視化するシ�
 - インプレッション伸び率
 
 ✅ **バックエンドAPI**
-- `/api/evaluate` - 採点実行エンドポイント
+- `/api/evaluate` - **統合評価実行エンドポイント**（プロレベル + YouTube + X）
+  - プロレベル評価を実行
+  - YouTube評価を実行（YouTubeチャンネルIDがある生徒のみ）
+  - X評価を実行（Xアカウントがある生徒のみ）
+  - 評価結果を自動的にキャッシュに保存
 - `/api/students` - 生徒一覧取得
 - `/api/evaluation/complete/:studentId` - 統合評価取得（プロレベル + YouTube + X）
+  - キャッシュ優先で取得（cache=trueパラメータ）
 - `/api/youtube/evaluate/:studentId` - YouTube評価
 - `/api/x/evaluate/:studentId` - X評価
 - `/api/prolevel/:studentId` - プロレベル評価
 - `/api/monthly-report/:studentId` - 月次レポート（複数月比較）
-- `/api/auto-evaluate` - 自動評価エンドポイント（全生徒一括評価）
+- `/api/auto-evaluate` - バッチ処理による自動評価（全生徒一括評価）
 - `/api/health` - ヘルスチェック
 
 ✅ **フロントエンド（グラフ・チャート可視化対応）**
