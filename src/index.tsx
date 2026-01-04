@@ -687,6 +687,11 @@ app.get('/api/debug/x/:username', async (c) => {
     const status = response.status
     const statusText = response.statusText
     
+    // レート制限情報を取得
+    const rateLimitLimit = response.headers.get('x-rate-limit-limit')
+    const rateLimitRemaining = response.headers.get('x-rate-limit-remaining')
+    const rateLimitReset = response.headers.get('x-rate-limit-reset')
+    
     let data
     try {
       data = await response.json()
@@ -698,6 +703,12 @@ app.get('/api/debug/x/:username', async (c) => {
       status,
       statusText,
       ok: response.ok,
+      rateLimit: {
+        limit: rateLimitLimit ? parseInt(rateLimitLimit) : null,
+        remaining: rateLimitRemaining ? parseInt(rateLimitRemaining) : null,
+        reset: rateLimitReset ? parseInt(rateLimitReset) : null,
+        resetDate: rateLimitReset ? new Date(parseInt(rateLimitReset) * 1000).toISOString() : null
+      },
       data
     })
   } catch (error: any) {
