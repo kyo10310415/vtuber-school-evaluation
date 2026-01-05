@@ -1778,11 +1778,6 @@ app.post('/api/evaluate', async (c) => {
             errors.push(`${student.name}(${student.studentId}): X評価エラー - ${error.message}`)
           }
         }
-          } catch (error: any) {
-            console.error(`[/api/evaluate] X evaluation failed for ${student.studentId}:`, error.message)
-            errors.push(`${student.name}(${student.studentId}): X評価エラー - ${error.message}`)
-          }
-        }
 
       } catch (error: any) {
         errors.push(`${student.name}(${student.studentId}): ${error.message}`)
