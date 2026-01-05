@@ -519,17 +519,20 @@ function parseMessages(content: string): TalkMessage[] {
   console.log('[parseMessages] First 5 lines:', lines.slice(0, 5));
 
   for (const line of lines) {
+    // 行末の \r や \n を除去
+    const cleanLine = line.replace(/[\r\n]+$/, '').trim();
+    
     // 「先生:」や「生徒名:」の形式を想定
-    const match = line.match(/^(.+?)[:：](.+)$/);
+    const match = cleanLine.match(/^(.+?)[:：](.+)$/);
     if (match) {
       messages.push({
         speaker: match[1].trim(),
         content: match[2].trim(),
       });
-    } else if (line.trim()) {
+    } else if (cleanLine) {
       // 発言者がない場合は前の発言者に追加
       if (messages.length > 0) {
-        messages[messages.length - 1].content += ' ' + line.trim();
+        messages[messages.length - 1].content += ' ' + cleanLine;
       }
     }
   }
