@@ -792,6 +792,126 @@ app.post('/api/debug/init-cache', async (c) => {
   }
 })
 
+// キャッシュクリアエンドポイント
+app.post('/api/debug/clear-cache', async (c) => {
+  try {
+    const GOOGLE_SERVICE_ACCOUNT = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT')
+    const RESULT_SPREADSHEET_ID = getEnv(c, 'RESULT_SPREADSHEET_ID')
+    const { studentId, evaluationType } = await c.req.json()
+    
+    if (!studentId) {
+      return c.json({ error: 'studentId is required' }, 400)
+    }
+    
+    if (!evaluationType || !['youtube', 'x'].includes(evaluationType)) {
+      return c.json({ error: 'evaluationType must be "youtube" or "x"' }, 400)
+    }
+    
+    const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
+    const sheetName = evaluationType === 'youtube' ? 'youtube_cache' : 'x_cache'
+    
+    // シートのデータを取得
+    const response = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${RESULT_SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      }
+    )
+    
+    if (!response.ok) {
+      return c.json({ error: 'Failed to fetch cache sheet', status: response.status }, 500)
+    }
+    
+    const data = await response.json()
+    const rows = data.values || []
+    
+    if (rows.length < 2) {
+      return c.json({ success: true, message: 'No cache data found', deleted: false })
+    }
+    
+    const header = rows[0]
+    const dataRows = rows.slice(1)
+    
+    const studentIdIndex = header.findIndex((h: string) => h === '学籍番号')
+    
+    if (studentIdIndex === -1) {
+      return c.json({ error: 'Invalid cache sheet format' }, 500)
+    }
+    
+    // 該当する学籍番号の行を探す
+    let targetRowIndex = -1
+    for (let i = 0; i < dataRows.length; i++) {
+      if (dataRows[i][studentIdIndex] === studentId) {
+        targetRowIndex = i + 2 // +2 because: +1 for header, +1 for 1-based index
+        break
+      }
+    }
+    
+    if (targetRowIndex === -1) {
+      return c.json({ success: true, message: 'Cache not found for this student', deleted: false })
+    }
+    
+    // 行を削除
+    const deleteResponse = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${RESULT_SPREADSHEET_ID}:batchUpdate`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          requests: [
+            {
+              deleteDimension: {
+                range: {
+                  sheetId: await getSheetId(accessToken, RESULT_SPREADSHEET_ID, sheetName),
+                  dimension: 'ROWS',
+                  startIndex: targetRowIndex - 1,
+                  endIndex: targetRowIndex
+                }
+              }
+            }
+          ]
+        })
+      }
+    )
+    
+    if (!deleteResponse.ok) {
+      const errorText = await deleteResponse.text()
+      return c.json({ error: 'Failed to delete cache', details: errorText }, 500)
+    }
+    
+    return c.json({
+      success: true,
+      message: `Cache cleared for ${studentId} in ${evaluationType}`,
+      deleted: true,
+      rowIndex: targetRowIndex
+    })
+  } catch (error: any) {
+    return c.json({ error: error.message, stack: error.stack }, 500)
+  }
+})
+
+// シートIDを取得するヘルパー関数
+async function getSheetId(accessToken: string, spreadsheetId: string, sheetName: string): Promise<number> {
+  const response = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}`,
+    {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    }
+  )
+  
+  const data = await response.json()
+  const sheet = data.sheets?.find((s: any) => s.properties.title === sheetName)
+  
+  if (!sheet) {
+    throw new Error(`Sheet "${sheetName}" not found`)
+  }
+  
+  return sheet.properties.sheetId
+}
+
 // NotionからSNSアカウント情報を同期
 app.post('/api/sync-notion', async (c) => {
   try {
