@@ -515,6 +515,9 @@ function parseMessages(content: string): TalkMessage[] {
   const messages: TalkMessage[] = [];
   const lines = content.split('\n').filter(line => line.trim());
 
+  console.log('[parseMessages] Total lines after filtering:', lines.length);
+  console.log('[parseMessages] First 5 lines:', lines.slice(0, 5));
+
   for (const line of lines) {
     // 「先生:」や「生徒名:」の形式を想定
     const match = line.match(/^(.+?)[:：](.+)$/);
@@ -530,6 +533,9 @@ function parseMessages(content: string): TalkMessage[] {
       }
     }
   }
+
+  console.log('[parseMessages] Parsed messages count:', messages.length);
+  console.log('[parseMessages] First 3 messages:', messages.slice(0, 3));
 
   return messages;
 }
