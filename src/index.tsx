@@ -1240,15 +1240,29 @@ app.get('/api/evaluation/complete/:studentId', async (c) => {
               const header = rows[0]
               const studentIdIndex = header.findIndex((h: string) => h === '学籍番号')
               const monthIndex = header.findIndex((h: string) => h === '評価月')
+              const dateTimeIndex = header.findIndex((h: string) => h === '評価日時')
+              
+              // 🔴 改善: 同じ学籍番号・月の場合、評価日時が最新のものを選択
+              let latestRow: any = null
+              let latestDateTime: Date | null = null
               
               for (const row of rows.slice(1)) {
                 if (row[studentIdIndex] === studentId && row[monthIndex] === month) {
-                  result.proLevel = {}
-                  header.forEach((h: string, i: number) => {
-                    result.proLevel[h] = row[i] || ''
-                  })
-                  break
+                  const rowDateTime = row[dateTimeIndex] ? new Date(row[dateTimeIndex]) : null
+                  
+                  if (!latestRow || (rowDateTime && (!latestDateTime || rowDateTime > latestDateTime))) {
+                    latestRow = row
+                    latestDateTime = rowDateTime
+                  }
                 }
+              }
+              
+              if (latestRow) {
+                result.proLevel = {}
+                header.forEach((h: string, i: number) => {
+                  result.proLevel[h] = latestRow[i] || ''
+                })
+                console.log(`[プロレベル評価] 取得成功: ${studentId} (評価日時: ${latestDateTime?.toISOString()})`)
               }
             }
           }

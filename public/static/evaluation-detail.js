@@ -156,6 +156,51 @@ function renderEvaluationData() {
   }
 }
 
+// 評価コメントを箇条書きにフォーマット
+function formatCommentAsList(comment) {
+  if (!comment) return '';
+  
+  // "【項目】内容 / 【項目】内容" の形式を想定
+  const items = comment.split('/').map(item => item.trim()).filter(item => item.length > 0);
+  
+  if (items.length === 0) {
+    return `<p class="whitespace-pre-line">${comment}</p>`;
+  }
+  
+  return `
+    <ul class="space-y-2">
+      ${items.map(item => {
+        // 【項目】と内容を分離
+        const match = item.match(/^【(.+?)】(.+)$/);
+        if (match) {
+          const [, title, content] = match;
+          return `
+            <li class="flex items-start">
+              <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-600 text-xs font-bold mr-2 mt-0.5 flex-shrink-0">
+                <i class="fas fa-check"></i>
+              </span>
+              <div>
+                <span class="font-bold text-blue-900">${title}:</span>
+                <span class="text-gray-700">${content}</span>
+              </div>
+            </li>
+          `;
+        } else {
+          // 【】がない場合は通常の箇条書き
+          return `
+            <li class="flex items-start">
+              <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 text-gray-600 text-xs font-bold mr-2 mt-0.5 flex-shrink-0">
+                •
+              </span>
+              <span class="text-gray-700">${item}</span>
+            </li>
+          `;
+        }
+      }).join('')}
+    </ul>
+  `;
+}
+
 // プロレベルセクション評価を表示
 function renderProLevelEvaluation(proLevel) {
   const section = document.getElementById('prolevel-content');
@@ -205,7 +250,9 @@ function renderProLevelEvaluation(proLevel) {
         <h4 class="font-bold text-blue-900 mb-2">
           <i class="fas fa-comment-alt mr-2"></i>評価コメント
         </h4>
-        <p class="text-gray-700 whitespace-pre-line">${proLevel['コメント']}</p>
+        <div class="text-gray-700">
+          ${formatCommentAsList(proLevel['コメント'])}
+        </div>
       </div>
     ` : ''}
     
