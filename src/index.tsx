@@ -2048,12 +2048,13 @@ app.post('/api/auto-evaluate', async (c) => {
     // バッチ処理のパラメータ
     const batchSize = parseInt(c.req.query('batchSize') || '300') // デフォルト300名
     const batchIndex = parseInt(c.req.query('batchIndex') || '0') // デフォルト0（最初のバッチ）
+    const skipProLevel = c.req.query('skipProLevel') === 'true' // プロレベル評価をスキップするか
     
     console.log(`[Auto Evaluate] Starting evaluation for ${month}`)
-    console.log(`[Auto Evaluate] Batch size: ${batchSize}, Batch index: ${batchIndex}`)
+    console.log(`[Auto Evaluate] Batch size: ${batchSize}, Batch index: ${batchIndex}, Skip pro-level: ${skipProLevel}`)
     
-    // Gemini初期化
-    const gemini = new GeminiAnalyzer(GEMINI_API_KEY)
+    // Gemini初期化（プロレベル評価が必要な場合のみ）
+    const gemini = skipProLevel ? null : new GeminiAnalyzer(GEMINI_API_KEY)
     
     // 全生徒を取得
     const allStudents = await fetchStudents(GOOGLE_SERVICE_ACCOUNT, STUDENT_MASTER_SPREADSHEET_ID)
@@ -2085,9 +2086,11 @@ app.post('/api/auto-evaluate', async (c) => {
     // アクセストークンを取得（キャッシュ用）
     const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
     
-    // 欠席データを取得（直近3ヶ月以内から集計）
-    const absenceDataList = await fetchAbsenceData(GOOGLE_SERVICE_ACCOUNT, ABSENCE_SPREADSHEET_ID, month)
-    console.log(`[Auto Evaluate] Fetched absence data for ${absenceDataList.length} students`)
+    // 欠席データを取得（プロレベル評価が必要な場合のみ）
+    const absenceDataList = skipProLevel ? [] : await fetchAbsenceData(GOOGLE_SERVICE_ACCOUNT, ABSENCE_SPREADSHEET_ID, month)
+    if (!skipProLevel) {
+      console.log(`[Auto Evaluate] Fetched absence data for ${absenceDataList.length} students`)
+    }
     
     // 各生徒の評価を実行
     for (const student of students) {
@@ -2104,8 +2107,8 @@ app.post('/api/auto-evaluate', async (c) => {
         let hasAnyAccount = false
         let proLevelEvaluated = false
         
-        // プロレベル評価（トークメモがある場合）
-        if (student.talkMemoFolderUrl) {
+        // プロレベル評価（スキップされていない場合のみ）
+        if (!skipProLevel && student.talkMemoFolderUrl) {
           try {
             console.log(`[Auto Evaluate] Fetching talk memo for ${student.studentId}`)
             const documentIds = await fetchDocumentsInFolder(GOOGLE_SERVICE_ACCOUNT, student.talkMemoFolderUrl)
@@ -2115,7 +2118,10 @@ app.post('/api/auto-evaluate', async (c) => {
               const talkMemo = await fetchDocumentContent(GOOGLE_SERVICE_ACCOUNT, documentIds[0])
               console.log(`[Auto Evaluate] Analyzing talk memo with Gemini for ${student.studentId}`)
               
-              // Geminiで分析
+              // Geminiで分析（geminiがnullでないことを確認）
+              if (!gemini) {
+                throw new Error('Gemini analyzer not initialized')
+              }
               const geminiAnalysis = await gemini.analyzeTrainingSession(talkMemo)
               
               // 欠席データを取得
@@ -2148,6 +2154,8 @@ app.post('/api/auto-evaluate', async (c) => {
             result.evaluations.proLevel = { error: error.message }
             errors.push(`${student.name}(${student.studentId}): プロレベル評価エラー - ${error.message}`)
           }
+        } else if (skipProLevel) {
+          result.evaluations.proLevel = { info: 'プロレベル評価スキップ（skipProLevel=true）' }
         } else {
           result.evaluations.proLevel = { info: 'トークメモフォルダURLなし' }
         }
