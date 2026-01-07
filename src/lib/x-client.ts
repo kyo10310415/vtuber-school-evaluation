@@ -183,12 +183,14 @@ export async function fetchXUserById(
 }
 
 /**
- * ユーザーの最近のツイートを取得
+ * ユーザーの最近のツイートを取得（対象月のみ）
+ * リプライは除外し、オリジナルツイートとリツイートのみを取得
  */
 export async function fetchRecentTweets(
   bearerToken: string,
   userId: string,
-  maxResults: number = 100
+  maxResults: number = 100,
+  targetMonth?: string // 追加: 対象月 (YYYY-MM 形式)
 ): Promise<XTweet[]> {
   if (!userId) {
     console.error('[X API] userId is empty in fetchRecentTweets');
@@ -200,9 +202,35 @@ export async function fetchRecentTweets(
     return [];
   }
 
-  console.log(`[X API] Fetching tweets for user: ${userId}, maxResults: ${maxResults}`);
-  const url = `https://api.twitter.com/2/users/${userId}/tweets?max_results=${maxResults}&tweet.fields=created_at,public_metrics`;
+  // 対象月の開始・終了日時を計算
+  let startTime: string | undefined;
+  let endTime: string | undefined;
+  
+  if (targetMonth) {
+    const [year, month] = targetMonth.split('-').map(Number);
+    const startDate = new Date(Date.UTC(year, month - 1, 1)); // 月初
+    const endDate = new Date(Date.UTC(year, month, 0, 23, 59, 59)); // 月末
+    
+    startTime = startDate.toISOString();
+    endTime = endDate.toISOString();
+    
+    console.log(`[X API] Fetching tweets for ${targetMonth}: ${startTime} to ${endTime}`);
+  }
 
+  // URL パラメータを構築
+  const params = new URLSearchParams({
+    max_results: maxResults.toString(),
+    'tweet.fields': 'created_at,public_metrics',
+    exclude: 'replies' // リプライを除外
+  });
+  
+  if (startTime) params.append('start_time', startTime);
+  if (endTime) params.append('end_time', endTime);
+  
+  const url = `https://api.twitter.com/2/users/${userId}/tweets?${params.toString()}`;
+
+  console.log(`[X API] Fetching tweets for user: ${userId}, maxResults: ${maxResults}`);
+  
   try {
     const response = await fetch(url, {
       headers: {
@@ -328,17 +356,12 @@ export async function evaluateXAccount(
 
     console.log(`[X Evaluation] User fetched successfully: ${user.username} (ID: ${user.userId})`);
 
-    // 2. 最近のツイートを取得（最大100件）
-    console.log(`[X Evaluation] Fetching recent tweets for user ID: ${user.userId}`);
-    const recentTweets = await fetchRecentTweets(bearerToken, user.userId, 100);
-    console.log(`[X Evaluation] Retrieved ${recentTweets.length} total tweets`);
+    // 2. 対象月のツイートを取得（リプライ除外、対象月のみ）
+    console.log(`[X Evaluation] Fetching tweets for user ID: ${user.userId}, month: ${targetMonth}`);
+    const monthTweets = await fetchRecentTweets(bearerToken, user.userId, 100, targetMonth);
+    console.log(`[X Evaluation] Retrieved ${monthTweets.length} tweets in ${targetMonth}`);
 
-    // 3. 対象月のツイートをフィルタリング
-    const monthTweets = filterTweetsByMonth(recentTweets, targetMonth);
-
-    console.log(`[X Evaluation] Found ${monthTweets.length} tweets in ${targetMonth}`);
-
-  // 4. 投稿頻度を計算
+  // 3. 投稿頻度を計算
   const tweetsInMonth = monthTweets.length;
   const daysInMonth = new Date(
     parseInt(targetMonth.split('-')[0]),
@@ -347,11 +370,11 @@ export async function evaluateXAccount(
   ).getDate();
   const dailyTweetCount = tweetsInMonth / daysInMonth;
 
-  // 5. 企画ツイートをカウント
+  // 4. 企画ツイートをカウント
   const planningTweets = monthTweets.filter(isPlanningTweet);
   const weeklyPlanningTweets = planningTweets.length / 4; // 月を4週間と仮定
 
-  // 6. エンゲージメントを計算
+  // 5. エンゲージメントを計算
   const totalLikes = monthTweets.reduce((sum, t) => sum + t.publicMetrics.likeCount, 0);
   const totalRetweets = monthTweets.reduce((sum, t) => sum + t.publicMetrics.retweetCount, 0);
   const totalReplies = monthTweets.reduce((sum, t) => sum + t.publicMetrics.replyCount, 0);
@@ -362,22 +385,22 @@ export async function evaluateXAccount(
     ? (totalEngagement / totalImpressions) * 100
     : 0;
 
-  // 7. フォロワー数の伸び率を計算
+  // 6. フォロワー数の伸び率を計算
   const followerGrowthRate = previousFollowersCount && previousFollowersCount > 0
     ? ((user.followersCount - previousFollowersCount) / previousFollowersCount) * 100
     : 0;
 
-  // 8. エンゲージメント伸び率を計算
+  // 7. エンゲージメント伸び率を計算
   const engagementGrowthRate = previousEngagement && previousEngagement > 0
     ? ((totalEngagement - previousEngagement) / previousEngagement) * 100
     : 0;
 
-  // 9. インプレッション伸び率を計算
+  // 8. インプレッション伸び率を計算
   const impressionGrowthRate = previousImpressions && previousImpressions > 0
     ? ((totalImpressions - previousImpressions) / previousImpressions) * 100
     : 0;
 
-  // 10. フォロー活動を推定（API制限のため簡易計算）
+  // 9. フォロー活動を推定（API制限のため簡易計算）
   // following_countの増加から推定
   const dailyFollows = 0; // Basicプランでは正確な取得不可
 
