@@ -2035,7 +2035,9 @@ app.get('/api/results/:studentId', async (c) => {
 app.post('/api/auto-evaluate', async (c) => {
   try {
     const GOOGLE_SERVICE_ACCOUNT = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT')
+    const GEMINI_API_KEY = getEnv(c, 'GEMINI_API_KEY')
     const STUDENT_MASTER_SPREADSHEET_ID = getEnv(c, 'STUDENT_MASTER_SPREADSHEET_ID')
+    const ABSENCE_SPREADSHEET_ID = getEnv(c, 'ABSENCE_SPREADSHEET_ID')
     const RESULT_SPREADSHEET_ID = getEnv(c, 'RESULT_SPREADSHEET_ID')
     const YOUTUBE_API_KEY = getEnv(c, 'YOUTUBE_API_KEY')
     const X_BEARER_TOKEN = getEnv(c, 'X_BEARER_TOKEN')
@@ -2049,6 +2051,9 @@ app.post('/api/auto-evaluate', async (c) => {
     
     console.log(`[Auto Evaluate] Starting evaluation for ${month}`)
     console.log(`[Auto Evaluate] Batch size: ${batchSize}, Batch index: ${batchIndex}`)
+    
+    // Gemini初期化
+    const gemini = new GeminiAnalyzer(GEMINI_API_KEY)
     
     // 全生徒を取得
     const allStudents = await fetchStudents(GOOGLE_SERVICE_ACCOUNT, STUDENT_MASTER_SPREADSHEET_ID)
@@ -2071,16 +2076,24 @@ app.post('/api/auto-evaluate', async (c) => {
     console.log(`[Auto Evaluate] Processing batch ${batchIndex}: students ${startIndex + 1}-${endIndex} (${students.length} students)`)
     
     const results = []
+    const proLevelResults: EvaluationResult[] = []
     let successCount = 0
     let errorCount = 0
     let skippedCount = 0
+    const errors: string[] = []
     
     // アクセストークンを取得（キャッシュ用）
     const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
     
+    // 欠席データを取得（直近3ヶ月以内から集計）
+    const absenceDataList = await fetchAbsenceData(GOOGLE_SERVICE_ACCOUNT, ABSENCE_SPREADSHEET_ID, month)
+    console.log(`[Auto Evaluate] Fetched absence data for ${absenceDataList.length} students`)
+    
     // 各生徒の評価を実行
     for (const student of students) {
       try {
+        console.log(`[Auto Evaluate] Processing student: ${student.studentId} (${student.name})`)
+        
         const result: any = {
           studentId: student.studentId,
           studentName: student.name,
@@ -2089,6 +2102,55 @@ app.post('/api/auto-evaluate', async (c) => {
         }
         
         let hasAnyAccount = false
+        let proLevelEvaluated = false
+        
+        // プロレベル評価（トークメモがある場合）
+        if (student.talkMemoFolderUrl) {
+          try {
+            console.log(`[Auto Evaluate] Fetching talk memo for ${student.studentId}`)
+            const documentIds = await fetchDocumentsInFolder(GOOGLE_SERVICE_ACCOUNT, student.talkMemoFolderUrl)
+            
+            if (documentIds.length > 0) {
+              // 最新のドキュメントを取得
+              const talkMemo = await fetchDocumentContent(GOOGLE_SERVICE_ACCOUNT, documentIds[0])
+              console.log(`[Auto Evaluate] Analyzing talk memo with Gemini for ${student.studentId}`)
+              
+              // Geminiで分析
+              const geminiAnalysis = await gemini.analyzeTrainingSession(talkMemo)
+              
+              // 欠席データを取得
+              const absenceData = absenceDataList.find(a => a.studentId === student.studentId)
+              
+              // プロレベル評価を実施
+              const proLevelResult = evaluateStudent(
+                student,
+                absenceData,
+                undefined, // 支払いデータは一旦なし
+                geminiAnalysis,
+                month
+              )
+              
+              proLevelResults.push(proLevelResult)
+              result.evaluations.proLevel = {
+                overallGrade: proLevelResult.overallGrade,
+                attendanceGrade: proLevelResult.attendanceGrade,
+                punctualityGrade: proLevelResult.punctualityGrade,
+                missionGrade: proLevelResult.missionGrade
+              }
+              proLevelEvaluated = true
+              console.log(`[Auto Evaluate] Pro-level evaluation completed for ${student.studentId}`)
+            } else {
+              console.log(`[Auto Evaluate] No talk memo found for ${student.studentId}`)
+              result.evaluations.proLevel = { info: 'トークメモが見つかりません' }
+            }
+          } catch (error: any) {
+            console.error(`[Auto Evaluate] Pro-level evaluation error for ${student.studentId}:`, error.message)
+            result.evaluations.proLevel = { error: error.message }
+            errors.push(`${student.name}(${student.studentId}): プロレベル評価エラー - ${error.message}`)
+          }
+        } else {
+          result.evaluations.proLevel = { info: 'トークメモフォルダURLなし' }
+        }
         
         // YouTube評価
         if (student.youtubeChannelId) {
@@ -2198,15 +2260,16 @@ app.post('/api/auto-evaluate', async (c) => {
           result.evaluations.x = { info: 'Xアカウント情報なし' }
         }
         
-        // アカウント情報が一つもない場合はスキップ
-        if (!hasAnyAccount) {
-          console.log(`[Auto Evaluate] スキップ（アカウント情報なし）: ${student.studentId}`)
+        // アカウント情報が一つもない、かつプロレベル評価もない場合はスキップ
+        if (!hasAnyAccount && !proLevelEvaluated) {
+          console.log(`[Auto Evaluate] スキップ（評価対象情報なし）: ${student.studentId}`)
           skippedCount++
           continue
         }
         
         results.push(result)
         successCount++
+        console.log(`[Auto Evaluate] Student evaluation completed: ${student.studentId}`)
       } catch (error: any) {
         console.error(`[Auto Evaluate] 生徒評価エラー: ${student.studentId}`, error.message)
         results.push({
@@ -2218,7 +2281,25 @@ app.post('/api/auto-evaluate', async (c) => {
       }
     }
     
-    console.log(`[Auto Evaluate] 完了 - 成功: ${successCount}, エラー: ${errorCount}, スキップ: ${skippedCount}`)
+    console.log(`[Auto Evaluate] バッチ完了 - 成功: ${successCount}, エラー: ${errorCount}, スキップ: ${skippedCount}`)
+    
+    // プロレベル評価結果をスプレッドシートに書き込み
+    if (proLevelResults.length > 0) {
+      try {
+        console.log(`[Auto Evaluate] Writing ${proLevelResults.length} pro-level results to sheet`)
+        const resultArrays = proLevelResults.map(convertResultToArray)
+        await writeResultsToSheet(
+          GOOGLE_SERVICE_ACCOUNT,
+          RESULT_SPREADSHEET_ID,
+          `評価結果_${month}`,
+          resultArrays
+        )
+        console.log(`[Auto Evaluate] Pro-level results written to sheet: 評価結果_${month}`)
+      } catch (error: any) {
+        console.error(`[Auto Evaluate] Failed to write pro-level results to sheet:`, error.message)
+        errors.push(`スプレッドシート書き込みエラー: ${error.message}`)
+      }
+    }
     
     // 次のバッチがあるか確認
     const hasNextBatch = endIndex < filteredStudents.length
@@ -2240,6 +2321,8 @@ app.post('/api/auto-evaluate', async (c) => {
       successCount,
       errorCount,
       skippedCount,
+      proLevelResultsCount: proLevelResults.length,
+      errors: errors.length > 0 ? errors : undefined,
       results
     })
   } catch (error: any) {
