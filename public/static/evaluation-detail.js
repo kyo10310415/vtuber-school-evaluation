@@ -80,8 +80,12 @@ async function loadEvaluationData() {
   try {
     showLoading('評価データを読み込み中...');
     
-    // 統合評価APIを使用（キャッシュ優先）
-    const response = await fetch(`/api/evaluation/complete/${currentStudentId}?month=${currentMonth}&cache=true`);
+    // URLパラメータからcacheの値を取得（デフォルトはtrue）
+    const urlParams = new URLSearchParams(window.location.search);
+    const useCache = urlParams.get('cache') !== 'false'; // cache=falseの場合のみキャッシュを無効化
+    
+    // 統合評価APIを使用
+    const response = await fetch(`/api/evaluation/complete/${currentStudentId}?month=${currentMonth}&cache=${useCache}`);
     const result = await response.json();
     
     hideLoading();
