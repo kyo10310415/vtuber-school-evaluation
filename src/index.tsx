@@ -201,7 +201,7 @@ app.get('/monthly-report', (c) => {
         </div>
       </div>
       
-      <script src="/static/monthly-report.js"></script>
+      <script src="/static/monthly-report.js?v=${Date.now()}"></script>
     </body>
     </html>
   `)
@@ -339,7 +339,7 @@ app.get('/evaluation-detail', (c) => {
         </div>
       </div>
       
-      <script src="/static/evaluation-detail.js"></script>
+      <script src="/static/evaluation-detail.js?v=${Date.now()}"></script>
     </body>
     </html>
   `)
