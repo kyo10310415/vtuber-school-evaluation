@@ -199,13 +199,16 @@
             // ヘッダー行を解析
             const headers = parseCSVLine(lines[0]);
             
-            // 列インデックスを特定
+            // 列インデックスを特定（半角@と全角＠の両方に対応）
             const studentIdIdx = headers.indexOf('学籍番号');
-            const xIdIdx = headers.indexOf('X ID（＠は無し）');
+            let xIdIdx = headers.indexOf('X ID（＠は無し）');
+            if (xIdIdx === -1) {
+                xIdIdx = headers.indexOf('X ID（@は無し）'); // 半角@もチェック
+            }
             const ytIdIdx = headers.indexOf('YTチャンネルID');
             
             if (studentIdIdx === -1 || xIdIdx === -1 || ytIdIdx === -1) {
-                throw new Error('必要な列が見つかりません（学籍番号、X ID（＠は無し）、YTチャンネルID）');
+                throw new Error('必要な列が見つかりません（学籍番号: ' + (studentIdIdx !== -1 ? '✓' : '✗') + '、X ID（@は無し）: ' + (xIdIdx !== -1 ? '✓' : '✗') + '、YTチャンネルID: ' + (ytIdIdx !== -1 ? '✓' : '✗') + '）');
             }
             
             // データ行を処理
