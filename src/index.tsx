@@ -2084,7 +2084,8 @@ app.post('/api/auto-evaluate', async (c) => {
     const errors: string[] = []
     
     // アクセストークンを取得（キャッシュ用）
-    const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
+    let accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
+    let tokenRefreshedAt = Date.now()
     
     // 欠席データを取得（プロレベル評価が必要な場合のみ）
     const absenceDataList = skipProLevel ? [] : await fetchAbsenceData(GOOGLE_SERVICE_ACCOUNT, ABSENCE_SPREADSHEET_ID, month)
@@ -2095,6 +2096,15 @@ app.post('/api/auto-evaluate', async (c) => {
     // 各生徒の評価を実行
     for (const student of students) {
       try {
+        // アクセストークンを30分ごとに更新（トークンの有効期限は1時間）
+        const now = Date.now()
+        if (now - tokenRefreshedAt > 30 * 60 * 1000) { // 30分経過
+          console.log(`[Auto Evaluate] Refreshing access token...`)
+          accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
+          tokenRefreshedAt = now
+          console.log(`[Auto Evaluate] Access token refreshed`)
+        }
+        
         console.log(`[Auto Evaluate] Processing student: ${student.studentId} (${student.name})`)
         
         const result: any = {

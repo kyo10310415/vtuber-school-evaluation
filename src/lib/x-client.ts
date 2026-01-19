@@ -248,6 +248,13 @@ export async function fetchRecentTweets(
       try {
         const errorJson = JSON.parse(errorText);
         console.error(`[X API] Tweets error details:`, errorJson);
+        
+        // 429 Too Many Requests の場合は特別な処理
+        if (response.status === 429) {
+          console.warn(`[X API] Rate limit exceeded for user ${userId}. Tweets will be skipped.`);
+          // レート制限エラーは空配列を返す（エラーにしない）
+          return [];
+        }
       } catch {
         // JSON解析に失敗した場合はそのままテキストを出力
       }
