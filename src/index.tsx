@@ -2371,7 +2371,7 @@ app.get('/api/auto-evaluate/status', async (c) => {
       student.youtubeChannelId || student.xAccount
     )
     
-    const batchSize = 300
+    const batchSize = 100  // X APIレート制限対策: 100名/バッチ（300リクエスト/15分以内）
     const totalBatches = Math.ceil(studentsWithAccounts.length / batchSize)
     
     return c.json({
