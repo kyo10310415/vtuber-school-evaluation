@@ -461,6 +461,90 @@ app.get('/', (c) => {
         </p>
       </div>
 
+      {/* YouTube評価実行セクション */}
+      <div class="bg-gradient-to-r from-red-50 to-pink-50 rounded-lg shadow-lg p-6 border border-red-200">
+        <h2 class="text-2xl font-bold text-gray-800 mb-4">
+          <i class="fab fa-youtube text-red-600 mr-2"></i>
+          YouTube評価実行
+        </h2>
+        <div class="flex items-end gap-4">
+          <div class="flex-1">
+            <label for="youtube-evaluation-month" class="block text-sm font-medium text-gray-700 mb-2">
+              評価対象月
+            </label>
+            <input 
+              type="month" 
+              id="youtube-evaluation-month" 
+              value={currentMonth}
+              class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+            />
+          </div>
+          <div class="flex-1">
+            <label for="youtube-student-ids-input" class="block text-sm font-medium text-gray-700 mb-2">
+              学籍番号（オプション）
+            </label>
+            <input 
+              type="text" 
+              id="youtube-student-ids-input" 
+              placeholder="例: OLTS240488-AR,OLST230057-TQ（カンマ区切り、空欄で全生徒）"
+              class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+            />
+          </div>
+          <button 
+            id="run-youtube-evaluation-btn"
+            class="px-6 py-2 bg-gradient-to-r from-red-500 to-pink-500 text-white font-bold rounded-lg hover:from-red-600 hover:to-pink-600 transition shadow-md">
+            <i class="fab fa-youtube mr-2"></i>
+            YouTube評価実行
+          </button>
+        </div>
+        <p class="text-sm text-gray-600 mt-3">
+          <i class="fas fa-info-circle mr-1"></i>
+          選択した月のYouTube統計データ（登録者数、動画数、エンゲージメント等）を取得・評価します
+        </p>
+      </div>
+
+      {/* X評価実行セクション */}
+      <div class="bg-gradient-to-r from-blue-50 to-cyan-50 rounded-lg shadow-lg p-6 border border-blue-200">
+        <h2 class="text-2xl font-bold text-gray-800 mb-4">
+          <i class="fab fa-x-twitter text-blue-600 mr-2"></i>
+          X (Twitter) 評価実行
+        </h2>
+        <div class="flex items-end gap-4">
+          <div class="flex-1">
+            <label for="x-evaluation-month" class="block text-sm font-medium text-gray-700 mb-2">
+              評価対象月
+            </label>
+            <input 
+              type="month" 
+              id="x-evaluation-month" 
+              value={currentMonth}
+              class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+          <div class="flex-1">
+            <label for="x-student-ids-input" class="block text-sm font-medium text-gray-700 mb-2">
+              学籍番号（オプション）
+            </label>
+            <input 
+              type="text" 
+              id="x-student-ids-input" 
+              placeholder="例: OLTS240488-AR,OLST230057-TQ（カンマ区切り、空欄で全生徒）"
+              class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+          <button 
+            id="run-x-evaluation-btn"
+            class="px-6 py-2 bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-bold rounded-lg hover:from-blue-600 hover:to-cyan-600 transition shadow-md">
+            <i class="fab fa-x-twitter mr-2"></i>
+            X評価実行
+          </button>
+        </div>
+        <p class="text-sm text-gray-600 mt-3">
+          <i class="fas fa-info-circle mr-1"></i>
+          選択した月のX統計データ（フォロワー数、投稿数、エンゲージメント等）を取得・評価します
+        </p>
+      </div>
+
       {/* 採点結果セクション */}
       <div class="bg-white rounded-lg shadow-lg p-6">
         <h2 class="text-2xl font-bold text-gray-800 mb-4">
@@ -1491,6 +1575,222 @@ app.get('/api/x/evaluate/:studentId', async (c) => {
     })
   } catch (error: any) {
     console.error('[/api/x/evaluate] Error:', error.message, error.stack)
+    return c.json({ success: false, error: error.message, stack: error.stack }, 500)
+  }
+})
+
+// YouTube評価一括実行
+app.post('/api/youtube/evaluate-batch', async (c) => {
+  try {
+    const GOOGLE_SERVICE_ACCOUNT = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT')
+    const STUDENT_MASTER_SPREADSHEET_ID = getEnv(c, 'STUDENT_MASTER_SPREADSHEET_ID')
+    const RESULT_SPREADSHEET_ID = getEnv(c, 'RESULT_SPREADSHEET_ID')
+    const YOUTUBE_API_KEY = getEnv(c, 'YOUTUBE_API_KEY')
+    
+    const request = await c.req.json()
+    const month = request.month || getPreviousMonth()
+    const studentIds = request.studentIds || [] // 空の場合は全生徒
+    
+    if (!YOUTUBE_API_KEY) {
+      return c.json({ success: false, error: 'YOUTUBE_API_KEY が設定されていません' }, 400)
+    }
+    
+    console.log(`[YouTube Batch] Starting batch evaluation for ${month}, studentIds:`, studentIds)
+    
+    // 生徒情報を取得
+    const allStudents = await fetchStudents(GOOGLE_SERVICE_ACCOUNT, STUDENT_MASTER_SPREADSHEET_ID)
+    
+    // フィルタリング: 指定された学籍番号 or 全生徒（YouTubeチャンネルIDがある生徒のみ）
+    let targetStudents = allStudents.filter(s => s.youtubeChannelId)
+    
+    if (studentIds.length > 0) {
+      targetStudents = targetStudents.filter(s => studentIds.includes(s.studentId))
+    }
+    
+    console.log(`[YouTube Batch] Target students: ${targetStudents.length}`)
+    
+    const { evaluateYouTubeChannel } = await import('./lib/youtube-client')
+    const { saveCachedEvaluation } = await import('./lib/evaluation-cache')
+    const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
+    
+    const results = []
+    const errors = []
+    let successCount = 0
+    let errorCount = 0
+    
+    for (const student of targetStudents) {
+      try {
+        console.log(`[YouTube Batch] Evaluating ${student.studentId} (${student.name})`)
+        
+        const evaluation = await evaluateYouTubeChannel(
+          YOUTUBE_API_KEY,
+          student.youtubeChannelId!,
+          month
+        )
+        
+        if (evaluation && !evaluation.error) {
+          // キャッシュに保存
+          await saveCachedEvaluation(
+            accessToken,
+            RESULT_SPREADSHEET_ID,
+            student.studentId,
+            student.name,
+            month,
+            'youtube',
+            evaluation
+          )
+          
+          results.push({
+            studentId: student.studentId,
+            studentName: student.name,
+            grade: evaluation.overallGrade,
+            success: true
+          })
+          successCount++
+          console.log(`[YouTube Batch] Success: ${student.studentId} - Grade ${evaluation.overallGrade}`)
+        } else {
+          results.push({
+            studentId: student.studentId,
+            studentName: student.name,
+            error: evaluation?.error || 'YouTube評価に失敗しました',
+            success: false
+          })
+          errorCount++
+          errors.push(`${student.name}(${student.studentId}): ${evaluation?.error || 'エラー'}`)
+          console.log(`[YouTube Batch] Error: ${student.studentId} - ${evaluation?.error}`)
+        }
+      } catch (error: any) {
+        results.push({
+          studentId: student.studentId,
+          studentName: student.name,
+          error: error.message,
+          success: false
+        })
+        errorCount++
+        errors.push(`${student.name}(${student.studentId}): ${error.message}`)
+        console.error(`[YouTube Batch] Exception for ${student.studentId}:`, error.message)
+      }
+    }
+    
+    return c.json({
+      success: true,
+      month,
+      totalStudents: targetStudents.length,
+      successCount,
+      errorCount,
+      results,
+      errors: errors.length > 0 ? errors : undefined
+    })
+  } catch (error: any) {
+    console.error('[/api/youtube/evaluate-batch] Error:', error.message, error.stack)
+    return c.json({ success: false, error: error.message, stack: error.stack }, 500)
+  }
+})
+
+// X評価一括実行
+app.post('/api/x/evaluate-batch', async (c) => {
+  try {
+    const GOOGLE_SERVICE_ACCOUNT = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT')
+    const STUDENT_MASTER_SPREADSHEET_ID = getEnv(c, 'STUDENT_MASTER_SPREADSHEET_ID')
+    const RESULT_SPREADSHEET_ID = getEnv(c, 'RESULT_SPREADSHEET_ID')
+    const X_BEARER_TOKEN = getEnv(c, 'X_BEARER_TOKEN')
+    
+    const request = await c.req.json()
+    const month = request.month || getPreviousMonth()
+    const studentIds = request.studentIds || [] // 空の場合は全生徒
+    
+    if (!X_BEARER_TOKEN) {
+      return c.json({ success: false, error: 'X_BEARER_TOKEN が設定されていません' }, 400)
+    }
+    
+    console.log(`[X Batch] Starting batch evaluation for ${month}, studentIds:`, studentIds)
+    
+    // 生徒情報を取得
+    const allStudents = await fetchStudents(GOOGLE_SERVICE_ACCOUNT, STUDENT_MASTER_SPREADSHEET_ID)
+    
+    // フィルタリング: 指定された学籍番号 or 全生徒（XアカウントIDがある生徒のみ）
+    let targetStudents = allStudents.filter(s => s.xAccount)
+    
+    if (studentIds.length > 0) {
+      targetStudents = targetStudents.filter(s => studentIds.includes(s.studentId))
+    }
+    
+    console.log(`[X Batch] Target students: ${targetStudents.length}`)
+    
+    const { evaluateXAccount } = await import('./lib/x-client')
+    const { saveCachedEvaluation } = await import('./lib/evaluation-cache')
+    const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
+    
+    const results = []
+    const errors = []
+    let successCount = 0
+    let errorCount = 0
+    
+    for (const student of targetStudents) {
+      try {
+        console.log(`[X Batch] Evaluating ${student.studentId} (${student.name})`)
+        
+        const evaluation = await evaluateXAccount(
+          X_BEARER_TOKEN,
+          student.xAccount!,
+          month
+        )
+        
+        if (evaluation && !evaluation.error) {
+          // キャッシュに保存
+          await saveCachedEvaluation(
+            accessToken,
+            RESULT_SPREADSHEET_ID,
+            student.studentId,
+            student.name,
+            month,
+            'x',
+            evaluation
+          )
+          
+          results.push({
+            studentId: student.studentId,
+            studentName: student.name,
+            grade: evaluation.overallGrade,
+            success: true
+          })
+          successCount++
+          console.log(`[X Batch] Success: ${student.studentId} - Grade ${evaluation.overallGrade}`)
+        } else {
+          results.push({
+            studentId: student.studentId,
+            studentName: student.name,
+            error: evaluation?.error || 'X評価に失敗しました',
+            success: false
+          })
+          errorCount++
+          errors.push(`${student.name}(${student.studentId}): ${evaluation?.error || 'エラー'}`)
+          console.log(`[X Batch] Error: ${student.studentId} - ${evaluation?.error}`)
+        }
+      } catch (error: any) {
+        results.push({
+          studentId: student.studentId,
+          studentName: student.name,
+          error: error.message,
+          success: false
+        })
+        errorCount++
+        errors.push(`${student.name}(${student.studentId}): ${error.message}`)
+        console.error(`[X Batch] Exception for ${student.studentId}:`, error.message)
+      }
+    }
+    
+    return c.json({
+      success: true,
+      month,
+      totalStudents: targetStudents.length,
+      successCount,
+      errorCount,
+      results,
+      errors: errors.length > 0 ? errors : undefined
+    })
+  } catch (error: any) {
+    console.error('[/api/x/evaluate-batch] Error:', error.message, error.stack)
     return c.json({ success: false, error: error.message, stack: error.stack }, 500)
   }
 })

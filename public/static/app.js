@@ -109,6 +109,12 @@ function setupEventListeners() {
   // 採点実行ボタン
   document.getElementById('run-evaluation-btn').addEventListener('click', runEvaluation);
   
+  // YouTube評価実行ボタン
+  document.getElementById('run-youtube-evaluation-btn').addEventListener('click', runYouTubeEvaluation);
+  
+  // X評価実行ボタン
+  document.getElementById('run-x-evaluation-btn').addEventListener('click', runXEvaluation);
+  
   // 結果検索ボタン
   document.getElementById('search-results-btn').addEventListener('click', searchResults);
   
@@ -193,6 +199,175 @@ async function runEvaluation() {
     hideLoading();
     showError('エラー: ' + error.message);
   }
+}
+
+// YouTube評価を実行
+async function runYouTubeEvaluation() {
+  const month = document.getElementById('youtube-evaluation-month').value;
+  const studentIdsInput = document.getElementById('youtube-student-ids-input').value.trim();
+  
+  if (!month) {
+    showError('評価対象月を選択してください');
+    return;
+  }
+
+  const studentIds = studentIdsInput ? studentIdsInput.split(',').map(id => id.trim()).filter(id => id) : [];
+  
+  const targetText = studentIds.length > 0 
+    ? `${studentIds.length}名の生徒` 
+    : '全生徒（YouTubeチャンネルがある生徒のみ）';
+
+  if (!confirm(`${month}の${targetText}のYouTube評価を実行しますか？\n\n※この処理には時間がかかる場合があります`)) {
+    return;
+  }
+
+  try {
+    showLoading('YouTube評価を実行中... この処理には数分かかる場合があります');
+    
+    const body = { month };
+    if (studentIds.length > 0) {
+      body.studentIds = studentIds;
+    }
+    
+    const response = await fetch('/api/youtube/evaluate-batch', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    const data = await response.json();
+    hideLoading();
+
+    if (data.success) {
+      showSuccess(`YouTube評価が完了しました！\n成功: ${data.successCount}件、エラー: ${data.errorCount}件`);
+      renderBatchResults(data.results, 'YouTube');
+      
+      if (data.errors && data.errors.length > 0) {
+        showWarning('一部の生徒で処理エラーが発生しました：\n' + data.errors.slice(0, 5).join('\n') + (data.errors.length > 5 ? '\n...他' : ''));
+      }
+    } else {
+      showError('YouTube評価に失敗しました: ' + data.error);
+    }
+  } catch (error) {
+    hideLoading();
+    showError('エラー: ' + error.message);
+  }
+}
+
+// X評価を実行
+async function runXEvaluation() {
+  const month = document.getElementById('x-evaluation-month').value;
+  const studentIdsInput = document.getElementById('x-student-ids-input').value.trim();
+  
+  if (!month) {
+    showError('評価対象月を選択してください');
+    return;
+  }
+
+  const studentIds = studentIdsInput ? studentIdsInput.split(',').map(id => id.trim()).filter(id => id) : [];
+  
+  const targetText = studentIds.length > 0 
+    ? `${studentIds.length}名の生徒` 
+    : '全生徒（Xアカウントがある生徒のみ）';
+
+  if (!confirm(`${month}の${targetText}のX評価を実行しますか？\n\n※この処理には時間がかかる場合があります\n※X APIのレート制限により、全生徒評価は時間がかかります`)) {
+    return;
+  }
+
+  try {
+    showLoading('X評価を実行中... この処理には数分かかる場合があります');
+    
+    const body = { month };
+    if (studentIds.length > 0) {
+      body.studentIds = studentIds;
+    }
+    
+    const response = await fetch('/api/x/evaluate-batch', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    const data = await response.json();
+    hideLoading();
+
+    if (data.success) {
+      showSuccess(`X評価が完了しました！\n成功: ${data.successCount}件、エラー: ${data.errorCount}件`);
+      renderBatchResults(data.results, 'X (Twitter)');
+      
+      if (data.errors && data.errors.length > 0) {
+        showWarning('一部の生徒で処理エラーが発生しました：\n' + data.errors.slice(0, 5).join('\n') + (data.errors.length > 5 ? '\n...他' : ''));
+      }
+    } else {
+      showError('X評価に失敗しました: ' + data.error);
+    }
+  } catch (error) {
+    hideLoading();
+    showError('エラー: ' + error.message);
+  }
+}
+
+// バッチ評価結果を表示
+function renderBatchResults(results, type) {
+  const container = document.getElementById('evaluation-results');
+  
+  if (results.length === 0) {
+    container.innerHTML = '<p class="text-gray-500">評価結果はありません</p>';
+    return;
+  }
+
+  const gradeColor = {
+    'S': 'bg-purple-100 text-purple-800',
+    'A': 'bg-blue-100 text-blue-800',
+    'B': 'bg-green-100 text-green-800',
+    'C': 'bg-yellow-100 text-yellow-800',
+    'D': 'bg-red-100 text-red-800',
+  };
+
+  const html = results.map(result => {
+    if (result.success) {
+      return `
+        <div class="bg-white rounded-lg shadow-lg p-4 hover:shadow-xl transition">
+          <div class="flex items-center justify-between">
+            <div>
+              <h3 class="font-bold text-lg">${result.studentName}</h3>
+              <p class="text-gray-600 text-sm">学籍番号: ${result.studentId}</p>
+            </div>
+            <div class="text-center">
+              <div class="text-xs text-gray-600 mb-1">${type}評価</div>
+              <span class="inline-block px-4 py-2 ${gradeColor[result.grade]} rounded-lg text-xl font-bold">
+                ${result.grade}
+              </span>
+            </div>
+          </div>
+        </div>
+      `;
+    } else {
+      return `
+        <div class="bg-white rounded-lg shadow-lg p-4 hover:shadow-xl transition border-l-4 border-red-500">
+          <div class="flex items-center justify-between">
+            <div>
+              <h3 class="font-bold text-lg">${result.studentName}</h3>
+              <p class="text-gray-600 text-sm">学籍番号: ${result.studentId}</p>
+            </div>
+            <div>
+              <span class="inline-block px-3 py-1 bg-red-100 text-red-800 rounded-lg text-sm">
+                <i class="fas fa-exclamation-circle mr-1"></i>
+                エラー
+              </span>
+            </div>
+          </div>
+          <p class="text-red-600 text-sm mt-2">${result.error}</p>
+        </div>
+      `;
+    }
+  }).join('');
+
+  container.innerHTML = html;
 }
 
 // 結果を表示
