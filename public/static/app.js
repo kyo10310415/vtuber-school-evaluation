@@ -115,6 +115,9 @@ function setupEventListeners() {
   // X評価実行ボタン
   document.getElementById('run-x-evaluation-btn').addEventListener('click', runXEvaluation);
   
+  // X評価自動分割実行ボタン
+  document.getElementById('run-x-evaluation-auto-btn').addEventListener('click', runXEvaluationAuto);
+  
   // 結果検索ボタン
   document.getElementById('search-results-btn').addEventListener('click', searchResults);
   
@@ -301,6 +304,61 @@ async function runXEvaluation() {
       
       if (data.errors && data.errors.length > 0) {
         showWarning('一部の生徒で処理エラーが発生しました：\n' + data.errors.slice(0, 5).join('\n') + (data.errors.length > 5 ? '\n...他' : ''));
+      }
+    } else {
+      showError('X評価に失敗しました: ' + data.error);
+    }
+  } catch (error) {
+    hideLoading();
+    showError('エラー: ' + error.message);
+  }
+}
+
+// X評価を自動分割実行（50名ずつ、15分待機）
+async function runXEvaluationAuto() {
+  const month = document.getElementById('x-evaluation-month').value;
+  const studentIdsInput = document.getElementById('x-student-ids-input').value.trim();
+  
+  if (!month) {
+    showError('評価対象月を選択してください');
+    return;
+  }
+
+  const studentIds = studentIdsInput ? studentIdsInput.split(',').map(id => id.trim()).filter(id => id) : [];
+  
+  const targetText = studentIds.length > 0 
+    ? `${studentIds.length}名の生徒` 
+    : '全生徒（Xアカウントがある生徒のみ）';
+
+  if (!confirm(`${month}の${targetText}のX評価を自動分割実行しますか？\n\n【自動分割実行の詳細】\n・50名ずつに自動分割\n・各バッチ間に15分待機\n・全生徒の場合、約3時間かかります\n\n※この処理は長時間かかりますが、途中でページを閉じても処理は継続されます`)) {
+    return;
+  }
+
+  try {
+    showLoading('X評価を自動分割実行中...\n\n50名ずつ処理し、各バッチ間に15分待機します\nこの処理には長時間かかりますが、ページを閉じても処理は継続されます');
+    
+    const body = { month };
+    if (studentIds.length > 0) {
+      body.studentIds = studentIds;
+    }
+    
+    const response = await fetch('/api/x/evaluate-batch-auto', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    const data = await response.json();
+    hideLoading();
+
+    if (data.success) {
+      showSuccess(`X評価が完了しました！\n\n対象生徒数: ${data.totalStudents}名\nバッチ数: ${data.totalBatches}バッチ（各${data.batchSize}名）\n成功: ${data.successCount}件\nエラー: ${data.errorCount}件`);
+      renderBatchResults(data.results, 'X (Twitter)');
+      
+      if (data.errors && data.errors.length > 0) {
+        showWarning('一部の生徒で処理エラーが発生しました：\n' + data.errors.slice(0, 10).join('\n') + (data.errors.length > 10 ? '\n...他' + (data.errors.length - 10) + '件' : ''));
       }
     } else {
       showError('X評価に失敗しました: ' + data.error);

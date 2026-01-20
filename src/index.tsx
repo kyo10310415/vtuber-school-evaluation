@@ -532,16 +532,28 @@ app.get('/', (c) => {
               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>
-          <button 
-            id="run-x-evaluation-btn"
-            class="px-6 py-2 bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-bold rounded-lg hover:from-blue-600 hover:to-cyan-600 transition shadow-md">
-            <i class="fab fa-x-twitter mr-2"></i>
-            X評価実行
-          </button>
+          <div class="flex gap-2">
+            <button 
+              id="run-x-evaluation-btn"
+              class="px-6 py-2 bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-bold rounded-lg hover:from-blue-600 hover:to-cyan-600 transition shadow-md">
+              <i class="fab fa-x-twitter mr-2"></i>
+              X評価実行
+            </button>
+            <button 
+              id="run-x-evaluation-auto-btn"
+              class="px-6 py-2 bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-bold rounded-lg hover:from-indigo-600 hover:to-purple-600 transition shadow-md">
+              <i class="fas fa-magic mr-2"></i>
+              自動分割実行
+            </button>
+          </div>
         </div>
         <p class="text-sm text-gray-600 mt-3">
           <i class="fas fa-info-circle mr-1"></i>
           選択した月のX統計データ（フォロワー数、投稿数、エンゲージメント等）を取得・評価します
+        </p>
+        <p class="text-sm text-purple-600 mt-2 font-medium">
+          <i class="fas fa-star mr-1"></i>
+          「自動分割実行」: 50名ずつ自動分割し、各バッチ間に15分待機します（全生徒対象時に推奨）
         </p>
       </div>
 
@@ -1792,6 +1804,140 @@ app.post('/api/x/evaluate-batch', async (c) => {
     })
   } catch (error: any) {
     console.error('[/api/x/evaluate-batch] Error:', error.message, error.stack)
+    return c.json({ success: false, error: error.message, stack: error.stack }, 500)
+  }
+})
+
+// X評価一括実行（50名ずつ自動分割、15分待機）
+app.post('/api/x/evaluate-batch-auto', async (c) => {
+  try {
+    const GOOGLE_SERVICE_ACCOUNT = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT')
+    const STUDENT_MASTER_SPREADSHEET_ID = getEnv(c, 'STUDENT_MASTER_SPREADSHEET_ID')
+    const RESULT_SPREADSHEET_ID = getEnv(c, 'RESULT_SPREADSHEET_ID')
+    const X_BEARER_TOKEN = getEnv(c, 'X_BEARER_TOKEN')
+    
+    const request = await c.req.json()
+    const month = request.month || getPreviousMonth()
+    const studentIds = request.studentIds || [] // 空の場合は全生徒
+    
+    if (!X_BEARER_TOKEN) {
+      return c.json({ success: false, error: 'X_BEARER_TOKEN が設定されていません' }, 400)
+    }
+    
+    console.log(`[X Batch Auto] Starting auto batch evaluation for ${month}`)
+    
+    // 生徒情報を取得
+    const allStudents = await fetchStudents(GOOGLE_SERVICE_ACCOUNT, STUDENT_MASTER_SPREADSHEET_ID)
+    
+    // フィルタリング: 指定された学籍番号 or 全生徒（XアカウントIDがある生徒のみ）
+    let targetStudents = allStudents.filter(s => s.xAccount)
+    
+    if (studentIds.length > 0) {
+      targetStudents = targetStudents.filter(s => studentIds.includes(s.studentId))
+    }
+    
+    console.log(`[X Batch Auto] Target students: ${targetStudents.length}`)
+    
+    const { evaluateXAccount } = await import('./lib/x-client')
+    const { saveCachedEvaluation } = await import('./lib/evaluation-cache')
+    const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
+    
+    const allResults = []
+    const allErrors = []
+    let totalSuccessCount = 0
+    let totalErrorCount = 0
+    
+    // 50名ずつに分割
+    const batchSize = 50
+    const totalBatches = Math.ceil(targetStudents.length / batchSize)
+    
+    console.log(`[X Batch Auto] Splitting into ${totalBatches} batches of ${batchSize} students each`)
+    
+    for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+      const startIndex = batchIndex * batchSize
+      const endIndex = Math.min(startIndex + batchSize, targetStudents.length)
+      const batchStudents = targetStudents.slice(startIndex, endIndex)
+      
+      console.log(`[X Batch Auto] Processing batch ${batchIndex + 1}/${totalBatches} (${startIndex}-${endIndex - 1})`)
+      
+      // バッチ処理
+      for (const student of batchStudents) {
+        try {
+          console.log(`[X Batch Auto] Evaluating ${student.studentId} (${student.name})`)
+          
+          const evaluation = await evaluateXAccount(
+            X_BEARER_TOKEN,
+            student.xAccount!,
+            month
+          )
+          
+          if (evaluation && !evaluation.error) {
+            // キャッシュに保存
+            await saveCachedEvaluation(
+              accessToken,
+              RESULT_SPREADSHEET_ID,
+              student.studentId,
+              student.name,
+              month,
+              'x',
+              evaluation
+            )
+            
+            allResults.push({
+              studentId: student.studentId,
+              studentName: student.name,
+              grade: evaluation.overallGrade,
+              success: true
+            })
+            totalSuccessCount++
+            console.log(`[X Batch Auto] Success: ${student.studentId} - Grade ${evaluation.overallGrade}`)
+          } else {
+            allResults.push({
+              studentId: student.studentId,
+              studentName: student.name,
+              error: evaluation?.error || 'X評価に失敗しました',
+              success: false
+            })
+            totalErrorCount++
+            allErrors.push(`${student.name}(${student.studentId}): ${evaluation?.error || 'エラー'}`)
+            console.log(`[X Batch Auto] Error: ${student.studentId} - ${evaluation?.error}`)
+          }
+        } catch (error: any) {
+          allResults.push({
+            studentId: student.studentId,
+            studentName: student.name,
+            error: error.message,
+            success: false
+          })
+          totalErrorCount++
+          allErrors.push(`${student.name}(${student.studentId}): ${error.message}`)
+          console.error(`[X Batch Auto] Exception for ${student.studentId}:`, error.message)
+        }
+      }
+      
+      // 次のバッチがある場合は15分（900秒）待機
+      if (batchIndex < totalBatches - 1) {
+        console.log(`[X Batch Auto] Batch ${batchIndex + 1} completed. Waiting 15 minutes before next batch...`)
+        await new Promise(resolve => setTimeout(resolve, 15 * 60 * 1000)) // 15分待機
+        console.log(`[X Batch Auto] Wait completed. Starting batch ${batchIndex + 2}/${totalBatches}`)
+      }
+    }
+    
+    console.log(`[X Batch Auto] All batches completed: Success=${totalSuccessCount}, Error=${totalErrorCount}`)
+    
+    return c.json({
+      success: true,
+      month,
+      totalStudents: targetStudents.length,
+      totalBatches,
+      batchSize,
+      successCount: totalSuccessCount,
+      errorCount: totalErrorCount,
+      results: allResults,
+      errors: allErrors.length > 0 ? allErrors : undefined
+    })
+  } catch (error: any) {
+    console.error('[/api/x/evaluate-batch-auto] Error:', error.message, error.stack)
     return c.json({ success: false, error: error.message, stack: error.stack }, 500)
   }
 })
