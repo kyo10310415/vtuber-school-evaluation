@@ -7,6 +7,7 @@ import { fetchStudents, fetchAbsenceData, fetchDocumentsInFolder, fetchDocumentC
 // fetchPaymentData は一旦使用しない
 import { GeminiAnalyzer } from './lib/gemini-client'
 import { evaluateStudent, convertResultToArray } from './lib/evaluation'
+import { ssoAuthMiddleware } from './middleware/sso-auth.js'
 
 type Bindings = {
   GOOGLE_SERVICE_ACCOUNT: string;
@@ -47,6 +48,9 @@ function getEnv(c: any, key: keyof Bindings): string {
 
 // CORS設定
 app.use('/api/*', cors())
+
+// SSO Authentication (protects all routes)
+app.use('*', ssoAuthMiddleware)
 
 // 静的ファイルの配信
 app.use('/static/*', serveStatic({ root: './public' }))
