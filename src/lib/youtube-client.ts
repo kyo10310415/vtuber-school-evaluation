@@ -218,7 +218,7 @@ export async function evaluateYouTubeChannel(
     const stats = await fetchYouTubeChannelStats(apiKey, channelId);
     if (!stats) {
       console.warn(`[YouTube Evaluation] Failed to fetch channel stats: ${channelId}`);
-      return null;
+      return { error: 'チャンネル統計の取得に失敗しました' } as any;
     }
 
     // 2. 最近の動画を取得（最大50件）
@@ -292,7 +292,7 @@ export async function evaluateYouTubeChannel(
     return evaluation;
   } catch (error: any) {
     console.error('[YouTube Evaluation] Error:', error.message, error.stack);
-    return null;
+    return { error: error.message } as any;
   }
 }
 

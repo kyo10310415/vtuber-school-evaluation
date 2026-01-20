@@ -285,7 +285,7 @@ app.get('/evaluation-detail', (c) => {
         <!-- 評価結果セクション -->
         <div id="evaluation-section" class="hidden">
           <!-- ナビゲーションボタン -->
-          <div class="flex gap-3 mb-6">
+          <div class="flex gap-3 mb-6 flex-wrap">
             <button 
               id="back-to-home-btn"
               class="px-6 py-2 bg-gray-600 text-white font-bold rounded-lg hover:bg-gray-700 transition shadow-md">
@@ -298,6 +298,28 @@ app.get('/evaluation-detail', (c) => {
               <i class="fas fa-chart-line mr-2"></i>
               月次レポートを見る
             </button>
+            
+            <!-- 個別評価実行ボタン -->
+            <div class="ml-auto flex gap-3">
+              <button 
+                id="re-eval-prolevel-btn"
+                class="px-4 py-2 bg-gradient-to-r from-yellow-500 to-orange-500 text-white font-bold rounded-lg hover:from-yellow-600 hover:to-orange-600 transition shadow-md">
+                <i class="fas fa-star mr-2"></i>
+                プロレベル再評価
+              </button>
+              <button 
+                id="re-eval-youtube-btn"
+                class="px-4 py-2 bg-gradient-to-r from-red-500 to-pink-500 text-white font-bold rounded-lg hover:from-red-600 hover:to-pink-600 transition shadow-md">
+                <i class="fab fa-youtube mr-2"></i>
+                YouTube再評価
+              </button>
+              <button 
+                id="re-eval-x-btn"
+                class="px-4 py-2 bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-bold rounded-lg hover:from-blue-600 hover:to-cyan-600 transition shadow-md">
+                <i class="fab fa-x-twitter mr-2"></i>
+                X再評価
+              </button>
+            </div>
           </div>
           
           <!-- ヘッダー -->
@@ -1079,11 +1101,11 @@ app.get('/api/youtube/evaluate/:studentId', async (c) => {
       month
     )
 
-    if (!evaluation) {
-      console.error(`[/api/youtube/evaluate] Evaluation returned null for ${studentId}`)
+    if (!evaluation || evaluation.error) {
+      console.error(`[/api/youtube/evaluate] Evaluation failed for ${studentId}:`, evaluation?.error)
       return c.json({ 
         success: false, 
-        error: 'YouTube評価の取得に失敗しました。詳細はサーバーログを確認してください。',
+        error: evaluation?.error || 'YouTube評価の取得に失敗しました',
         details: {
           studentId,
           channelId: student.youtubeChannelId,
@@ -1445,13 +1467,13 @@ app.get('/api/x/evaluate/:studentId', async (c) => {
       month
     )
 
-    console.log(`[X Evaluate] Evaluation result for ${studentId}:`, evaluation ? 'SUCCESS' : 'NULL')
+    console.log(`[X Evaluate] Evaluation result for ${studentId}:`, evaluation ? 'SUCCESS' : 'NULL/ERROR')
     
-    if (!evaluation) {
-      console.error(`[X Evaluate] Failed to get evaluation for ${studentId}`)
+    if (!evaluation || evaluation.error) {
+      console.error(`[X Evaluate] Failed to get evaluation for ${studentId}:`, evaluation?.error)
       return c.json({ 
         success: false, 
-        error: 'X評価の取得に失敗しました。詳細はサーバーログを確認してください。',
+        error: evaluation?.error || 'X評価の取得に失敗しました',
         details: {
           studentId,
           xAccount: student.xAccount,
@@ -2200,9 +2222,9 @@ app.post('/api/auto-evaluate', async (c) => {
                   month
                 )
                 
-                if (evaluation) {
+                if (evaluation && !evaluation.error) {
                   result.evaluations.youtube = evaluation
-                  // キャッシュに保存
+                  // 成功時のみキャッシュに保存
                   await saveCachedEvaluation(
                     accessToken,
                     RESULT_SPREADSHEET_ID,
@@ -2212,9 +2234,10 @@ app.post('/api/auto-evaluate', async (c) => {
                     'youtube',
                     evaluation
                   )
-                  console.log(`[Auto Evaluate] YouTube評価完了: ${student.studentId}`)
+                  console.log(`[Auto Evaluate] YouTube評価完了（キャッシュ保存）: ${student.studentId}`)
                 } else {
                   result.evaluations.youtube = { error: 'YouTube評価の取得に失敗しました' }
+                  console.log(`[Auto Evaluate] YouTube評価失敗（キャッシュなし）: ${student.studentId}`)
                 }
               }
             } catch (error: any) {
@@ -2254,9 +2277,9 @@ app.post('/api/auto-evaluate', async (c) => {
                   month
                 )
                 
-                if (evaluation) {
+                if (evaluation && !evaluation.error) {
                   result.evaluations.x = evaluation
-                  // キャッシュに保存
+                  // 成功時のみキャッシュに保存
                   await saveCachedEvaluation(
                     accessToken,
                     RESULT_SPREADSHEET_ID,
@@ -2266,9 +2289,10 @@ app.post('/api/auto-evaluate', async (c) => {
                     'x',
                     evaluation
                   )
-                  console.log(`[Auto Evaluate] X評価完了: ${student.studentId}`)
+                  console.log(`[Auto Evaluate] X評価完了（キャッシュ保存）: ${student.studentId}`)
                 } else {
                   result.evaluations.x = { error: 'X評価の取得に失敗しました' }
+                  console.log(`[Auto Evaluate] X評価失敗（キャッシュなし）: ${student.studentId}`)
                 }
               }
             } catch (error: any) {

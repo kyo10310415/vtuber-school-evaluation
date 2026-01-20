@@ -60,6 +60,23 @@ function setupEventListeners() {
       }
     });
   }
+  
+  // 個別評価実行ボタン
+  const reEvalProLevelBtn = document.getElementById('re-eval-prolevel-btn');
+  const reEvalYouTubeBtn = document.getElementById('re-eval-youtube-btn');
+  const reEvalXBtn = document.getElementById('re-eval-x-btn');
+  
+  if (reEvalProLevelBtn) {
+    reEvalProLevelBtn.addEventListener('click', () => reEvaluateIndividual('prolevel'));
+  }
+  
+  if (reEvalYouTubeBtn) {
+    reEvalYouTubeBtn.addEventListener('click', () => reEvaluateIndividual('youtube'));
+  }
+  
+  if (reEvalXBtn) {
+    reEvalXBtn.addEventListener('click', () => reEvaluateIndividual('x'));
+  }
 }
 
 // 評価データを読み込み
@@ -705,4 +722,70 @@ function showToast(message, type = 'info') {
   setTimeout(() => {
     toast.remove();
   }, 5000);
+}
+
+// 個別評価を実行
+async function reEvaluateIndividual(type) {
+  if (!currentStudentId || !currentMonth) {
+    showError('学籍番号と評価月が設定されていません');
+    return;
+  }
+  
+  const typeNames = {
+    'prolevel': 'プロレベル',
+    'youtube': 'YouTube',
+    'x': 'X (Twitter)'
+  };
+  
+  const typeName = typeNames[type] || type;
+  
+  if (!confirm(`${typeName}評価を再実行しますか？\n\n※キャッシュを使用せず、最新データを取得します。`)) {
+    return;
+  }
+  
+  try {
+    showLoading(`${typeName}評価を実行中...`);
+    
+    let response;
+    
+    if (type === 'prolevel') {
+      // プロレベル評価: /api/evaluate エンドポイント
+      response = await fetch(`/api/evaluate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          studentIds: [currentStudentId],
+          month: currentMonth
+        })
+      });
+    } else if (type === 'youtube') {
+      // YouTube評価: /api/youtube/evaluate/:studentId
+      response = await fetch(`/api/youtube/evaluate/${currentStudentId}?month=${currentMonth}`);
+    } else if (type === 'x') {
+      // X評価: /api/x/evaluate/:studentId
+      response = await fetch(`/api/x/evaluate/${currentStudentId}?month=${currentMonth}`);
+    }
+    
+    const result = await response.json();
+    
+    hideLoading();
+    
+    if (!result.success) {
+      showError(`${typeName}評価に失敗しました: ${result.error}`);
+      return;
+    }
+    
+    showToast(`${typeName}評価が完了しました！画面を更新します...`, 'success');
+    
+    // 2秒後に画面をリロード
+    setTimeout(() => {
+      loadEvaluationData();
+    }, 2000);
+    
+  } catch (error) {
+    hideLoading();
+    showError(`エラー: ${error.message}`);
+  }
 }

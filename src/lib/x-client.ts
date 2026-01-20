@@ -333,12 +333,12 @@ export async function evaluateXAccount(
 ): Promise<XEvaluation | null> {
   if (!username) {
     console.error('[X Evaluation] Username is missing');
-    return null;
+    return { error: 'ユーザー名が指定されていません' } as any;
   }
   
   if (!bearerToken) {
     console.error('[X Evaluation] Bearer token is missing');
-    return null;
+    return { error: 'X APIトークンが設定されていません' } as any;
   }
 
   console.log(`[X Evaluation] Evaluating account: ${username} for ${targetMonth}`);
@@ -358,7 +358,7 @@ export async function evaluateXAccount(
       console.error(`  - User not found`);
       console.error(`  - API rate limit exceeded`);
       console.error(`  - Network error`);
-      return null;
+      return { error: 'ユーザー情報の取得に失敗しました' } as any;
     }
 
     console.log(`[X Evaluation] User fetched successfully: ${user.username} (ID: ${user.userId})`);
@@ -441,6 +441,6 @@ export async function evaluateXAccount(
   return evaluation;
   } catch (error: any) {
     console.error('[X Evaluation] Error:', error.message, error.stack);
-    return null;
+    return { error: error.message } as any;
   }
 }
