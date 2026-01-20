@@ -105,6 +105,13 @@ export async function fetchXUserByUsername(
       try {
         const errorJson = JSON.parse(errorText);
         console.error(`[X API] Error details:`, errorJson);
+        
+        // 429 Too Many Requests の場合は特別なエラーを返す
+        if (response.status === 429) {
+          console.warn(`[X API] Rate limit exceeded when fetching user: ${username}`);
+          // nullではなく、特別なマーカーオブジェクトを返す
+          return { rateLimited: true } as any;
+        }
       } catch {
         // JSON解析に失敗した場合はそのままテキストを出力
       }
@@ -362,6 +369,15 @@ export async function evaluateXAccount(
       console.error(`  - API rate limit exceeded`);
       console.error(`  - Network error`);
       return { error: 'ユーザー情報の取得に失敗しました' } as any;
+    }
+    
+    // レート制限チェック（ユーザー情報取得時）
+    if ((user as any).rateLimited) {
+      console.warn(`[X Evaluation] Rate limited when fetching user info for ${username}`);
+      return { 
+        error: 'X APIのレート制限により、ユーザー情報を取得できませんでした',
+        rateLimited: true
+      } as any;
     }
 
     console.log(`[X Evaluation] User fetched successfully: ${user.username} (ID: ${user.userId})`);
