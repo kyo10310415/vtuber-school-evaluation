@@ -854,11 +854,12 @@ app.get('/api/debug/x-full/:username', async (c) => {
     
     // ステップ2: ツイート取得
     console.log(`[Debug X Full] Step 2: Fetching tweets for user ID ${user.userId}`)
-    const tweets = await fetchRecentTweets(X_BEARER_TOKEN, user.userId, 10)
+    const { tweets, rateLimited } = await fetchRecentTweets(X_BEARER_TOKEN, user.userId, 10)
     
     return c.json({
       step: 2,
       status: 'success',
+      rateLimited,
       user: {
         userId: user.userId,
         username: user.username,

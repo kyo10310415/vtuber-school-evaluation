@@ -185,21 +185,22 @@ export async function fetchXUserById(
 /**
  * ユーザーの最近のツイートを取得（対象月のみ）
  * リプライは除外し、オリジナルツイートとリツイートのみを取得
+ * @returns { tweets: XTweet[], rateLimited: boolean } - ツイート配列とレート制限フラグ
  */
 export async function fetchRecentTweets(
   bearerToken: string,
   userId: string,
   maxResults: number = 100,
   targetMonth?: string // 追加: 対象月 (YYYY-MM 形式)
-): Promise<XTweet[]> {
+): Promise<{ tweets: XTweet[], rateLimited: boolean }> {
   if (!userId) {
     console.error('[X API] userId is empty in fetchRecentTweets');
-    return [];
+    return { tweets: [], rateLimited: false };
   }
 
   if (!bearerToken) {
     console.error('[X API] bearerToken is empty in fetchRecentTweets');
-    return [];
+    return { tweets: [], rateLimited: false };
   }
 
   // 対象月の開始・終了日時を計算
@@ -252,14 +253,14 @@ export async function fetchRecentTweets(
         // 429 Too Many Requests の場合は特別な処理
         if (response.status === 429) {
           console.warn(`[X API] Rate limit exceeded for user ${userId}. Tweets will be skipped.`);
-          // レート制限エラーは空配列を返す（エラーにしない）
-          return [];
+          // レート制限エラーはフラグを立てて返す
+          return { tweets: [], rateLimited: true };
         }
       } catch {
         // JSON解析に失敗した場合はそのままテキストを出力
       }
       
-      return [];
+      return { tweets: [], rateLimited: false };
     }
 
     const data = await response.json();
@@ -267,10 +268,10 @@ export async function fetchRecentTweets(
 
     if (!data.data || data.data.length === 0) {
       console.log(`[X API] No tweets found for user: ${userId}`);
-      return [];
+      return { tweets: [], rateLimited: false };
     }
 
-    return data.data.map((tweet: any) => ({
+    const tweets = data.data.map((tweet: any) => ({
       tweetId: tweet.id,
       text: tweet.text,
       createdAt: tweet.created_at,
@@ -283,9 +284,11 @@ export async function fetchRecentTweets(
         impressionCount: tweet.public_metrics?.impression_count || 0,
       },
     }));
+    
+    return { tweets, rateLimited: false };
   } catch (error: any) {
     console.error(`[X API] Fetch tweets exception:`, error);
-    return [];
+    return { tweets: [], rateLimited: false };
   }
 }
 
@@ -365,8 +368,21 @@ export async function evaluateXAccount(
 
     // 2. 対象月のツイートを取得（リプライ除外、対象月のみ）
     console.log(`[X Evaluation] Fetching tweets for user ID: ${user.userId}, month: ${targetMonth}`);
-    const monthTweets = await fetchRecentTweets(bearerToken, user.userId, 100, targetMonth);
-    console.log(`[X Evaluation] Retrieved ${monthTweets.length} tweets in ${targetMonth}`);
+    const { tweets: monthTweets, rateLimited } = await fetchRecentTweets(bearerToken, user.userId, 100, targetMonth);
+    console.log(`[X Evaluation] Retrieved ${monthTweets.length} tweets in ${targetMonth}, rateLimited: ${rateLimited}`);
+
+    // ⚠️ データ品質チェック: レート制限によりツイートデータが取得できていない場合はエラー
+    if (rateLimited) {
+      console.warn(`[X Evaluation] Rate limited - cannot retrieve tweet data for ${username} in ${targetMonth}`);
+      return { 
+        error: 'X APIのレート制限により、ツイートデータを取得できませんでした',
+        rateLimited: true,
+        partialData: {
+          followersCount: user.followersCount,
+          followingCount: user.followingCount
+        }
+      } as any;
+    }
 
   // 3. 投稿頻度を計算
   const tweetsInMonth = monthTweets.length;
