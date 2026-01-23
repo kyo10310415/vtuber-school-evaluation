@@ -543,6 +543,49 @@ function parseMessages(content: string): TalkMessage[] {
   return messages;
 }
 
+// アナリティクス対象生徒を取得
+export async function fetchAnalyticsTargetStudents(
+  serviceAccountJson: string,
+  spreadsheetId: string = '1MHRtvgDb-AWm7iBz9ova7KknwCrbcykp15ZtAlkbq-M',
+  sheetName: string = 'アナリティクス取得'
+): Promise<Student[]> {
+  const accessToken = await getAccessToken(serviceAccountJson);
+  
+  // アナリティクス取得スプレッドシートから取得
+  // A列: 学籍番号
+  // B列: 生徒名
+  // C列: YouTubeチャンネルID
+  // D列: OAuth認証済みフラグ（"済"など）
+  // E列: OAuth認証日時
+  const response = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A2:E`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    }
+  );
+
+  const data = await response.json();
+  const rows = data.values || [];
+  
+  console.log('[fetchAnalyticsTargetStudents] Response:', {
+    spreadsheetId,
+    sheetName,
+    rowCount: rows.length,
+  });
+  
+  return rows.map((row: any[]) => ({
+    studentId: row[0] || '',              // A列: 学籍番号
+    name: row[1] || '',                   // B列: 生徒名
+    youtubeChannelId: row[2] || '',       // C列: YouTubeチャンネルID
+    enrollmentDate: '',
+    status: '在籍中',
+    talkMemoFolderUrl: '',
+    xAccount: '',
+  }));
+}
+
 // 結果をスプレッドシートに書き込み
 export async function writeResultsToSheet(
   serviceAccountJson: string,

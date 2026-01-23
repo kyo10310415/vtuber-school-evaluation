@@ -20,6 +20,10 @@ type Bindings = {
   NOTION_DATABASE_ID: string;
   YOUTUBE_API_KEY: string;
   X_BEARER_TOKEN: string;
+  YOUTUBE_ANALYTICS_CLIENT_ID: string;
+  YOUTUBE_ANALYTICS_CLIENT_SECRET: string;
+  YOUTUBE_ANALYTICS_REDIRECT_URI: string;
+  ANALYTICS_TARGET_SPREADSHEET_ID: string;
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -57,6 +61,280 @@ app.use('/static/*', serveStatic({ root: './public' }))
 
 // メインレンダラー
 app.use(renderer)
+
+// 所属生データページ（YouTube Analytics詳細データ）
+app.get('/analytics-data', (c) => {
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>所属生データ - YouTube Analytics</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+      <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+      <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    </head>
+    <body class="bg-gray-100">
+      <div class="container mx-auto px-4 py-8">
+        <div class="mb-6">
+          <h1 class="text-3xl font-bold text-gray-800">
+            <i class="fab fa-youtube text-red-600 mr-2"></i>
+            所属生データ（YouTube Analytics）
+          </h1>
+          <p class="text-gray-600 mt-2">各生徒のYouTubeチャンネルの詳細アナリティクスデータ</p>
+        </div>
+
+        <!-- 期間選択 -->
+        <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label for="start-date" class="block text-sm font-medium text-gray-700 mb-2">開始日</label>
+              <input type="date" id="start-date" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-600 focus:border-transparent">
+            </div>
+            <div>
+              <label for="end-date" class="block text-sm font-medium text-gray-700 mb-2">終了日</label>
+              <input type="date" id="end-date" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-600 focus:border-transparent">
+            </div>
+            <div class="flex items-end">
+              <button id="load-btn" class="w-full bg-purple-600 text-white px-6 py-2 rounded-lg hover:bg-purple-700 transition">
+                <i class="fas fa-sync-alt mr-2"></i>データ読み込み
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 生徒一覧 -->
+        <div id="students-list" class="space-y-4">
+          <!-- ローディング -->
+          <div id="loading" class="bg-white rounded-lg shadow-lg p-8 text-center">
+            <div class="animate-spin rounded-full h-12 w-12 border-b-4 border-purple-600 mx-auto mb-4"></div>
+            <p class="text-gray-600">読み込み中...</p>
+          </div>
+        </div>
+      </div>
+
+      <script>
+        let studentsData = [];
+        let analyticsCache = {};
+
+        // 初期化
+        document.addEventListener('DOMContentLoaded', () => {
+          // デフォルト期間：先月1日〜先月末
+          const now = new Date();
+          const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+          const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+          
+          document.getElementById('start-date').value = lastMonth.toISOString().split('T')[0];
+          document.getElementById('end-date').value = lastMonthEnd.toISOString().split('T')[0];
+
+          // 生徒リスト読み込み
+          loadStudents();
+
+          // ボタンイベント
+          document.getElementById('load-btn').addEventListener('click', loadAnalyticsData);
+        });
+
+        // 生徒リストを読み込み
+        async function loadStudents() {
+          try {
+            const response = await fetch('/api/analytics/students');
+            const data = await response.json();
+
+            if (!data.success) {
+              throw new Error(data.error);
+            }
+
+            studentsData = data.students;
+            renderStudentsList();
+          } catch (error) {
+            console.error('生徒リスト読み込みエラー:', error);
+            showError('生徒リストの読み込みに失敗しました: ' + error.message);
+          }
+        }
+
+        // 生徒リストを表示
+        function renderStudentsList() {
+          const container = document.getElementById('students-list');
+          
+          if (studentsData.length === 0) {
+            container.innerHTML = \`
+              <div class="bg-white rounded-lg shadow-lg p-8 text-center">
+                <i class="fas fa-info-circle text-gray-400 text-6xl mb-4"></i>
+                <p class="text-gray-600">アナリティクス対象の生徒が見つかりません</p>
+              </div>
+            \`;
+            return;
+          }
+
+          container.innerHTML = studentsData.map(student => \`
+            <div class="bg-white rounded-lg shadow-lg p-6" id="student-\${student.studentId}">
+              <div class="flex items-center justify-between mb-4">
+                <div>
+                  <h3 class="text-xl font-bold text-gray-800">\${student.name}</h3>
+                  <p class="text-sm text-gray-600">学籍番号: \${student.studentId}</p>
+                  <p class="text-sm text-gray-600">チャンネルID: \${student.youtubeChannelId || 'なし'}</p>
+                </div>
+                <button 
+                  class="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition"
+                  onclick="startOAuth('\${student.studentId}')"
+                >
+                  <i class="fab fa-youtube mr-2"></i>OAuth認証
+                </button>
+              </div>
+              
+              <div id="analytics-\${student.studentId}" class="mt-4">
+                <p class="text-gray-500 text-sm">データを読み込むには、まずOAuth認証を完了してください</p>
+              </div>
+            </div>
+          \`).join('');
+        }
+
+        // OAuth認証を開始
+        async function startOAuth(studentId) {
+          try {
+            const response = await fetch(\`/api/analytics/auth/url?studentId=\${studentId}\`);
+            const data = await response.json();
+
+            if (!data.success) {
+              throw new Error(data.error);
+            }
+
+            // 新しいウィンドウでOAuth認証を開く
+            const authWindow = window.open(data.authUrl, 'youtube-oauth', 'width=600,height=800');
+
+            // 認証完了を待つ
+            window.addEventListener('message', (event) => {
+              if (event.data.type === 'youtube-analytics-auth-success') {
+                authWindow.close();
+                alert('認証が完了しました！アナリティクスデータを取得します。');
+                
+                // トークン情報をキャッシュ
+                analyticsCache[event.data.studentId] = event.data.tokenInfo;
+                
+                // データを自動取得
+                loadAnalyticsForStudent(event.data.studentId, event.data.tokenInfo.accessToken);
+              }
+            });
+          } catch (error) {
+            console.error('OAuth認証エラー:', error);
+            alert('OAuth認証の開始に失敗しました: ' + error.message);
+          }
+        }
+
+        // 特定生徒のアナリティクスを読み込み
+        async function loadAnalyticsForStudent(studentId, accessToken) {
+          const student = studentsData.find(s => s.studentId === studentId);
+          if (!student || !student.youtubeChannelId) {
+            return;
+          }
+
+          const startDate = document.getElementById('start-date').value;
+          const endDate = document.getElementById('end-date').value;
+          const container = document.getElementById(\`analytics-\${studentId}\`);
+
+          container.innerHTML = '<p class="text-gray-500">読み込み中...</p>';
+
+          try {
+            const response = await fetch('/api/analytics/channel', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                studentId,
+                channelId: student.youtubeChannelId,
+                accessToken,
+                startDate,
+                endDate,
+              }),
+            });
+
+            const data = await response.json();
+
+            if (!data.success) {
+              throw new Error(data.error);
+            }
+
+            renderAnalytics(studentId, data.analytics);
+          } catch (error) {
+            console.error('アナリティクス読み込みエラー:', error);
+            container.innerHTML = \`<p class="text-red-500 text-sm">エラー: \${error.message}</p>\`;
+          }
+        }
+
+        // アナリティクスデータを表示
+        function renderAnalytics(studentId, analytics) {
+          const container = document.getElementById(\`analytics-\${studentId}\`);
+          const metrics = analytics.metrics;
+
+          container.innerHTML = \`
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div class="bg-purple-50 rounded-lg p-4">
+                <p class="text-sm text-gray-600">再生回数</p>
+                <p class="text-2xl font-bold text-purple-600">\${metrics.views?.toLocaleString() || 0}</p>
+              </div>
+              <div class="bg-blue-50 rounded-lg p-4">
+                <p class="text-sm text-gray-600">高評価</p>
+                <p class="text-2xl font-bold text-blue-600">\${metrics.likes?.toLocaleString() || 0}</p>
+              </div>
+              <div class="bg-green-50 rounded-lg p-4">
+                <p class="text-sm text-gray-600">コメント</p>
+                <p class="text-2xl font-bold text-green-600">\${metrics.comments?.toLocaleString() || 0}</p>
+              </div>
+              <div class="bg-yellow-50 rounded-lg p-4">
+                <p class="text-sm text-gray-600">平均視聴率</p>
+                <p class="text-2xl font-bold text-yellow-600">\${metrics.averageViewPercentage?.toFixed(1) || 0}%</p>
+              </div>
+            </div>
+
+            <div class="mt-4">
+              <h4 class="font-semibold text-gray-800 mb-2">詳細データ</h4>
+              <div class="bg-gray-50 rounded p-4 text-sm">
+                <p>視聴時間: \${(metrics.estimatedMinutesWatched || 0).toLocaleString()} 分</p>
+                <p>平均視聴時間: \${(metrics.averageViewDuration || 0).toFixed(1)} 秒</p>
+                <p>登録者増加: +\${metrics.subscribersGained || 0}</p>
+                <p>登録者減少: -\${metrics.subscribersLost || 0}</p>
+              </div>
+            </div>
+
+            \${analytics.trafficSources ? \`
+              <div class="mt-4">
+                <h4 class="font-semibold text-gray-800 mb-2">トラフィックソース</h4>
+                <div class="space-y-2">
+                  \${analytics.trafficSources.map(source => \`
+                    <div class="flex justify-between items-center bg-gray-50 rounded p-2">
+                      <span class="text-sm">\${source.sourceType}</span>
+                      <span class="text-sm font-semibold">\${source.views.toLocaleString()} (\${source.percentage.toFixed(1)}%)</span>
+                    </div>
+                  \`).join('')}
+                </div>
+              </div>
+            \` : ''}
+          \`;
+        }
+
+        // 全生徒のアナリティクスを読み込み
+        async function loadAnalyticsData() {
+          for (const student of studentsData) {
+            if (analyticsCache[student.studentId]) {
+              await loadAnalyticsForStudent(student.studentId, analyticsCache[student.studentId].accessToken);
+            }
+          }
+        }
+
+        function showError(message) {
+          const container = document.getElementById('students-list');
+          container.innerHTML = \`
+            <div class="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
+              <i class="fas fa-exclamation-circle text-red-500 text-4xl mb-2"></i>
+              <p class="text-red-700">\${message}</p>
+            </div>
+          \`;
+        }
+      </script>
+    </body>
+    </html>
+  `)
+})
 
 // 月次レポートページ
 app.get('/monthly-report', (c) => {
@@ -378,6 +656,30 @@ app.get('/', (c) => {
   
   return c.render(
     <div class="space-y-8">
+      {/* ナビゲーションメニュー */}
+      <div class="bg-white rounded-lg shadow-lg p-4">
+        <div class="flex gap-4 items-center justify-center">
+          <a 
+            href="/" 
+            class="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition shadow-md">
+            <i class="fas fa-home mr-2"></i>
+            ホーム
+          </a>
+          <a 
+            href="/analytics-data" 
+            class="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition shadow-md">
+            <i class="fab fa-youtube mr-2"></i>
+            所属生データ
+          </a>
+          <a 
+            href="/monthly-report" 
+            class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition shadow-md">
+            <i class="fas fa-chart-area mr-2"></i>
+            月次レポート
+          </a>
+        </div>
+      </div>
+
       {/* 学籍番号検索セクション */}
       <div class="bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg shadow-lg p-6 border border-blue-200">
         <h2 class="text-2xl font-bold text-gray-800 mb-4">
@@ -2921,5 +3223,293 @@ async function getAccessToken(serviceAccountJson: string): Promise<string> {
   const tokenData = await tokenResponse.json()
   return tokenData.access_token
 }
+
+// ====================================
+// YouTube Analytics OAuth認証エンドポイント
+// ====================================
+
+// アナリティクス対象生徒一覧を取得
+app.get('/api/analytics/students', async (c) => {
+  const { env } = c;
+  
+  try {
+    const serviceAccount = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT');
+    const spreadsheetId = getEnv(c, 'ANALYTICS_TARGET_SPREADSHEET_ID') || '1MHRtvgDb-AWm7iBz9ova7KknwCrbcykp15ZtAlkbq-M';
+    
+    console.log('[Analytics Students] Fetching:', { spreadsheetId });
+    
+    // fetchAnalyticsTargetStudentsを動的インポート
+    const { fetchAnalyticsTargetStudents } = await import('./lib/google-client');
+    const students = await fetchAnalyticsTargetStudents(serviceAccount, spreadsheetId);
+    
+    return c.json({
+      success: true,
+      students,
+      count: students.length,
+    });
+  } catch (error: any) {
+    console.error('[Analytics Students] Error:', error);
+    return c.json({
+      success: false,
+      error: error.message,
+    }, 500);
+  }
+});
+
+// OAuth認証URL生成
+app.get('/api/analytics/auth/url', async (c) => {
+  const { env } = c;
+  const studentId = c.req.query('studentId');
+  
+  if (!studentId) {
+    return c.json({
+      success: false,
+      error: 'studentId is required',
+    }, 400);
+  }
+  
+  try {
+    const clientId = getEnv(c, 'YOUTUBE_ANALYTICS_CLIENT_ID');
+    const redirectUri = getEnv(c, 'YOUTUBE_ANALYTICS_REDIRECT_URI');
+    
+    if (!clientId || !redirectUri) {
+      return c.json({
+        success: false,
+        error: 'YouTube Analytics OAuth設定が不足しています',
+      }, 500);
+    }
+    
+    // CSRFトークンとしてstudentIdを使用（実際にはランダムトークンを生成すべき）
+    const state = `${studentId}:${Date.now()}`;
+    
+    // 動的インポート
+    const { generateAuthUrl } = await import('./lib/youtube-analytics-client');
+    const authUrl = generateAuthUrl(clientId, redirectUri, state);
+    
+    return c.json({
+      success: true,
+      authUrl,
+      state,
+    });
+  } catch (error: any) {
+    console.error('[Analytics Auth URL] Error:', error);
+    return c.json({
+      success: false,
+      error: error.message,
+    }, 500);
+  }
+});
+
+// OAuth認証コールバック
+app.get('/api/analytics/auth/callback', async (c) => {
+  const { env } = c;
+  const code = c.req.query('code');
+  const state = c.req.query('state');
+  const error = c.req.query('error');
+  
+  if (error) {
+    return c.html(`
+      <!DOCTYPE html>
+      <html lang="ja">
+      <head>
+        <meta charset="UTF-8">
+        <title>認証エラー</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+      </head>
+      <body class="bg-gray-100 flex items-center justify-center min-h-screen">
+        <div class="bg-white rounded-lg shadow-lg p-8 max-w-md">
+          <div class="text-center">
+            <i class="fas fa-times-circle text-red-500 text-6xl mb-4"></i>
+            <h1 class="text-2xl font-bold text-gray-800 mb-4">認証エラー</h1>
+            <p class="text-gray-600 mb-6">認証が拒否されました: ${error}</p>
+            <button onclick="window.close()" class="bg-purple-600 text-white px-6 py-2 rounded-lg hover:bg-purple-700">
+              閉じる
+            </button>
+          </div>
+        </div>
+      </body>
+      </html>
+    `);
+  }
+  
+  if (!code || !state) {
+    return c.json({
+      success: false,
+      error: 'Invalid callback parameters',
+    }, 400);
+  }
+  
+  try {
+    const clientId = getEnv(c, 'YOUTUBE_ANALYTICS_CLIENT_ID');
+    const clientSecret = getEnv(c, 'YOUTUBE_ANALYTICS_CLIENT_SECRET');
+    const redirectUri = getEnv(c, 'YOUTUBE_ANALYTICS_REDIRECT_URI');
+    
+    // stateからstudentIdを抽出
+    const [studentId] = state.split(':');
+    
+    // 認証コードをトークンに交換
+    const { exchangeCodeForToken } = await import('./lib/youtube-analytics-client');
+    const tokenInfo = await exchangeCodeForToken(code, clientId, clientSecret, redirectUri);
+    tokenInfo.studentId = studentId;
+    
+    console.log('[Analytics Callback] Token obtained for:', studentId);
+    
+    // TODO: トークンをD1データベースまたはKVストレージに保存
+    // 現時点では一時的にレスポンスとして返す
+    
+    // 成功ページを表示
+    return c.html(`
+      <!DOCTYPE html>
+      <html lang="ja">
+      <head>
+        <meta charset="UTF-8">
+        <title>認証成功</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+      </head>
+      <body class="bg-gray-100 flex items-center justify-center min-h-screen">
+        <div class="bg-white rounded-lg shadow-lg p-8 max-w-md">
+          <div class="text-center">
+            <i class="fas fa-check-circle text-green-500 text-6xl mb-4"></i>
+            <h1 class="text-2xl font-bold text-gray-800 mb-4">認証成功！</h1>
+            <p class="text-gray-600 mb-4">学籍番号: <strong>${studentId}</strong></p>
+            <p class="text-gray-600 mb-6">YouTube Analyticsデータへのアクセスが許可されました。</p>
+            <div class="bg-gray-100 rounded p-4 mb-6 text-left text-sm">
+              <p class="font-semibold mb-2">トークン情報:</p>
+              <p class="text-xs break-all text-gray-600">
+                Access Token: ${tokenInfo.accessToken.substring(0, 20)}...<br>
+                Expires: ${new Date(tokenInfo.expiresAt).toLocaleString('ja-JP')}<br>
+                Refresh Token: ${tokenInfo.refreshToken ? 'あり' : 'なし'}
+              </p>
+            </div>
+            <button onclick="window.close()" class="bg-purple-600 text-white px-6 py-2 rounded-lg hover:bg-purple-700">
+              閉じる
+            </button>
+          </div>
+        </div>
+        <script>
+          // 親ウィンドウに成功を通知
+          if (window.opener) {
+            window.opener.postMessage({
+              type: 'youtube-analytics-auth-success',
+              studentId: '${studentId}',
+              tokenInfo: ${JSON.stringify({
+                accessToken: tokenInfo.accessToken,
+                expiresAt: tokenInfo.expiresAt,
+                hasRefreshToken: !!tokenInfo.refreshToken
+              })}
+            }, '*');
+          }
+        </script>
+      </body>
+      </html>
+    `);
+  } catch (error: any) {
+    console.error('[Analytics Callback] Error:', error);
+    return c.html(`
+      <!DOCTYPE html>
+      <html lang="ja">
+      <head>
+        <meta charset="UTF-8">
+        <title>認証エラー</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+      </head>
+      <body class="bg-gray-100 flex items-center justify-center min-h-screen">
+        <div class="bg-white rounded-lg shadow-lg p-8 max-w-md">
+          <div class="text-center">
+            <i class="fas fa-times-circle text-red-500 text-6xl mb-4"></i>
+            <h1 class="text-2xl font-bold text-gray-800 mb-4">認証エラー</h1>
+            <p class="text-gray-600 mb-6">${error.message}</p>
+            <button onclick="window.close()" class="bg-purple-600 text-white px-6 py-2 rounded-lg hover:bg-purple-700">
+              閉じる
+            </button>
+          </div>
+        </div>
+      </body>
+      </html>
+    `);
+  }
+});
+
+// チャンネルアナリティクスを取得（OAuth認証済み）
+app.post('/api/analytics/channel', async (c) => {
+  const { env } = c;
+  
+  try {
+    const body = await c.req.json();
+    const { studentId, channelId, accessToken, startDate, endDate } = body;
+    
+    if (!studentId || !channelId || !accessToken) {
+      return c.json({
+        success: false,
+        error: 'studentId, channelId, accessToken are required',
+      }, 400);
+    }
+    
+    console.log('[Analytics Channel] Fetching:', { studentId, channelId, startDate, endDate });
+    
+    // 動的インポート
+    const { getChannelAnalytics, getTrafficSources, getDemographics } = await import('./lib/youtube-analytics-client');
+    
+    // チャンネルアナリティクスを取得
+    const analytics = await getChannelAnalytics(accessToken, channelId, startDate, endDate);
+    
+    // トラフィックソースを取得
+    const trafficSources = await getTrafficSources(accessToken, channelId, startDate, endDate);
+    analytics.trafficSources = trafficSources;
+    
+    // デモグラフィックを取得
+    const demographics = await getDemographics(accessToken, channelId, startDate, endDate);
+    analytics.demographics = demographics;
+    
+    return c.json({
+      success: true,
+      studentId,
+      analytics,
+    });
+  } catch (error: any) {
+    console.error('[Analytics Channel] Error:', error);
+    return c.json({
+      success: false,
+      error: error.message,
+    }, 500);
+  }
+});
+
+// 動画の視聴維持率を取得（OAuth認証済み）
+app.post('/api/analytics/retention', async (c) => {
+  const { env } = c;
+  
+  try {
+    const body = await c.req.json();
+    const { videoId, accessToken } = body;
+    
+    if (!videoId || !accessToken) {
+      return c.json({
+        success: false,
+        error: 'videoId and accessToken are required',
+      }, 400);
+    }
+    
+    console.log('[Analytics Retention] Fetching:', { videoId });
+    
+    // 動的インポート
+    const { getVideoRetention } = await import('./lib/youtube-analytics-client');
+    const retentionData = await getVideoRetention(accessToken, videoId);
+    
+    return c.json({
+      success: true,
+      videoId,
+      retentionData,
+    });
+  } catch (error: any) {
+    console.error('[Analytics Retention] Error:', error);
+    return c.json({
+      success: false,
+      error: error.message,
+    }, 500);
+  }
+});
 
 export default app
