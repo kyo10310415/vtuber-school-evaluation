@@ -24,7 +24,7 @@ type Bindings = {
   YOUTUBE_ANALYTICS_CLIENT_SECRET: string;
   YOUTUBE_ANALYTICS_REDIRECT_URI: string;
   ANALYTICS_TARGET_SPREADSHEET_ID: string;
-  YOUTUBE_OAUTH_TOKENS?: KVNamespace; // Cloudflare KV for OAuth tokens
+  DATABASE_URL: string; // PostgreSQL connection string
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -3449,10 +3449,10 @@ app.get('/api/analytics/auth/callback', async (c) => {
     
     console.log('[Analytics Callback] Token obtained for:', studentId);
     
-    // トークンをKVストレージに保存
+    // トークンをPostgreSQLに保存
     const { saveToken } = await import('./lib/oauth-token-manager');
-    await saveToken(env.YOUTUBE_OAUTH_TOKENS, studentId, tokenInfo);
-    console.log('[Analytics Callback] Token saved to KV:', studentId);
+    await saveToken(getEnv(c, 'DATABASE_URL'), studentId, tokenInfo);
+    console.log('[Analytics Callback] Token saved to PostgreSQL:', studentId);
     
     // 成功ページを表示
     return c.html(`
@@ -3548,7 +3548,7 @@ app.get('/api/analytics/token/:studentId', async (c) => {
     // トークンを取得（期限切れの場合は自動的にリフレッシュ）
     const { getValidToken } = await import('./lib/oauth-token-manager');
     const tokenInfo = await getValidToken(
-      env.YOUTUBE_OAUTH_TOKENS,
+      getEnv(c, 'DATABASE_URL'),
       studentId,
       clientId,
       clientSecret
@@ -3592,7 +3592,7 @@ app.delete('/api/analytics/token/:studentId', async (c) => {
   
   try {
     const { deleteToken } = await import('./lib/oauth-token-manager');
-    await deleteToken(env.YOUTUBE_OAUTH_TOKENS, studentId);
+    await deleteToken(getEnv(c, 'DATABASE_URL'), studentId);
     
     return c.json({
       success: true,
@@ -3613,7 +3613,7 @@ app.get('/api/analytics/tokens', async (c) => {
   
   try {
     const { listAllTokens } = await import('./lib/oauth-token-manager');
-    const tokens = await listAllTokens(env.YOUTUBE_OAUTH_TOKENS);
+    const tokens = await listAllTokens(getEnv(c, 'DATABASE_URL'));
     
     return c.json({
       success: true,

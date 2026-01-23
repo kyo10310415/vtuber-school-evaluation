@@ -1,97 +1,153 @@
 /**
- * OAuth Token Manager
- * Cloudflare KVを使用してOAuthトークンを永続化・管理
+ * OAuth Token Manager - PostgreSQL版
+ * Render PostgreSQLを使用してOAuthトークンを永続化・管理
  */
 
 import type { OAuthTokenInfo } from './youtube-analytics-client';
 
-// KVのキー形式: youtube_oauth:{studentId}
-function getTokenKey(studentId: string): string {
-  return `youtube_oauth:${studentId}`;
+/**
+ * PostgreSQL接続を作成
+ */
+async function getDbConnection(databaseUrl: string) {
+  // Node.js環境（Render）でのみpgモジュールを使用
+  const { Pool } = await import('pg');
+  return new Pool({
+    connectionString: databaseUrl,
+    ssl: {
+      rejectUnauthorized: false, // Renderの証明書を信頼
+    },
+  });
 }
 
 /**
- * トークンをKVに保存
+ * トークンをPostgreSQLに保存
  */
 export async function saveToken(
-  kv: KVNamespace | undefined,
+  databaseUrl: string | undefined,
   studentId: string,
   tokenInfo: OAuthTokenInfo
 ): Promise<void> {
-  if (!kv) {
-    console.warn('[OAuth Token Manager] KV namespace not available, skipping save');
+  if (!databaseUrl) {
+    console.warn('[OAuth Token Manager] DATABASE_URL not available, skipping save');
     return;
   }
 
-  const key = getTokenKey(studentId);
-  const data = {
-    studentId,
-    accessToken: tokenInfo.accessToken,
-    refreshToken: tokenInfo.refreshToken,
-    expiresAt: tokenInfo.expiresAt,
-    tokenType: tokenInfo.tokenType,
-    savedAt: Date.now(),
-  };
+  const pool = await getDbConnection(databaseUrl);
 
-  // KVに保存（有効期限はexpiresAtから計算）
-  const ttl = Math.max(0, Math.floor((tokenInfo.expiresAt - Date.now()) / 1000));
-  
-  await kv.put(key, JSON.stringify(data), {
-    expirationTtl: ttl > 0 ? ttl : 3600, // 最低1時間
-  });
+  try {
+    const query = `
+      INSERT INTO youtube_oauth_tokens (student_id, access_token, refresh_token, expires_at, token_type, updated_at)
+      VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+      ON CONFLICT (student_id)
+      DO UPDATE SET
+        access_token = EXCLUDED.access_token,
+        refresh_token = EXCLUDED.refresh_token,
+        expires_at = EXCLUDED.expires_at,
+        token_type = EXCLUDED.token_type,
+        updated_at = CURRENT_TIMESTAMP
+    `;
 
-  console.log('[OAuth Token Manager] Token saved:', {
-    studentId,
-    expiresAt: new Date(tokenInfo.expiresAt).toISOString(),
-    ttl: `${ttl}s`,
-  });
+    await pool.query(query, [
+      studentId,
+      tokenInfo.accessToken,
+      tokenInfo.refreshToken || null,
+      tokenInfo.expiresAt,
+      tokenInfo.tokenType,
+    ]);
+
+    console.log('[OAuth Token Manager] Token saved:', {
+      studentId,
+      expiresAt: new Date(tokenInfo.expiresAt).toISOString(),
+      hasRefreshToken: !!tokenInfo.refreshToken,
+    });
+  } catch (error) {
+    console.error('[OAuth Token Manager] Save error:', error);
+    throw error;
+  } finally {
+    await pool.end();
+  }
 }
 
 /**
- * トークンをKVから取得
+ * トークンをPostgreSQLから取得
  */
 export async function getToken(
-  kv: KVNamespace | undefined,
+  databaseUrl: string | undefined,
   studentId: string
 ): Promise<OAuthTokenInfo | null> {
-  if (!kv) {
-    console.warn('[OAuth Token Manager] KV namespace not available');
+  if (!databaseUrl) {
+    console.warn('[OAuth Token Manager] DATABASE_URL not available');
     return null;
   }
 
-  const key = getTokenKey(studentId);
-  const data = await kv.get(key, 'json');
+  const pool = await getDbConnection(databaseUrl);
 
-  if (!data) {
-    console.log('[OAuth Token Manager] Token not found:', studentId);
-    return null;
+  try {
+    const query = `
+      SELECT student_id, access_token, refresh_token, expires_at, token_type
+      FROM youtube_oauth_tokens
+      WHERE student_id = $1
+    `;
+
+    const result = await pool.query(query, [studentId]);
+
+    if (result.rows.length === 0) {
+      console.log('[OAuth Token Manager] Token not found:', studentId);
+      return null;
+    }
+
+    const row = result.rows[0];
+
+    console.log('[OAuth Token Manager] Token found:', {
+      studentId,
+      expiresAt: new Date(parseInt(row.expires_at)).toISOString(),
+      hasRefreshToken: !!row.refresh_token,
+    });
+
+    return {
+      studentId: row.student_id,
+      accessToken: row.access_token,
+      refreshToken: row.refresh_token || undefined,
+      expiresAt: parseInt(row.expires_at),
+      tokenType: row.token_type,
+    };
+  } catch (error) {
+    console.error('[OAuth Token Manager] Get error:', error);
+    throw error;
+  } finally {
+    await pool.end();
   }
-
-  console.log('[OAuth Token Manager] Token found:', {
-    studentId,
-    expiresAt: new Date((data as any).expiresAt).toISOString(),
-    hasRefreshToken: !!(data as any).refreshToken,
-  });
-
-  return data as OAuthTokenInfo;
 }
 
 /**
- * トークンをKVから削除
+ * トークンをPostgreSQLから削除
  */
 export async function deleteToken(
-  kv: KVNamespace | undefined,
+  databaseUrl: string | undefined,
   studentId: string
 ): Promise<void> {
-  if (!kv) {
-    console.warn('[OAuth Token Manager] KV namespace not available');
+  if (!databaseUrl) {
+    console.warn('[OAuth Token Manager] DATABASE_URL not available');
     return;
   }
 
-  const key = getTokenKey(studentId);
-  await kv.delete(key);
+  const pool = await getDbConnection(databaseUrl);
 
-  console.log('[OAuth Token Manager] Token deleted:', studentId);
+  try {
+    const query = `
+      DELETE FROM youtube_oauth_tokens
+      WHERE student_id = $1
+    `;
+
+    await pool.query(query, [studentId]);
+
+    console.log('[OAuth Token Manager] Token deleted:', studentId);
+  } catch (error) {
+    console.error('[OAuth Token Manager] Delete error:', error);
+    throw error;
+  } finally {
+    await pool.end();
+  }
 }
 
 /**
@@ -107,12 +163,12 @@ export function isTokenExpired(tokenInfo: OAuthTokenInfo): boolean {
  * トークンを取得し、期限切れの場合は自動的にリフレッシュ
  */
 export async function getValidToken(
-  kv: KVNamespace | undefined,
+  databaseUrl: string | undefined,
   studentId: string,
   clientId: string,
   clientSecret: string
 ): Promise<OAuthTokenInfo | null> {
-  const tokenInfo = await getToken(kv, studentId);
+  const tokenInfo = await getToken(databaseUrl, studentId);
 
   if (!tokenInfo) {
     console.log('[OAuth Token Manager] No token found for student:', studentId);
@@ -131,7 +187,7 @@ export async function getValidToken(
   if (!tokenInfo.refreshToken) {
     console.warn('[OAuth Token Manager] No refresh token available:', studentId);
     // トークンを削除して再認証を促す
-    await deleteToken(kv, studentId);
+    await deleteToken(databaseUrl, studentId);
     return null;
   }
 
@@ -147,14 +203,14 @@ export async function getValidToken(
     newTokenInfo.studentId = studentId;
 
     // 新しいトークンを保存
-    await saveToken(kv, studentId, newTokenInfo);
+    await saveToken(databaseUrl, studentId, newTokenInfo);
 
     console.log('[OAuth Token Manager] Token refreshed successfully:', studentId);
     return newTokenInfo;
   } catch (error: any) {
     console.error('[OAuth Token Manager] Failed to refresh token:', error);
     // リフレッシュに失敗したらトークンを削除
-    await deleteToken(kv, studentId);
+    await deleteToken(databaseUrl, studentId);
     return null;
   }
 }
@@ -163,27 +219,65 @@ export async function getValidToken(
  * 全トークンの一覧を取得（管理用）
  */
 export async function listAllTokens(
-  kv: KVNamespace | undefined
+  databaseUrl: string | undefined
 ): Promise<Array<{ studentId: string; expiresAt: number; hasRefreshToken: boolean }>> {
-  if (!kv) {
-    console.warn('[OAuth Token Manager] KV namespace not available');
+  if (!databaseUrl) {
+    console.warn('[OAuth Token Manager] DATABASE_URL not available');
     return [];
   }
 
-  const list = await kv.list({ prefix: 'youtube_oauth:' });
-  const tokens: Array<{ studentId: string; expiresAt: number; hasRefreshToken: boolean }> = [];
+  const pool = await getDbConnection(databaseUrl);
 
-  for (const key of list.keys) {
-    const data = await kv.get(key.name, 'json');
-    if (data) {
-      const tokenData = data as any;
-      tokens.push({
-        studentId: tokenData.studentId,
-        expiresAt: tokenData.expiresAt,
-        hasRefreshToken: !!tokenData.refreshToken,
-      });
-    }
+  try {
+    const query = `
+      SELECT student_id, expires_at, refresh_token
+      FROM youtube_oauth_tokens
+      ORDER BY updated_at DESC
+    `;
+
+    const result = await pool.query(query);
+
+    return result.rows.map(row => ({
+      studentId: row.student_id,
+      expiresAt: parseInt(row.expires_at),
+      hasRefreshToken: !!row.refresh_token,
+    }));
+  } catch (error) {
+    console.error('[OAuth Token Manager] List error:', error);
+    throw error;
+  } finally {
+    await pool.end();
+  }
+}
+
+/**
+ * 期限切れトークンをクリーンアップ（メンテナンス用）
+ */
+export async function cleanupExpiredTokens(
+  databaseUrl: string | undefined
+): Promise<number> {
+  if (!databaseUrl) {
+    console.warn('[OAuth Token Manager] DATABASE_URL not available');
+    return 0;
   }
 
-  return tokens;
+  const pool = await getDbConnection(databaseUrl);
+
+  try {
+    const now = Date.now();
+    const query = `
+      DELETE FROM youtube_oauth_tokens
+      WHERE expires_at < $1 AND refresh_token IS NULL
+    `;
+
+    const result = await pool.query(query, [now]);
+
+    console.log('[OAuth Token Manager] Cleaned up expired tokens:', result.rowCount);
+    return result.rowCount || 0;
+  } catch (error) {
+    console.error('[OAuth Token Manager] Cleanup error:', error);
+    throw error;
+  } finally {
+    await pool.end();
+  }
 }
