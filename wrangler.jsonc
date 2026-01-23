@@ -6,6 +6,17 @@
   "compatibility_flags": [
     "nodejs_compat"
   ]
+  // KV Namespaceバインディング
+  // 本番環境: wrangler pages project create 後に手動でバインディングを追加
+  // ローカル開発: wrangler kv:namespace create YOUTUBE_OAUTH_TOKENS --preview
+  // "kv_namespaces": [
+  //   {
+  //     "binding": "YOUTUBE_OAUTH_TOKENS",
+  //     "id": "your-kv-namespace-id",
+  //     "preview_id": "your-preview-kv-namespace-id"
+  //   }
+  // ]
+  
   // 環境変数は .dev.vars (ローカル) または wrangler pages secret (本番) で設定
   // 必要な環境変数:
   // - GOOGLE_SERVICE_ACCOUNT (Google Service Account JSON)
@@ -14,4 +25,8 @@
   // - ABSENCE_SPREADSHEET_ID (欠席データスプレッドシートID)
   // - PAYMENT_SPREADSHEET_ID (支払いデータスプレッドシートID)
   // - RESULT_SPREADSHEET_ID (結果出力先スプレッドシートID)
+  // - YOUTUBE_ANALYTICS_CLIENT_ID (YouTube Analytics OAuth Client ID)
+  // - YOUTUBE_ANALYTICS_CLIENT_SECRET (YouTube Analytics OAuth Client Secret)
+  // - YOUTUBE_ANALYTICS_REDIRECT_URI (OAuth Redirect URI)
+  // - ANALYTICS_TARGET_SPREADSHEET_ID (アナリティクス対象生徒スプレッドシートID)
 }

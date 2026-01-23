@@ -24,6 +24,7 @@ type Bindings = {
   YOUTUBE_ANALYTICS_CLIENT_SECRET: string;
   YOUTUBE_ANALYTICS_REDIRECT_URI: string;
   ANALYTICS_TARGET_SPREADSHEET_ID: string;
+  YOUTUBE_OAUTH_TOKENS?: KVNamespace; // Cloudflare KV for OAuth tokens
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -146,10 +147,38 @@ app.get('/analytics-data', (c) => {
             }
 
             studentsData = data.students;
+            
+            // 各生徒のトークン状態を確認
+            await checkTokensForAllStudents();
+            
             renderStudentsList();
           } catch (error) {
             console.error('生徒リスト読み込みエラー:', error);
             showError('生徒リストの読み込みに失敗しました: ' + error.message);
+          }
+        }
+
+        // 全生徒のトークン状態を確認
+        async function checkTokensForAllStudents() {
+          for (const student of studentsData) {
+            try {
+              const response = await fetch(\`/api/analytics/token/\${student.studentId}\`);
+              const data = await response.json();
+              
+              if (data.success) {
+                // トークンが存在し有効
+                analyticsCache[student.studentId] = {
+                  accessToken: data.accessToken,
+                  expiresAt: data.expiresAt,
+                  hasRefreshToken: data.hasRefreshToken,
+                  authenticated: true,
+                };
+                console.log('Token found for:', student.studentId);
+              }
+            } catch (error) {
+              // トークンなし or エラー
+              console.log('No token for:', student.studentId);
+            }
           }
         }
 
@@ -167,27 +196,74 @@ app.get('/analytics-data', (c) => {
             return;
           }
 
-          container.innerHTML = studentsData.map(student => \`
-            <div class="bg-white rounded-lg shadow-lg p-6" id="student-\${student.studentId}">
-              <div class="flex items-center justify-between mb-4">
-                <div>
-                  <h3 class="text-xl font-bold text-gray-800">\${student.name}</h3>
-                  <p class="text-sm text-gray-600">学籍番号: \${student.studentId}</p>
-                  <p class="text-sm text-gray-600">チャンネルID: \${student.youtubeChannelId || 'なし'}</p>
+          container.innerHTML = studentsData.map(student => {
+            const hasToken = analyticsCache[student.studentId]?.authenticated;
+            const buttonClass = hasToken ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700';
+            const buttonText = hasToken ? '<i class="fas fa-check-circle mr-2"></i>認証済み' : '<i class="fab fa-youtube mr-2"></i>OAuth認証';
+            const statusText = hasToken ? '認証済み。「データ読み込み」ボタンでデータを取得してください。' : 'OAuth認証を完了してください';
+            
+            return \`
+              <div class="bg-white rounded-lg shadow-lg p-6" id="student-\${student.studentId}">
+                <div class="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 class="text-xl font-bold text-gray-800">\${student.name}</h3>
+                    <p class="text-sm text-gray-600">学籍番号: \${student.studentId}</p>
+                    <p class="text-sm text-gray-600">チャンネルID: \${student.youtubeChannelId || 'なし'}</p>
+                  </div>
+                  <div class="flex gap-2">
+                    <button 
+                      class="\${buttonClass} text-white px-4 py-2 rounded-lg transition"
+                      onclick="startOAuth('\${student.studentId}')"
+                    >
+                      \${buttonText}
+                    </button>
+                    \${hasToken ? \`
+                      <button 
+                        class="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition"
+                        onclick="deleteToken('\${student.studentId}')"
+                        title="認証を削除"
+                      >
+                        <i class="fas fa-trash"></i>
+                      </button>
+                    \` : ''}
+                  </div>
                 </div>
-                <button 
-                  class="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition"
-                  onclick="startOAuth('\${student.studentId}')"
-                >
-                  <i class="fab fa-youtube mr-2"></i>OAuth認証
-                </button>
+                
+                <div id="analytics-\${student.studentId}" class="mt-4">
+                  <p class="text-gray-500 text-sm">\${statusText}</p>
+                </div>
               </div>
-              
-              <div id="analytics-\${student.studentId}" class="mt-4">
-                <p class="text-gray-500 text-sm">データを読み込むには、まずOAuth認証を完了してください</p>
-              </div>
-            </div>
-          \`).join('');
+            \`;
+          }).join('');
+        }
+
+        // トークンを削除
+        async function deleteToken(studentId) {
+          if (!confirm('この生徒の認証情報を削除しますか？再度OAuth認証が必要になります。')) {
+            return;
+          }
+          
+          try {
+            const response = await fetch(\`/api/analytics/token/\${studentId}\`, {
+              method: 'DELETE',
+            });
+            const data = await response.json();
+            
+            if (!data.success) {
+              throw new Error(data.error);
+            }
+            
+            // キャッシュから削除
+            delete analyticsCache[studentId];
+            
+            // UI更新
+            renderStudentsList();
+            
+            alert('認証情報を削除しました');
+          } catch (error) {
+            console.error('トークン削除エラー:', error);
+            alert('認証情報の削除に失敗しました: ' + error.message);
+          }
         }
 
         // OAuth認証を開始
@@ -207,13 +283,10 @@ app.get('/analytics-data', (c) => {
             window.addEventListener('message', (event) => {
               if (event.data.type === 'youtube-analytics-auth-success') {
                 authWindow.close();
-                alert('認証が完了しました！アナリティクスデータを取得します。');
+                alert('認証が完了しました！ページをリロードしてデータを取得します。');
                 
-                // トークン情報をキャッシュ
-                analyticsCache[event.data.studentId] = event.data.tokenInfo;
-                
-                // データを自動取得
-                loadAnalyticsForStudent(event.data.studentId, event.data.tokenInfo.accessToken);
+                // ページをリロード（KVから最新のトークンを取得）
+                window.location.reload();
               }
             });
           } catch (error) {
@@ -315,8 +388,30 @@ app.get('/analytics-data', (c) => {
         // 全生徒のアナリティクスを読み込み
         async function loadAnalyticsData() {
           for (const student of studentsData) {
-            if (analyticsCache[student.studentId]) {
-              await loadAnalyticsForStudent(student.studentId, analyticsCache[student.studentId].accessToken);
+            // 認証済みの生徒のみ処理
+            if (!analyticsCache[student.studentId]?.authenticated) {
+              console.log('Skipping unauthenticated student:', student.studentId);
+              continue;
+            }
+            
+            try {
+              // KVから最新のトークンを取得（自動リフレッシュ付き）
+              const tokenResponse = await fetch(\`/api/analytics/token/\${student.studentId}\`);
+              const tokenData = await tokenResponse.json();
+              
+              if (!tokenData.success) {
+                console.error('Token fetch failed:', student.studentId, tokenData.error);
+                const container = document.getElementById(\`analytics-\${student.studentId}\`);
+                container.innerHTML = \`<p class="text-red-500 text-sm">トークンの取得に失敗: \${tokenData.error}</p>\`;
+                continue;
+              }
+              
+              // アナリティクスデータを取得
+              await loadAnalyticsForStudent(student.studentId, tokenData.accessToken);
+            } catch (error) {
+              console.error('Failed to load analytics for:', student.studentId, error);
+              const container = document.getElementById(\`analytics-\${student.studentId}\`);
+              container.innerHTML = \`<p class="text-red-500 text-sm">エラー: \${error.message}</p>\`;
             }
           }
         }
@@ -3354,8 +3449,10 @@ app.get('/api/analytics/auth/callback', async (c) => {
     
     console.log('[Analytics Callback] Token obtained for:', studentId);
     
-    // TODO: トークンをD1データベースまたはKVストレージに保存
-    // 現時点では一時的にレスポンスとして返す
+    // トークンをKVストレージに保存
+    const { saveToken } = await import('./lib/oauth-token-manager');
+    await saveToken(env.YOUTUBE_OAUTH_TOKENS, studentId, tokenInfo);
+    console.log('[Analytics Callback] Token saved to KV:', studentId);
     
     // 成功ページを表示
     return c.html(`
@@ -3429,6 +3526,106 @@ app.get('/api/analytics/auth/callback', async (c) => {
       </body>
       </html>
     `);
+  }
+});
+
+// 保存されたトークンを取得（自動リフレッシュ付き）
+app.get('/api/analytics/token/:studentId', async (c) => {
+  const { env } = c;
+  const studentId = c.req.param('studentId');
+  
+  if (!studentId) {
+    return c.json({
+      success: false,
+      error: 'studentId is required',
+    }, 400);
+  }
+  
+  try {
+    const clientId = getEnv(c, 'YOUTUBE_ANALYTICS_CLIENT_ID');
+    const clientSecret = getEnv(c, 'YOUTUBE_ANALYTICS_CLIENT_SECRET');
+    
+    // トークンを取得（期限切れの場合は自動的にリフレッシュ）
+    const { getValidToken } = await import('./lib/oauth-token-manager');
+    const tokenInfo = await getValidToken(
+      env.YOUTUBE_OAUTH_TOKENS,
+      studentId,
+      clientId,
+      clientSecret
+    );
+    
+    if (!tokenInfo) {
+      return c.json({
+        success: false,
+        error: 'Token not found or expired. Please re-authenticate.',
+        needsAuth: true,
+      }, 404);
+    }
+    
+    return c.json({
+      success: true,
+      studentId,
+      accessToken: tokenInfo.accessToken,
+      expiresAt: tokenInfo.expiresAt,
+      hasRefreshToken: !!tokenInfo.refreshToken,
+    });
+  } catch (error: any) {
+    console.error('[Analytics Token] Error:', error);
+    return c.json({
+      success: false,
+      error: error.message,
+    }, 500);
+  }
+});
+
+// トークンを削除（再認証用）
+app.delete('/api/analytics/token/:studentId', async (c) => {
+  const { env } = c;
+  const studentId = c.req.param('studentId');
+  
+  if (!studentId) {
+    return c.json({
+      success: false,
+      error: 'studentId is required',
+    }, 400);
+  }
+  
+  try {
+    const { deleteToken } = await import('./lib/oauth-token-manager');
+    await deleteToken(env.YOUTUBE_OAUTH_TOKENS, studentId);
+    
+    return c.json({
+      success: true,
+      message: 'Token deleted successfully',
+    });
+  } catch (error: any) {
+    console.error('[Analytics Token Delete] Error:', error);
+    return c.json({
+      success: false,
+      error: error.message,
+    }, 500);
+  }
+});
+
+// 全トークンの一覧を取得（管理用）
+app.get('/api/analytics/tokens', async (c) => {
+  const { env } = c;
+  
+  try {
+    const { listAllTokens } = await import('./lib/oauth-token-manager');
+    const tokens = await listAllTokens(env.YOUTUBE_OAUTH_TOKENS);
+    
+    return c.json({
+      success: true,
+      tokens,
+      count: tokens.length,
+    });
+  } catch (error: any) {
+    console.error('[Analytics Tokens List] Error:', error);
+    return c.json({
+      success: false,
+      error: error.message,
+    }, 500);
   }
 });
 
