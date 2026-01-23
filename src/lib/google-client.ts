@@ -551,14 +551,16 @@ export async function fetchAnalyticsTargetStudents(
 ): Promise<Student[]> {
   const accessToken = await getAccessToken(serviceAccountJson);
   
-  // アナリティクス取得スプレッドシートから取得
-  // A列: 学籍番号
-  // B列: 生徒名
-  // C列: YouTubeチャンネルID
-  // D列: OAuth認証済みフラグ（"済"など）
-  // E列: OAuth認証日時
+  // アナリティクス取得スプレッドシートから取得（ヘッダー行を除く A2:G）
+  // A列: 生徒名
+  // B列: 学籍番号
+  // C列: プラン
+  // D列: 会員ステータス
+  // E列: トークメモフォルダURL
+  // F列: YouTubeチャンネルID
+  // G列: Xアカウント
   const response = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A2:E`,
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A2:G`,
     {
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -573,16 +575,17 @@ export async function fetchAnalyticsTargetStudents(
     spreadsheetId,
     sheetName,
     rowCount: rows.length,
+    sampleRow: rows[0] || [],
   });
   
   return rows.map((row: any[]) => ({
-    studentId: row[0] || '',              // A列: 学籍番号
-    name: row[1] || '',                   // B列: 生徒名
-    youtubeChannelId: row[2] || '',       // C列: YouTubeチャンネルID
+    name: row[0] || '',                   // A列: 生徒名
+    studentId: row[1] || '',              // B列: 学籍番号
+    youtubeChannelId: row[5] || '',       // F列: YouTubeチャンネルID
     enrollmentDate: '',
     status: '在籍中',
-    talkMemoFolderUrl: '',
-    xAccount: '',
+    talkMemoFolderUrl: row[4] || '',      // E列: トークメモフォルダURL
+    xAccount: row[6] || '',               // G列: Xアカウント
   }));
 }
 
