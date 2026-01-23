@@ -3369,10 +3369,21 @@ app.get('/api/analytics/auth/url', async (c) => {
     const clientId = getEnv(c, 'YOUTUBE_ANALYTICS_CLIENT_ID');
     const redirectUri = getEnv(c, 'YOUTUBE_ANALYTICS_REDIRECT_URI');
     
+    console.log('[Analytics Auth URL] Environment check:', {
+      hasClientId: !!clientId,
+      clientIdLength: clientId?.length || 0,
+      hasRedirectUri: !!redirectUri,
+      redirectUri: redirectUri || 'not set',
+    });
+    
     if (!clientId || !redirectUri) {
+      const missingVars = [];
+      if (!clientId) missingVars.push('YOUTUBE_ANALYTICS_CLIENT_ID');
+      if (!redirectUri) missingVars.push('YOUTUBE_ANALYTICS_REDIRECT_URI');
+      
       return c.json({
         success: false,
-        error: 'YouTube Analytics OAuth設定が不足しています',
+        error: \`YouTube Analytics OAuth設定が不足しています: \${missingVars.join(', ')}\`,
       }, 500);
     }
     
