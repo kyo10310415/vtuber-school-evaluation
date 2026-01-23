@@ -3383,7 +3383,7 @@ app.get('/api/analytics/auth/url', async (c) => {
       
       return c.json({
         success: false,
-        error: \`YouTube Analytics OAuth設定が不足しています: \${missingVars.join(', ')}\`,
+        error: `YouTube Analytics OAuth設定が不足しています: ${missingVars.join(', ')}`,
       }, 500);
     }
     
