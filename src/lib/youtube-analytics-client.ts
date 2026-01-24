@@ -666,7 +666,7 @@ export async function getVideosByType(
 
     // YouTube Analytics APIでフィルター付きクエリ
     const params = new URLSearchParams({
-      ids: \`channel==\${channelId}\`,
+      ids: `channel==${channelId}`,
       startDate,
       endDate,
       metrics: [
@@ -682,15 +682,15 @@ export async function getVideosByType(
         'cardImpressions',
         'cardClickRate',
       ].join(','),
-      filters: \`video==\${videoIdFilter}\`,
+      filters: `video==${videoIdFilter}`,
     });
 
     try {
       const response = await fetch(
-        \`https://youtubeanalytics.googleapis.com/v2/reports?\${params.toString()}\`,
+        `https://youtubeanalytics.googleapis.com/v2/reports?${params.toString()}`,
         {
           headers: {
-            Authorization: \`Bearer \${accessToken}\`,
+            Authorization: `Bearer ${accessToken}`,
             Accept: 'application/json',
           },
         }
@@ -698,8 +698,8 @@ export async function getVideosByType(
 
       if (!response.ok) {
         const error = await response.text();
-        console.error(\`[VideosByType] Failed to fetch \${typeName}:\`, response.status, error);
-        throw new Error(\`Failed to fetch analytics for \${typeName}\`);
+        console.error(`[VideosByType] Failed to fetch \${typeName}:`, response.status, error);
+        throw new Error(`Failed to fetch analytics for \${typeName}`);
       }
 
       const data = await response.json();
@@ -733,7 +733,7 @@ export async function getVideosByType(
         averageCTR,
       };
     } catch (error) {
-      console.error(\`[VideosByType] Error fetching \${typeName}:\`, error);
+      console.error(`[VideosByType] Error fetching \${typeName}:`, error);
       return {
         metrics: {
           views: 0,
