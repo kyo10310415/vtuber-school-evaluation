@@ -633,6 +633,8 @@ export async function getVideosByType(
   console.log(`[VideosByType] Fetching analytics for period: ${startDate} to ${endDate}`);
   
   // Step 1: Analytics APIで全動画のデータを取得（dimensions=video）
+  // 注意: impressions, impressionClickThroughRate, estimatedRevenueは
+  // dimensions=videoと組み合わせると400エラーになるため除外
   const params = new URLSearchParams({
     ids: `channel==${channelId}`,
     startDate,
@@ -647,9 +649,6 @@ export async function getVideosByType(
       'averageViewPercentage',
       'subscribersGained',
       'subscribersLost',
-      'impressions',
-      'impressionClickThroughRate',
-      'estimatedRevenue',
     ].join(','),
     dimensions: 'video',
     maxResults: '200',
@@ -722,9 +721,6 @@ export async function getVideosByType(
     const averageViewPercentageIndex = getIndex('averageViewPercentage');
     const subscribersGainedIndex = getIndex('subscribersGained');
     const subscribersLostIndex = getIndex('subscribersLost');
-    const impressionsIndex = getIndex('impressions');
-    const impressionClickThroughRateIndex = getIndex('impressionClickThroughRate');
-    const estimatedRevenueIndex = getIndex('estimatedRevenue');
 
     // Step 2: Data APIで各動画の種類を判別
     const videoIds = rows.map((row: any[]) => row[videoIdIndex]).filter(Boolean);
@@ -770,21 +766,18 @@ export async function getVideosByType(
       views: 0, likes: 0, comments: 0, shares: 0, 
       estimatedMinutesWatched: 0, averageViewDuration: 0, averageViewPercentage: 0, 
       subscribersGained: 0, subscribersLost: 0, 
-      impressions: 0, impressionClickThroughRate: 0, estimatedRevenue: 0, 
       count: 0 
     };
     const regularData: any = { 
       views: 0, likes: 0, comments: 0, shares: 0, 
       estimatedMinutesWatched: 0, averageViewDuration: 0, averageViewPercentage: 0, 
       subscribersGained: 0, subscribersLost: 0, 
-      impressions: 0, impressionClickThroughRate: 0, estimatedRevenue: 0, 
       count: 0 
     };
     const liveData: any = { 
       views: 0, likes: 0, comments: 0, shares: 0, 
       estimatedMinutesWatched: 0, averageViewDuration: 0, averageViewPercentage: 0, 
       subscribersGained: 0, subscribersLost: 0, 
-      impressions: 0, impressionClickThroughRate: 0, estimatedRevenue: 0, 
       count: 0 
     };
 
@@ -804,9 +797,6 @@ export async function getVideosByType(
         averageViewPercentage: row[averageViewPercentageIndex] || 0,
         subscribersGained: row[subscribersGainedIndex] || 0,
         subscribersLost: row[subscribersLostIndex] || 0,
-        impressions: row[impressionsIndex] || 0,
-        impressionClickThroughRate: row[impressionClickThroughRateIndex] || 0,
-        estimatedRevenue: row[estimatedRevenueIndex] || 0,
       };
 
       let targetData;
@@ -844,15 +834,41 @@ export async function getVideosByType(
     calculateAverages(regularData);
     calculateAverages(liveData);
 
-    // 全体のインプレッションとCTRと収益
-    const totalImpressions = shortsData.impressions + regularData.impressions + liveData.impressions;
-    const totalRevenue = shortsData.estimatedRevenue + regularData.estimatedRevenue + liveData.estimatedRevenue;
-    const totalVideos = shortsData.count + regularData.count + liveData.count;
-    const averageClickThroughRate = totalVideos > 0 
-      ? (shortsData.impressionClickThroughRate * shortsData.count + 
-         regularData.impressionClickThroughRate * regularData.count + 
-         liveData.impressionClickThroughRate * liveData.count) / totalVideos
-      : 0;
+    // チャンネル全体のインプレッション/CTRを取得（別クエリ）
+    let channelImpressions = { impressions: 0, impressionClickThroughRate: 0 };
+    try {
+      channelImpressions = await getChannelImpressions(accessToken, channelId, startDate, endDate);
+      console.log('[VideosByType] Channel impressions:', channelImpressions);
+    } catch (error) {
+      console.error('[VideosByType] Failed to fetch channel impressions:', error);
+    }
+
+    // 推定収益も別途取得を試みる
+    let totalRevenue = 0;
+    try {
+      const revenueParams = new URLSearchParams({
+        ids: `channel==${channelId}`,
+        startDate,
+        endDate,
+        metrics: 'estimatedRevenue',
+      });
+      const revenueResponse = await fetch(
+        `https://youtubeanalytics.googleapis.com/v2/reports?${revenueParams.toString()}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: 'application/json',
+          },
+        }
+      );
+      if (revenueResponse.ok) {
+        const revenueData = await revenueResponse.json();
+        totalRevenue = revenueData.rows?.[0]?.[0] || 0;
+        console.log('[VideosByType] Channel revenue:', totalRevenue);
+      }
+    } catch (error) {
+      console.error('[VideosByType] Failed to fetch revenue:', error);
+    }
 
     // データを整形して返す
     const formatData = (data: any) => ({
@@ -867,9 +883,9 @@ export async function getVideosByType(
         subscribersGained: data.subscribersGained,
         subscribersLost: data.subscribersLost,
       },
-      impressions: data.impressions,
-      impressionClickThroughRate: data.impressionClickThroughRate,
-      estimatedRevenue: data.estimatedRevenue,
+      impressions: 0,  // 動画タイプ別では取得不可
+      impressionClickThroughRate: 0,  // 動画タイプ別では取得不可
+      estimatedRevenue: 0,  // 動画タイプ別では取得不可
     });
 
     return {
@@ -886,8 +902,8 @@ export async function getVideosByType(
         ...formatData(liveData),
       },
       overall: {
-        totalImpressions,
-        averageClickThroughRate,
+        totalImpressions: channelImpressions.impressions,
+        averageClickThroughRate: channelImpressions.impressionClickThroughRate,
         estimatedRevenue: totalRevenue,
       },
     };
@@ -917,6 +933,11 @@ export async function getVideosByType(
       overall: {
         totalImpressions: 0,
         averageClickThroughRate: 0,
+        estimatedRevenue: 0,
+      },
+    };
+  }
+}
         estimatedRevenue: 0,
       },
     };
