@@ -178,8 +178,9 @@ export async function getChannelImpressions(
 
   if (!response.ok) {
     const error = await response.text();
-    console.error(`Failed to fetch channel impressions: ${response.status} ${error}`);
-    // エラーの場合は0を返す（cardImpressionsにフォールバック）
+    console.error(`[getChannelImpressions] Failed: ${response.status} ${error}`);
+    console.log('[getChannelImpressions] This channel/account does not have access to impressions metric');
+    // impressionsが利用できない場合は0を返す
     return { impressions: 0, impressionClickThroughRate: 0 };
   }
 

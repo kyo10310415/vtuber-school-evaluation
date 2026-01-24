@@ -342,6 +342,15 @@ app.get('/analytics-data', (c) => {
         function renderAnalyticsByType(studentId, data) {
           const container = document.getElementById(\`analytics-\${studentId}\`);
           const { shorts, regular, live, overall } = data;
+          
+          // 全体の登録者増減を計算
+          const totalSubsGained = (shorts.metrics.subscribersGained || 0) + 
+                                   (regular.metrics.subscribersGained || 0) + 
+                                   (live.metrics.subscribersGained || 0);
+          const totalSubsLost = (shorts.metrics.subscribersLost || 0) + 
+                                (regular.metrics.subscribersLost || 0) + 
+                                (live.metrics.subscribersLost || 0);
+          const netSubsChange = totalSubsGained - totalSubsLost;
 
           container.innerHTML = \`
             <!-- 全体の概要 -->
@@ -354,15 +363,15 @@ app.get('/analytics-data', (c) => {
                   <p class="text-sm text-gray-600 mb-1">
                     <i class="fas fa-eye mr-1"></i>サムネイル表示回数
                   </p>
-                  <p class="text-3xl font-bold text-purple-600">\${overall.totalImpressions.toLocaleString()}</p>
-                  <p class="text-xs text-gray-500 mt-1">YouTubeでサムネイルが表示された回数</p>
+                  <p class="text-3xl font-bold text-purple-600">\${overall.totalImpressions > 0 ? overall.totalImpressions.toLocaleString() : '--'}</p>
+                  <p class="text-xs text-gray-500 mt-1">\${overall.totalImpressions > 0 ? 'YouTubeでサムネイルが表示された回数' : 'データ利用不可'}</p>
                 </div>
                 <div class="bg-white rounded-lg p-4 shadow">
                   <p class="text-sm text-gray-600 mb-1">
                     <i class="fas fa-mouse-pointer mr-1"></i>クリック率（CTR）
                   </p>
-                  <p class="text-3xl font-bold text-blue-600">\${overall.averageClickThroughRate.toFixed(2)}%</p>
-                  <p class="text-xs text-gray-500 mt-1">サムネイルからの視聴開始率</p>
+                  <p class="text-3xl font-bold text-blue-600">\${overall.averageClickThroughRate > 0 ? overall.averageClickThroughRate.toFixed(2) + '%' : '--'}</p>
+                  <p class="text-xs text-gray-500 mt-1">\${overall.averageClickThroughRate > 0 ? 'サムネイルからの視聴開始率' : 'データ利用不可'}</p>
                 </div>
                 <div class="bg-white rounded-lg p-4 shadow">
                   <p class="text-sm text-gray-600 mb-1">
