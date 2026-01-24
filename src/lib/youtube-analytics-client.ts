@@ -938,8 +938,3 @@ export async function getVideosByType(
     };
   }
 }
-        estimatedRevenue: 0,
-      },
-    };
-  }
-}
