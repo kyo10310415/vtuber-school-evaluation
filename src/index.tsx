@@ -358,27 +358,20 @@ app.get('/analytics-data', (c) => {
               <h3 class="text-xl font-bold text-gray-800 mb-4">
                 <i class="fas fa-chart-line mr-2"></i>過去1週間の概要
               </h3>
-              <div class="grid grid-cols-4 gap-4">
-                <div class="bg-white rounded-lg p-4 shadow">
-                  <p class="text-sm text-gray-600 mb-1">
-                    <i class="fas fa-eye mr-1"></i>インプレッション
-                  </p>
-                  <p class="text-3xl font-bold text-purple-600">\${overall.totalImpressions.toLocaleString()}</p>
-                  <p class="text-xs text-gray-500 mt-1">サムネイル表示回数</p>
-                </div>
-                <div class="bg-white rounded-lg p-4 shadow">
-                  <p class="text-sm text-gray-600 mb-1">
-                    <i class="fas fa-mouse-pointer mr-1"></i>CTR
-                  </p>
-                  <p class="text-3xl font-bold text-blue-600">\${overall.averageClickThroughRate.toFixed(2)}%</p>
-                  <p class="text-xs text-gray-500 mt-1">クリック率</p>
-                </div>
+              <div class="grid grid-cols-3 gap-4">
                 <div class="bg-white rounded-lg p-4 shadow">
                   <p class="text-sm text-gray-600 mb-1">
                     <i class="fas fa-play mr-1"></i>総再生回数
                   </p>
                   <p class="text-3xl font-bold text-green-600">\${((shorts.metrics.views || 0) + (regular.metrics.views || 0) + (live.metrics.views || 0)).toLocaleString()}</p>
                   <p class="text-xs text-gray-500 mt-1">全動画の再生回数</p>
+                </div>
+                <div class="bg-white rounded-lg p-4 shadow">
+                  <p class="text-sm text-gray-600 mb-1">
+                    <i class="fas fa-clock mr-1"></i>総視聴時間
+                  </p>
+                  <p class="text-3xl font-bold text-purple-600">\${((shorts.metrics.estimatedMinutesWatched || 0) + (regular.metrics.estimatedMinutesWatched || 0) + (live.metrics.estimatedMinutesWatched || 0)).toLocaleString()}</p>
+                  <p class="text-xs text-gray-500 mt-1">分</p>
                 </div>
                 <div class="bg-white rounded-lg p-4 shadow">
                   <p class="text-sm text-gray-600 mb-1">
@@ -428,14 +421,6 @@ app.get('/analytics-data', (c) => {
               <div class="bg-\${color}-50 rounded-lg p-4">
                 <p class="text-sm text-gray-600">再生回数</p>
                 <p class="text-2xl font-bold text-\${color}-600">\${metrics.views?.toLocaleString() || 0}</p>
-              </div>
-              <div class="bg-purple-50 rounded-lg p-4">
-                <p class="text-sm text-gray-600">インプレッション</p>
-                <p class="text-2xl font-bold text-purple-600">\${metrics.impressions?.toLocaleString() || 0}</p>
-              </div>
-              <div class="bg-blue-50 rounded-lg p-4">
-                <p class="text-sm text-gray-600">CTR</p>
-                <p class="text-2xl font-bold text-blue-600">\${metrics.impressionClickThroughRate?.toFixed(2) || 0}%</p>
               </div>
               <div class="bg-green-50 rounded-lg p-4">
                 <p class="text-sm text-gray-600">高評価</p>
