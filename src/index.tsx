@@ -4398,7 +4398,27 @@ app.post('/api/analytics/auto-fetch', async (c) => {
     }
     
     // スプレッドシートから生徒情報を取得
-    const serviceAccount = JSON.parse(getEnv(c, 'GOOGLE_SERVICE_ACCOUNT'));
+    let serviceAccount;
+    try {
+      const serviceAccountStr = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT');
+      console.log('[Auto Fetch] Service account type:', typeof serviceAccountStr);
+      console.log('[Auto Fetch] Service account length:', serviceAccountStr?.length || 0);
+      
+      if (typeof serviceAccountStr === 'object') {
+        // すでにオブジェクトの場合
+        serviceAccount = serviceAccountStr;
+      } else {
+        // 文字列の場合、パース
+        serviceAccount = JSON.parse(serviceAccountStr);
+      }
+    } catch (error: any) {
+      console.error('[Auto Fetch] Service account parse error:', error);
+      return c.json({
+        success: false,
+        error: `Failed to parse service account: ${error.message}`,
+      }, 500);
+    }
+    
     const spreadsheetId = getEnv(c, 'ANALYTICS_TARGET_SPREADSHEET_ID');
     const students = await fetchStudents(serviceAccount, spreadsheetId);
     
