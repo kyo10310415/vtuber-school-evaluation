@@ -63,6 +63,366 @@ app.use('/static/*', serveStatic({ root: './public' }))
 // メインレンダラー
 app.use(renderer)
 
+// アナリティクス履歴表示ページ
+app.get('/analytics-history/:studentId', (c) => {
+  const studentId = c.req.param('studentId');
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>アナリティクス履歴 - ${studentId}</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+      <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+      <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    </head>
+    <body class="bg-gray-100">
+      <div class="container mx-auto px-4 py-8">
+        <!-- ヘッダー -->
+        <div class="mb-6 flex items-center justify-between">
+          <div>
+            <h1 class="text-3xl font-bold text-gray-800">
+              <i class="fas fa-chart-line text-purple-600 mr-2"></i>
+              アナリティクス履歴
+            </h1>
+            <p class="text-gray-600 mt-2">生徒ID: <span id="student-id" class="font-semibold">${studentId}</span></p>
+            <p class="text-gray-600">生徒名: <span id="student-name" class="font-semibold">読み込み中...</span></p>
+          </div>
+          <a href="/analytics-data" class="bg-gray-600 text-white px-6 py-3 rounded-lg hover:bg-gray-700 transition">
+            <i class="fas fa-arrow-left mr-2"></i>戻る
+          </a>
+        </div>
+
+        <!-- ローディング -->
+        <div id="loading" class="bg-white rounded-lg shadow-lg p-8 text-center">
+          <div class="animate-spin rounded-full h-12 w-12 border-b-4 border-purple-600 mx-auto mb-4"></div>
+          <p class="text-gray-600">履歴を読み込み中...</p>
+        </div>
+
+        <!-- エラー表示 -->
+        <div id="error" class="hidden bg-red-50 border border-red-300 text-red-800 px-6 py-4 rounded-lg">
+          <i class="fas fa-exclamation-triangle mr-2"></i>
+          <span id="error-message"></span>
+        </div>
+
+        <!-- グラフエリア -->
+        <div id="charts-container" class="hidden space-y-6">
+          <!-- 再生回数グラフ -->
+          <div class="bg-white rounded-lg shadow-lg p-6">
+            <h3 class="text-xl font-bold text-gray-800 mb-4">
+              <i class="fas fa-play text-green-600 mr-2"></i>再生回数の推移
+            </h3>
+            <canvas id="views-chart"></canvas>
+          </div>
+
+          <!-- 登録者増減グラフ -->
+          <div class="bg-white rounded-lg shadow-lg p-6">
+            <h3 class="text-xl font-bold text-gray-800 mb-4">
+              <i class="fas fa-user-plus text-blue-600 mr-2"></i>登録者増減の推移
+            </h3>
+            <canvas id="subscribers-chart"></canvas>
+          </div>
+
+          <!-- 視聴時間グラフ -->
+          <div class="bg-white rounded-lg shadow-lg p-6">
+            <h3 class="text-xl font-bold text-gray-800 mb-4">
+              <i class="fas fa-clock text-purple-600 mr-2"></i>視聴時間の推移
+            </h3>
+            <canvas id="watchtime-chart"></canvas>
+          </div>
+
+          <!-- 平均視聴率グラフ -->
+          <div class="bg-white rounded-lg shadow-lg p-6">
+            <h3 class="text-xl font-bold text-gray-800 mb-4">
+              <i class="fas fa-percentage text-indigo-600 mr-2"></i>平均視聴率の推移
+            </h3>
+            <canvas id="retention-chart"></canvas>
+          </div>
+
+          <!-- データテーブル -->
+          <div class="bg-white rounded-lg shadow-lg p-6">
+            <h3 class="text-xl font-bold text-gray-800 mb-4">
+              <i class="fas fa-table text-gray-600 mr-2"></i>詳細データ
+            </h3>
+            <div class="overflow-x-auto">
+              <table id="history-table" class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                  <tr>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">期間</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ショート再生</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">通常再生</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ライブ再生</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">登録者増減</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">総視聴時間</th>
+                  </tr>
+                </thead>
+                <tbody id="history-tbody" class="bg-white divide-y divide-gray-200">
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <script>
+        const studentId = '${studentId}';
+        let charts = {};
+
+        document.addEventListener('DOMContentLoaded', () => {
+          loadHistory();
+        });
+
+        async function loadHistory() {
+          try {
+            // 履歴データを取得
+            const response = await fetch('/api/analytics/history/' + studentId + '?limit=12');
+            const data = await response.json();
+
+            if (!data.success) {
+              throw new Error(data.error);
+            }
+
+            if (data.history.length === 0) {
+              throw new Error('履歴データがありません');
+            }
+
+            // 生徒情報を取得
+            const studentsResponse = await fetch('/api/analytics/students');
+            const studentsData = await studentsResponse.json();
+            const student = studentsData.students.find(s => s.studentId === studentId);
+            
+            if (student) {
+              document.getElementById('student-name').textContent = student.name;
+            }
+
+            // グラフを描画
+            renderCharts(data.history);
+
+            // テーブルを描画
+            renderTable(data.history);
+
+            // ローディングを非表示、グラフを表示
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('charts-container').classList.remove('hidden');
+
+          } catch (error) {
+            console.error('履歴読み込みエラー:', error);
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('error').classList.remove('hidden');
+            document.getElementById('error-message').textContent = error.message;
+          }
+        }
+
+        function renderCharts(history) {
+          // データを逆順にして古い順に並べる（グラフ用）
+          const sortedHistory = [...history].reverse();
+          
+          const labels = sortedHistory.map(h => {
+            const start = new Date(h.periodStart);
+            const end = new Date(h.periodEnd);
+            return \`\${start.getMonth()+1}/\${start.getDate()}~\${end.getMonth()+1}/\${end.getDate()}\`;
+          });
+
+          // 再生回数グラフ
+          const viewsCtx = document.getElementById('views-chart').getContext('2d');
+          charts.views = new Chart(viewsCtx, {
+            type: 'line',
+            data: {
+              labels: labels,
+              datasets: [
+                {
+                  label: 'ショート',
+                  data: sortedHistory.map(h => h.shortsViews),
+                  borderColor: 'rgb(236, 72, 153)',
+                  backgroundColor: 'rgba(236, 72, 153, 0.1)',
+                  tension: 0.4
+                },
+                {
+                  label: '通常動画',
+                  data: sortedHistory.map(h => h.regularViews),
+                  borderColor: 'rgb(59, 130, 246)',
+                  backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                  tension: 0.4
+                },
+                {
+                  label: 'ライブ',
+                  data: sortedHistory.map(h => h.liveViews),
+                  borderColor: 'rgb(239, 68, 68)',
+                  backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                  tension: 0.4
+                }
+              ]
+            },
+            options: {
+              responsive: true,
+              plugins: {
+                legend: { position: 'top' },
+                title: { display: false }
+              },
+              scales: {
+                y: { beginAtZero: true }
+              }
+            }
+          });
+
+          // 登録者増減グラフ
+          const subsCtx = document.getElementById('subscribers-chart').getContext('2d');
+          charts.subscribers = new Chart(subsCtx, {
+            type: 'bar',
+            data: {
+              labels: labels,
+              datasets: [
+                {
+                  label: '登録者増減',
+                  data: sortedHistory.map(h => {
+                    const gained = (h.shortsSubscribersGained || 0) + (h.regularSubscribersGained || 0) + (h.liveSubscribersGained || 0);
+                    const lost = (h.shortsSubscribersLost || 0) + (h.regularSubscribersLost || 0) + (h.liveSubscribersLost || 0);
+                    return gained - lost;
+                  }),
+                  backgroundColor: sortedHistory.map(h => {
+                    const net = ((h.shortsSubscribersGained || 0) + (h.regularSubscribersGained || 0) + (h.liveSubscribersGained || 0)) - 
+                               ((h.shortsSubscribersLost || 0) + (h.regularSubscribersLost || 0) + (h.liveSubscribersLost || 0));
+                    return net >= 0 ? 'rgba(34, 197, 94, 0.7)' : 'rgba(239, 68, 68, 0.7)';
+                  })
+                }
+              ]
+            },
+            options: {
+              responsive: true,
+              plugins: {
+                legend: { display: false },
+                title: { display: false }
+              },
+              scales: {
+                y: { beginAtZero: false }
+              }
+            }
+          });
+
+          // 視聴時間グラフ
+          const watchCtx = document.getElementById('watchtime-chart').getContext('2d');
+          charts.watchtime = new Chart(watchCtx, {
+            type: 'line',
+            data: {
+              labels: labels,
+              datasets: [
+                {
+                  label: 'ショート',
+                  data: sortedHistory.map(h => h.shortsWatchTimeMinutes),
+                  borderColor: 'rgb(236, 72, 153)',
+                  backgroundColor: 'rgba(236, 72, 153, 0.1)',
+                  tension: 0.4
+                },
+                {
+                  label: '通常動画',
+                  data: sortedHistory.map(h => h.regularWatchTimeMinutes),
+                  borderColor: 'rgb(59, 130, 246)',
+                  backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                  tension: 0.4
+                },
+                {
+                  label: 'ライブ',
+                  data: sortedHistory.map(h => h.liveWatchTimeMinutes),
+                  borderColor: 'rgb(239, 68, 68)',
+                  backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                  tension: 0.4
+                }
+              ]
+            },
+            options: {
+              responsive: true,
+              plugins: {
+                legend: { position: 'top' },
+                title: { display: false }
+              },
+              scales: {
+                y: {
+                  beginAtZero: true,
+                  ticks: {
+                    callback: value => value.toLocaleString() + ' 分'
+                  }
+                }
+              }
+            }
+          });
+
+          // 平均視聴率グラフ
+          const retentionCtx = document.getElementById('retention-chart').getContext('2d');
+          charts.retention = new Chart(retentionCtx, {
+            type: 'line',
+            data: {
+              labels: labels,
+              datasets: [
+                {
+                  label: 'ショート',
+                  data: sortedHistory.map(h => h.shortsAvgViewPercentage),
+                  borderColor: 'rgb(236, 72, 153)',
+                  backgroundColor: 'rgba(236, 72, 153, 0.1)',
+                  tension: 0.4
+                },
+                {
+                  label: '通常動画',
+                  data: sortedHistory.map(h => h.regularAvgViewPercentage),
+                  borderColor: 'rgb(59, 130, 246)',
+                  backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                  tension: 0.4
+                },
+                {
+                  label: 'ライブ',
+                  data: sortedHistory.map(h => h.liveAvgViewPercentage),
+                  borderColor: 'rgb(239, 68, 68)',
+                  backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                  tension: 0.4
+                }
+              ]
+            },
+            options: {
+              responsive: true,
+              plugins: {
+                legend: { position: 'top' },
+                title: { display: false }
+              },
+              scales: {
+                y: {
+                  beginAtZero: true,
+                  max: 100,
+                  ticks: {
+                    callback: value => value + '%'
+                  }
+                }
+              }
+            }
+          });
+        }
+
+        function renderTable(history) {
+          const tbody = document.getElementById('history-tbody');
+          tbody.innerHTML = '';
+
+          history.forEach(h => {
+            const totalSubs = ((h.shortsSubscribersGained || 0) + (h.regularSubscribersGained || 0) + (h.liveSubscribersGained || 0)) - 
+                             ((h.shortsSubscribersLost || 0) + (h.regularSubscribersLost || 0) + (h.liveSubscribersLost || 0));
+            const totalWatchTime = (h.shortsWatchTimeMinutes || 0) + (h.regularWatchTimeMinutes || 0) + (h.liveWatchTimeMinutes || 0);
+
+            const row = document.createElement('tr');
+            row.innerHTML = \`
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">\${h.periodStart} ~ \${h.periodEnd}</td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">\${(h.shortsViews || 0).toLocaleString()}</td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">\${(h.regularViews || 0).toLocaleString()}</td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">\${(h.liveViews || 0).toLocaleString()}</td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm \${totalSubs >= 0 ? 'text-green-600' : 'text-red-600'}">\${totalSubs >= 0 ? '+' : ''}\${totalSubs}</td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">\${totalWatchTime.toLocaleString()} 分</td>
+            \`;
+            tbody.appendChild(row);
+          });
+        }
+      </script>
+    </body>
+    </html>
+  `);
+});
+
 // 所属生データページ（YouTube Analytics詳細データ）
 app.get('/analytics-data', (c) => {
   return c.html(`
@@ -207,7 +567,17 @@ app.get('/analytics-data', (c) => {
               <div class="bg-white rounded-lg shadow-lg p-6" id="student-\${student.studentId}">
                 <div class="flex items-start justify-between mb-4">
                   <div class="flex-1">
-                    <h2 class="text-3xl font-bold text-gray-900 mb-3">\${student.name}</h2>
+                    <div class="flex items-center gap-3 mb-3">
+                      <h2 class="text-3xl font-bold text-gray-900">\${student.name}</h2>
+                      <a 
+                        href="/analytics-history/\${student.studentId}"
+                        class="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition text-sm flex items-center gap-2"
+                        title="過去のアナリティクス履歴を表示"
+                      >
+                        <i class="fas fa-chart-line"></i>
+                        履歴を見る
+                      </a>
+                    </div>
                     <div class="space-y-1">
                       <p class="text-base text-gray-700">学籍番号: <span class="font-medium">\${student.studentId}</span></p>
                       <p class="text-base text-gray-700">チャンネルID: <span class="font-mono text-sm">\${student.youtubeChannelId || 'なし'}</span></p>
@@ -3830,7 +4200,7 @@ app.post('/api/analytics/by-type', async (c) => {
   
   try {
     const body = await c.req.json();
-    const { studentId, channelId, accessToken, startDate, endDate } = body;
+    const { studentId, channelId, accessToken, startDate, endDate, saveHistory } = body;
     
     if (!studentId || !channelId || !accessToken) {
       return c.json({
@@ -3839,13 +4209,34 @@ app.post('/api/analytics/by-type', async (c) => {
       }, 400);
     }
     
-    console.log('[Analytics By Type] Fetching:', { studentId, channelId, startDate, endDate });
+    console.log('[Analytics By Type] Fetching:', { studentId, channelId, startDate, endDate, saveHistory });
     
     // 動的インポート
     const { getVideosByType } = await import('./lib/youtube-analytics-client');
     
     // 動画タイプ別のアナリティクスを取得
     const data = await getVideosByType(accessToken, channelId, startDate, endDate);
+    
+    // 履歴保存が要求された場合（自動取得など）
+    if (saveHistory && startDate && endDate) {
+      try {
+        const { saveAnalyticsHistory } = await import('./lib/analytics-history-manager');
+        await saveAnalyticsHistory(
+          getEnv(c, 'DATABASE_URL'),
+          studentId,
+          channelId,
+          startDate,
+          endDate,
+          data.shorts,
+          data.regular,
+          data.live
+        );
+        console.log('[Analytics By Type] History saved:', { studentId, startDate, endDate });
+      } catch (historyError: any) {
+        console.error('[Analytics By Type] Failed to save history:', historyError);
+        // 履歴保存失敗してもデータは返す
+      }
+    }
     
     return c.json({
       success: true,
@@ -3905,6 +4296,172 @@ app.get('/api/debug/env', (c) => {
     YOUTUBE_ANALYTICS_CLIENT_SECRET: getEnv(c, 'YOUTUBE_ANALYTICS_CLIENT_SECRET') ? 'Defined ✓' : 'Missing ✗',
     YOUTUBE_ANALYTICS_REDIRECT_URI: getEnv(c, 'YOUTUBE_ANALYTICS_REDIRECT_URI') || 'Missing ✗',
   });
+});
+
+// アナリティクス履歴を取得
+app.get('/api/analytics/history/:studentId', async (c) => {
+  try {
+    const studentId = c.req.param('studentId');
+    const limit = parseInt(c.req.query('limit') || '12');
+    
+    if (!studentId) {
+      return c.json({
+        success: false,
+        error: 'studentId is required',
+      }, 400);
+    }
+    
+    console.log('[Analytics History] Fetching:', { studentId, limit });
+    
+    const { getAnalyticsHistory } = await import('./lib/analytics-history-manager');
+    const history = await getAnalyticsHistory(
+      getEnv(c, 'DATABASE_URL'),
+      studentId,
+      limit
+    );
+    
+    return c.json({
+      success: true,
+      studentId,
+      history,
+    });
+  } catch (error: any) {
+    console.error('[Analytics History] Error:', error);
+    return c.json({
+      success: false,
+      error: error.message,
+    }, 500);
+  }
+});
+
+// 自動アナリティクス取得（週次Cron用）
+app.post('/api/analytics/auto-fetch', async (c) => {
+  try {
+    console.log('[Auto Fetch] Starting weekly analytics collection...');
+    
+    // 全生徒のトークン一覧を取得
+    const { listAllTokens } = await import('./lib/oauth-token-manager');
+    const { getVideosByType } = await import('./lib/youtube-analytics-client');
+    const { saveAnalyticsHistory } = await import('./lib/analytics-history-manager');
+    const { fetchStudents } = await import('./lib/google-client');
+    
+    const tokens = await listAllTokens(getEnv(c, 'DATABASE_URL'));
+    console.log(`[Auto Fetch] Found ${tokens.length} students with OAuth tokens`);
+    
+    // スプレッドシートから生徒情報を取得
+    const serviceAccount = JSON.parse(getEnv(c, 'GOOGLE_SERVICE_ACCOUNT'));
+    const spreadsheetId = getEnv(c, 'ANALYTICS_TARGET_SPREADSHEET_ID');
+    const students = await fetchStudents(serviceAccount, spreadsheetId);
+    
+    // 前週のデータを取得（月曜日〜日曜日）
+    const now = new Date();
+    const dayOfWeek = now.getDay(); // 0 = 日曜日, 3 = 水曜日
+    const daysToLastSunday = dayOfWeek === 0 ? 7 : dayOfWeek;
+    const lastSunday = new Date(now);
+    lastSunday.setDate(now.getDate() - daysToLastSunday);
+    const lastMonday = new Date(lastSunday);
+    lastMonday.setDate(lastSunday.getDate() - 6);
+    
+    const startDate = lastMonday.toISOString().split('T')[0];
+    const endDate = lastSunday.toISOString().split('T')[0];
+    
+    console.log(`[Auto Fetch] Period: ${startDate} ~ ${endDate}`);
+    
+    const results = [];
+    let successCount = 0;
+    let errorCount = 0;
+    
+    for (const token of tokens) {
+      try {
+        const student = students.find(s => s.id === token.studentId);
+        if (!student) {
+          console.warn(`[Auto Fetch] Student not found: ${token.studentId}`);
+          continue;
+        }
+        
+        if (!student.youtubeChannelId) {
+          console.warn(`[Auto Fetch] No YouTube channel: ${token.studentId}`);
+          continue;
+        }
+        
+        // トークンを取得（自動リフレッシュ）
+        const { getValidToken } = await import('./lib/oauth-token-manager');
+        const validToken = await getValidToken(
+          getEnv(c, 'DATABASE_URL'),
+          token.studentId,
+          getEnv(c, 'YOUTUBE_ANALYTICS_CLIENT_ID'),
+          getEnv(c, 'YOUTUBE_ANALYTICS_CLIENT_SECRET')
+        );
+        
+        if (!validToken) {
+          console.warn(`[Auto Fetch] Invalid token: ${token.studentId}`);
+          errorCount++;
+          results.push({
+            studentId: token.studentId,
+            success: false,
+            error: 'Invalid or expired token',
+          });
+          continue;
+        }
+        
+        // アナリティクスデータを取得
+        const data = await getVideosByType(
+          validToken.accessToken,
+          student.youtubeChannelId,
+          startDate,
+          endDate
+        );
+        
+        // データベースに保存
+        await saveAnalyticsHistory(
+          getEnv(c, 'DATABASE_URL'),
+          token.studentId,
+          student.youtubeChannelId,
+          startDate,
+          endDate,
+          data.shorts,
+          data.regular,
+          data.live
+        );
+        
+        successCount++;
+        results.push({
+          studentId: token.studentId,
+          name: student.name,
+          success: true,
+        });
+        
+        console.log(`[Auto Fetch] Success: ${student.name} (${token.studentId})`);
+      } catch (error: any) {
+        errorCount++;
+        results.push({
+          studentId: token.studentId,
+          success: false,
+          error: error.message,
+        });
+        console.error(`[Auto Fetch] Error for ${token.studentId}:`, error);
+      }
+    }
+    
+    console.log(`[Auto Fetch] Complete: ${successCount} success, ${errorCount} errors`);
+    
+    return c.json({
+      success: true,
+      period: { startDate, endDate },
+      summary: {
+        total: tokens.length,
+        success: successCount,
+        errors: errorCount,
+      },
+      results,
+    });
+  } catch (error: any) {
+    console.error('[Auto Fetch] Fatal error:', error);
+    return c.json({
+      success: false,
+      error: error.message,
+    }, 500);
+  }
 });
 
 export default app

@@ -28,6 +28,14 @@ VTuber育成スクールの生徒様の成長度を評価・可視化するシ�
 - エンゲージメント率
 - インプレッション伸び率
 
+✅ **YouTube Analytics 詳細データ**
+- OAuth 2.0 認証による個人データアクセス
+- 動画タイプ別分析（ショート/通常動画/ライブ配信）
+- 再生回数、高評価、コメント、視聴時間などの詳細メトリクス
+- **自動週次データ取得**（毎週水曜日）
+- **履歴データ保存**（PostgreSQLに自動保存）
+- **グラフ表示**（Chart.jsで推移を可視化）
+
 ✅ **バックエンドAPI**
 - `/api/evaluate` - **統合評価実行エンドポイント**（プロレベル + YouTube + X）
   - プロレベル評価を実行
@@ -42,6 +50,9 @@ VTuber育成スクールの生徒様の成長度を評価・可視化するシ�
 - `/api/prolevel/:studentId` - プロレベル評価
 - `/api/monthly-report/:studentId` - 月次レポート（複数月比較）
 - `/api/auto-evaluate` - バッチ処理による自動評価（全生徒一括評価）
+- `/api/analytics/by-type` - 動画タイプ別アナリティクス取得（履歴保存対応）
+- `/api/analytics/history/:studentId` - アナリティクス履歴取得
+- `/api/analytics/auto-fetch` - 週次自動データ取得（Cron用）
 - `/api/health` - ヘルスチェック
 
 ✅ **フロントエンド（グラフ・チャート可視化対応）**
@@ -467,9 +478,75 @@ npm run deploy:prod
 - **バックエンド**: Hono (Cloudflare Workers)
 - **AI分析**: Google Gemini 1.5 Flash
 - **データソース**: Google Sheets API, Google Drive API, Google Docs API
-- **フロントエンド**: Tailwind CSS, Vanilla JavaScript
-- **デプロイ**: Cloudflare Pages
+- **フロントエンド**: Tailwind CSS, Vanilla JavaScript, Chart.js
+- **データベース**: PostgreSQL (Render Postgres)
+- **デプロイ**: Render.com
 - **自動実行**: Google Apps Script
+
+## 🔧 セットアップ手順
+
+### 1. データベースマイグレーション
+
+初回デプロイ時、または新機能追加時にマイグレーションを実行：
+
+```bash
+cd /home/user/webapp
+./scripts/run-migration.sh
+```
+
+これにより`analytics_history`テーブルが作成されます。
+
+### 2. 週次自動データ取得の設定
+
+**方法1: 外部Cronサービスを使用（推奨）**
+
+[cron-job.org](https://cron-job.org/) や [EasyCron](https://www.easycron.com/) などで設定：
+
+- **URL**: `https://vtuber-school-evaluation.onrender.com/api/analytics/auto-fetch`
+- **Method**: POST
+- **スケジュール**: 毎週水曜日 午前10:00（日本時間）
+- **Cron式**: `0 10 * * 3`
+
+**方法2: Render.comのCron Jobs（将来的に移行可能）**
+
+Render.comのダッシュボードでCron Jobを設定：
+
+```bash
+curl -X POST https://vtuber-school-evaluation.onrender.com/api/analytics/auto-fetch
+```
+
+### 3. 履歴データの表示
+
+各生徒のアナリティクス履歴は以下のURLで確認できます：
+
+```
+https://vtuber-school-evaluation.onrender.com/analytics-history/{学籍番号}
+```
+
+または `/analytics-data` ページから生徒名をクリックして「履歴を見る」ボタンをクリック。
+
+### 4. 手動でデータ取得（テスト用）
+
+```bash
+curl -X POST https://vtuber-school-evaluation.onrender.com/api/analytics/auto-fetch
+```
+
+レスポンス例：
+```json
+{
+  "success": true,
+  "period": {
+    "startDate": "2026-01-20",
+    "endDate": "2026-01-26"
+  },
+  "summary": {
+    "total": 5,
+    "success": 4,
+    "errors": 1
+  },
+  "results": [...]
+}
+```
 
 ## 📝 ライセンス
 
