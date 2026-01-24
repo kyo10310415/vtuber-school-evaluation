@@ -162,7 +162,7 @@ app.get('/analytics-data', (c) => {
         async function checkTokensForAllStudents() {
           for (const student of studentsData) {
             try {
-              const response = await fetch(`/api/analytics/token/${student.studentId}`);
+              const response = await fetch('/api/analytics/token/' + student.studentId);
               const data = await response.json();
               
               if (data.success) {
@@ -246,7 +246,7 @@ app.get('/analytics-data', (c) => {
           }
           
           try {
-            const response = await fetch(`/api/analytics/token/${studentId}`, {
+            const response = await fetch('/api/analytics/token/' + studentId, {
               method: 'DELETE',
             });
             const data = await response.json();
@@ -398,7 +398,7 @@ app.get('/analytics-data', (c) => {
             
             try {
               // KVから最新のトークンを取得（自動リフレッシュ付き）
-              const tokenResponse = await fetch(`/api/analytics/token/${student.studentId}`);
+              const tokenResponse = await fetch('/api/analytics/token/' + student.studentId);
               const tokenData = await tokenResponse.json();
               
               if (!tokenData.success) {
