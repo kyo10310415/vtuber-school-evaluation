@@ -8,8 +8,6 @@ export interface YouTubeAnalyticsData {
   videoId?: string;
   metrics: {
     views?: number;
-    impressions?: number;
-    impressionClickThroughRate?: number;
     likes?: number;
     comments?: number;
     shares?: number;
@@ -161,8 +159,6 @@ export async function getChannelAnalytics(
     endDate,
     metrics: [
       'views',
-      'impressions',
-      'impressionClickThroughRate',
       'likes',
       'comments',
       'shares',
