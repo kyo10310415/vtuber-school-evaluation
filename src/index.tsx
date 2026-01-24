@@ -139,36 +139,47 @@ app.get('/analytics-history/:studentId', (c) => {
 
         <!-- グラフエリア -->
         <div id="charts-container" class="hidden space-y-6">
-          <!-- 再生回数グラフ -->
-          <div class="bg-white rounded-lg shadow-lg p-6">
-            <h3 class="text-xl font-bold text-gray-800 mb-4">
-              <i class="fas fa-play text-green-600 mr-2"></i>再生回数の推移
-            </h3>
-            <canvas id="views-chart"></canvas>
-          </div>
+          <!-- グラフ2列2行グリッド -->
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- 再生回数グラフ -->
+            <div class="bg-white rounded-lg shadow-lg p-6">
+              <h3 class="text-xl font-bold text-gray-800 mb-4">
+                <i class="fas fa-play text-green-600 mr-2"></i>再生回数の推移
+              </h3>
+              <div style="height: 300px;">
+                <canvas id="views-chart"></canvas>
+              </div>
+            </div>
 
-          <!-- 登録者増減グラフ -->
-          <div class="bg-white rounded-lg shadow-lg p-6">
-            <h3 class="text-xl font-bold text-gray-800 mb-4">
-              <i class="fas fa-user-plus text-blue-600 mr-2"></i>登録者増減の推移
-            </h3>
-            <canvas id="subscribers-chart"></canvas>
-          </div>
+            <!-- 登録者増減グラフ -->
+            <div class="bg-white rounded-lg shadow-lg p-6">
+              <h3 class="text-xl font-bold text-gray-800 mb-4">
+                <i class="fas fa-user-plus text-blue-600 mr-2"></i>登録者増減の推移
+              </h3>
+              <div style="height: 300px;">
+                <canvas id="subscribers-chart"></canvas>
+              </div>
+            </div>
 
-          <!-- 視聴時間グラフ -->
-          <div class="bg-white rounded-lg shadow-lg p-6">
-            <h3 class="text-xl font-bold text-gray-800 mb-4">
-              <i class="fas fa-clock text-purple-600 mr-2"></i>視聴時間の推移
-            </h3>
-            <canvas id="watchtime-chart"></canvas>
-          </div>
+            <!-- 視聴時間グラフ -->
+            <div class="bg-white rounded-lg shadow-lg p-6">
+              <h3 class="text-xl font-bold text-gray-800 mb-4">
+                <i class="fas fa-clock text-purple-600 mr-2"></i>視聴時間の推移
+              </h3>
+              <div style="height: 300px;">
+                <canvas id="watchtime-chart"></canvas>
+              </div>
+            </div>
 
-          <!-- 平均視聴率グラフ -->
-          <div class="bg-white rounded-lg shadow-lg p-6">
-            <h3 class="text-xl font-bold text-gray-800 mb-4">
-              <i class="fas fa-percentage text-indigo-600 mr-2"></i>平均視聴率の推移
-            </h3>
-            <canvas id="retention-chart"></canvas>
+            <!-- 平均視聴率グラフ -->
+            <div class="bg-white rounded-lg shadow-lg p-6">
+              <h3 class="text-xl font-bold text-gray-800 mb-4">
+                <i class="fas fa-percentage text-indigo-600 mr-2"></i>平均視聴率の推移
+              </h3>
+              <div style="height: 300px;">
+                <canvas id="retention-chart"></canvas>
+              </div>
+            </div>
           </div>
 
           <!-- データテーブル -->
@@ -287,6 +298,7 @@ app.get('/analytics-history/:studentId', (c) => {
             },
             options: {
               responsive: true,
+              maintainAspectRatio: false,
               plugins: {
                 legend: { position: 'top' },
                 title: { display: false }
@@ -321,6 +333,7 @@ app.get('/analytics-history/:studentId', (c) => {
             },
             options: {
               responsive: true,
+              maintainAspectRatio: false,
               plugins: {
                 legend: { display: false },
                 title: { display: false }
@@ -363,6 +376,7 @@ app.get('/analytics-history/:studentId', (c) => {
             },
             options: {
               responsive: true,
+              maintainAspectRatio: false,
               plugins: {
                 legend: { position: 'top' },
                 title: { display: false }
@@ -410,6 +424,7 @@ app.get('/analytics-history/:studentId', (c) => {
             },
             options: {
               responsive: true,
+              maintainAspectRatio: false,
               plugins: {
                 legend: { position: 'top' },
                 title: { display: false }
