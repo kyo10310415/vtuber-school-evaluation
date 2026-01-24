@@ -54,8 +54,27 @@ function getEnv(c: any, key: keyof Bindings): string {
 // CORS設定
 app.use('/api/*', cors())
 
-// SSO Authentication (protects all routes)
-app.use('*', ssoAuthMiddleware)
+// SSO Authentication (protects UI routes, but excludes API routes for automation)
+// 自動化エンドポイント（Cron等）はSSO認証を除外
+const publicApiRoutes = [
+  '/api/analytics/auto-fetch',
+  '/api/admin/run-migrations',
+  '/api/analytics/auto-fetch/test',
+  '/health',
+  '/api/debug/env',
+];
+
+app.use('*', async (c, next) => {
+  const path = new URL(c.req.url).pathname;
+  
+  // 公開APIルートはSSO認証をスキップ
+  if (publicApiRoutes.some(route => path === route)) {
+    return next();
+  }
+  
+  // その他のルートはSSO認証を適用
+  return ssoAuthMiddleware(c, next);
+});
 
 // 静的ファイルの配信
 app.use('/static/*', serveStatic({ root: './public' }))
