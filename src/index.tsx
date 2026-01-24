@@ -4334,6 +4334,26 @@ app.get('/api/analytics/history/:studentId', async (c) => {
   }
 });
 
+// 自動アナリティクス取得（テスト用・軽量版）
+app.get('/api/analytics/auto-fetch/test', async (c) => {
+  try {
+    const { listAllTokens } = await import('./lib/oauth-token-manager');
+    const tokens = await listAllTokens(getEnv(c, 'DATABASE_URL'));
+    
+    return c.json({
+      success: true,
+      message: 'Test endpoint is working',
+      tokenCount: tokens.length,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    return c.json({
+      success: false,
+      error: error.message,
+    }, 500);
+  }
+});
+
 // 自動アナリティクス取得（週次Cron用）
 app.post('/api/analytics/auto-fetch', async (c) => {
   try {
@@ -4347,6 +4367,16 @@ app.post('/api/analytics/auto-fetch', async (c) => {
     
     const tokens = await listAllTokens(getEnv(c, 'DATABASE_URL'));
     console.log(`[Auto Fetch] Found ${tokens.length} students with OAuth tokens`);
+    
+    // 即座に処理開始メッセージを返す
+    if (tokens.length === 0) {
+      return c.json({
+        success: true,
+        message: 'No OAuth tokens found. Please authenticate students first.',
+        summary: { total: 0, success: 0, errors: 0 },
+        results: [],
+      });
+    }
     
     // スプレッドシートから生徒情報を取得
     const serviceAccount = JSON.parse(getEnv(c, 'GOOGLE_SERVICE_ACCOUNT'));
