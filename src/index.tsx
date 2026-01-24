@@ -4371,11 +4371,20 @@ app.get('/api/analytics/auto-fetch/test', async (c) => {
     const { listAllTokens } = await import('./lib/oauth-token-manager');
     const tokens = await listAllTokens(getEnv(c, 'DATABASE_URL'));
     
+    // 環境変数の状態を確認
+    const serviceAccountRaw = c.env?.GOOGLE_SERVICE_ACCOUNT;
+    
     return c.json({
       success: true,
       message: 'Test endpoint is working',
       tokenCount: tokens.length,
       timestamp: new Date().toISOString(),
+      debug: {
+        'c.env exists': !!c.env,
+        'c.env.GOOGLE_SERVICE_ACCOUNT type': typeof serviceAccountRaw,
+        'c.env.GOOGLE_SERVICE_ACCOUNT length': typeof serviceAccountRaw === 'string' ? serviceAccountRaw?.length : 'N/A',
+        'c.env.GOOGLE_SERVICE_ACCOUNT first50': typeof serviceAccountRaw === 'string' ? serviceAccountRaw?.substring(0, 50) : String(serviceAccountRaw).substring(0, 50),
+      },
     });
   } catch (error: any) {
     return c.json({
