@@ -429,6 +429,14 @@ app.get('/analytics-data', (c) => {
                 <p class="text-sm text-gray-600">再生回数</p>
                 <p class="text-2xl font-bold text-\${color}-600">\${metrics.views?.toLocaleString() || 0}</p>
               </div>
+              <div class="bg-purple-50 rounded-lg p-4">
+                <p class="text-sm text-gray-600">インプレッション</p>
+                <p class="text-2xl font-bold text-purple-600">\${metrics.impressions?.toLocaleString() || 0}</p>
+              </div>
+              <div class="bg-blue-50 rounded-lg p-4">
+                <p class="text-sm text-gray-600">CTR</p>
+                <p class="text-2xl font-bold text-blue-600">\${metrics.impressionClickThroughRate?.toFixed(2) || 0}%</p>
+              </div>
               <div class="bg-green-50 rounded-lg p-4">
                 <p class="text-sm text-gray-600">高評価</p>
                 <p class="text-2xl font-bold text-green-600">\${metrics.likes?.toLocaleString() || 0}</p>
