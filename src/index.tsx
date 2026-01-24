@@ -4374,10 +4374,33 @@ app.get('/api/analytics/auto-fetch/test', async (c) => {
     // 環境変数の状態を確認
     const serviceAccountRaw = c.env?.GOOGLE_SERVICE_ACCOUNT;
     
+    // 生徒データを取得してみる
+    const { fetchStudents } = await import('./lib/google-client');
+    const serviceAccountStr = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT');
+    const spreadsheetId = getEnv(c, 'ANALYTICS_TARGET_SPREADSHEET_ID');
+    
+    let students = [];
+    let studentsError = null;
+    try {
+      students = await fetchStudents(serviceAccountStr, spreadsheetId);
+    } catch (error: any) {
+      studentsError = error.message;
+    }
+    
+    // OLTS240246-QQ の生徒を検索
+    const targetStudent = students.find(s => s.id === 'OLTS240246-QQ');
+    
     return c.json({
       success: true,
       message: 'Test endpoint is working',
       tokenCount: tokens.length,
+      studentsCount: students.length,
+      studentsError,
+      targetStudent: targetStudent ? {
+        id: targetStudent.id,
+        name: targetStudent.name,
+        youtubeChannelId: targetStudent.youtubeChannelId || 'NOT SET',
+      } : 'NOT FOUND',
       timestamp: new Date().toISOString(),
       debug: {
         'c.env exists': !!c.env,
@@ -4390,6 +4413,7 @@ app.get('/api/analytics/auto-fetch/test', async (c) => {
     return c.json({
       success: false,
       error: error.message,
+      stack: error.stack,
     }, 500);
   }
 });
