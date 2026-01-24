@@ -31,28 +31,35 @@ const app = new Hono<{ Bindings: Bindings }>()
 
 // 環境変数ヘルパー（Cloudflare WorkersとNode.js両対応）
 function getEnv(c: any, key: keyof Bindings): string {
-  // Cloudflare Workers環境（c.envから値を取得し、空でないことを確認）
+  // 1. Cloudflare Workers環境（c.envから値を取得）
   const envValue = c.env?.[key];
-  
   if (envValue && typeof envValue === 'string' && envValue.length > 0) {
     return envValue;
   }
   
-  // Node.js環境（Render等）- process.envから取得
-  const processEnvValue = process.env[key];
+  // 2. Node.js環境（server.jsから渡されたenv）- Render等
+  // server.jsがfetch(req, env)の第2引数で渡している
+  if (envValue !== undefined && envValue !== null) {
+    // envValueがオブジェクトや他の型の場合、文字列に変換
+    if (typeof envValue === 'object') {
+      console.warn(`[getEnv] ${key} is an object, attempting to stringify`);
+      try {
+        return JSON.stringify(envValue);
+      } catch (e) {
+        console.error(`[getEnv] Failed to stringify ${key}`);
+      }
+    }
+    return String(envValue);
+  }
+  
+  // 3. フォールバック: process.env（直接アクセス）
+  const processEnvValue = typeof process !== 'undefined' ? process.env[key] : undefined;
   if (processEnvValue && typeof processEnvValue === 'string') {
     return processEnvValue;
   }
   
   // デバッグログ（値が取得できない場合）
-  if (key === 'GOOGLE_SERVICE_ACCOUNT') {
-    console.error('[getEnv] GOOGLE_SERVICE_ACCOUNT not found:', {
-      'c.env exists': !!c.env,
-      'c.env[key] type': typeof envValue,
-      'process.env[key] exists': !!processEnvValue,
-    });
-  }
-  
+  console.warn(`[getEnv] ${key} not found in any source`);
   return '';
 }
 
