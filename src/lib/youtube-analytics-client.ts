@@ -8,6 +8,8 @@ export interface YouTubeAnalyticsData {
   videoId?: string;
   metrics: {
     views?: number;
+    impressions?: number;
+    impressionClickThroughRate?: number;
     likes?: number;
     comments?: number;
     shares?: number;
@@ -159,6 +161,8 @@ export async function getChannelAnalytics(
     endDate,
     metrics: [
       'views',
+      'impressions',
+      'impressionClickThroughRate',
       'likes',
       'comments',
       'shares',
@@ -314,11 +318,35 @@ export async function getTrafficSources(
   // rows: [[sourceType, views], ...]
   const totalViews = rows.reduce((sum: number, row: any[]) => sum + (row[1] || 0), 0);
   
-  return rows.map((row: any[]) => ({
-    sourceType: row[0] || 'UNKNOWN',
-    views: row[1] || 0,
-    percentage: totalViews > 0 ? ((row[1] || 0) / totalViews) * 100 : 0,
-  }));
+  // トラフィックソースの日本語マッピング
+  const trafficSourceLabels: { [key: string]: string } = {
+    'ADVERTISING': '広告',
+    'ANNOTATION': 'アノテーション',
+    'CAMPAIGN_CARD': 'キャンペーンカード',
+    'END_SCREEN': '終了画面',
+    'EXT_URL': '外部URL',
+    'HASHTAGS': 'ハッシュタグ',
+    'LIVE_REDIRECT': 'ライブリダイレクト',
+    'NOTIFICATION': '通知',
+    'PLAYLIST': '再生リスト',
+    'PRODUCT_PAGE': '製品ページ',
+    'RELATED_VIDEO': '関連動画',
+    'SHORTS': 'ショート',
+    'SUBSCRIBER': 'チャンネル登録者',
+    'YT_CHANNEL': 'YouTubeチャンネル',
+    'YT_OTHER_PAGE': 'YouTubeその他',
+    'YT_SEARCH': 'YouTube検索',
+    'UNKNOWN': '不明',
+  };
+  
+  return rows.map((row: any[]) => {
+    const sourceType = row[0] || 'UNKNOWN';
+    return {
+      sourceType: trafficSourceLabels[sourceType] || sourceType,
+      views: row[1] || 0,
+      percentage: totalViews > 0 ? ((row[1] || 0) / totalViews) * 100 : 0,
+    };
+  });
 }
 
 /**

@@ -121,13 +121,14 @@ app.get('/analytics-data', (c) => {
 
         // 初期化
         document.addEventListener('DOMContentLoaded', () => {
-          // デフォルト期間：先月1日〜先月末
+          // デフォルト期間：過去7日間
           const now = new Date();
-          const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-          const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+          const endDate = new Date(now);
+          const startDate = new Date(now);
+          startDate.setDate(startDate.getDate() - 7);
           
-          document.getElementById('start-date').value = lastMonth.toISOString().split('T')[0];
-          document.getElementById('end-date').value = lastMonthEnd.toISOString().split('T')[0];
+          document.getElementById('start-date').value = startDate.toISOString().split('T')[0];
+          document.getElementById('end-date').value = endDate.toISOString().split('T')[0];
 
           // 生徒リスト読み込み
           loadStudents();
@@ -363,7 +364,9 @@ app.get('/analytics-data', (c) => {
 
             <div class="mt-4">
               <h4 class="font-semibold text-gray-800 mb-2">詳細データ</h4>
-              <div class="bg-gray-50 rounded p-4 text-sm">
+              <div class="bg-gray-50 rounded p-4 text-sm space-y-1">
+                <p>インプレッション数: \${(metrics.impressions || 0).toLocaleString()}</p>
+                <p>クリック率: \${(metrics.impressionClickThroughRate || 0).toFixed(2)}%</p>
                 <p>視聴時間: \${(metrics.estimatedMinutesWatched || 0).toLocaleString()} 分</p>
                 <p>平均視聴時間: \${(metrics.averageViewDuration || 0).toFixed(1)} 秒</p>
                 <p>登録者増加: +\${metrics.subscribersGained || 0}</p>
