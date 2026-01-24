@@ -4388,7 +4388,7 @@ app.get('/api/analytics/auto-fetch/test', async (c) => {
     }
     
     // OLTS240246-QQ の生徒を検索
-    const targetStudent = students.find(s => s.id === 'OLTS240246-QQ');
+    const targetStudent = students.find(s => s.studentId === 'OLTS240246-QQ');
     
     return c.json({
       success: true,
@@ -4397,7 +4397,7 @@ app.get('/api/analytics/auto-fetch/test', async (c) => {
       studentsCount: students.length,
       studentsError,
       targetStudent: targetStudent ? {
-        id: targetStudent.id,
+        studentId: targetStudent.studentId,
         name: targetStudent.name,
         youtubeChannelId: targetStudent.youtubeChannelId || 'NOT SET',
       } : 'NOT FOUND',
@@ -4480,7 +4480,7 @@ app.post('/api/analytics/auto-fetch', async (c) => {
     
     for (const token of tokens) {
       try {
-        const student = students.find(s => s.id === token.studentId);
+        const student = students.find(s => s.studentId === token.studentId);
         if (!student) {
           console.warn(`[Auto Fetch] Student not found: ${token.studentId}`);
           continue;
