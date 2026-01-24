@@ -15,6 +15,11 @@ console.log('- PAYMENT_SPREADSHEET_ID:', process.env.PAYMENT_SPREADSHEET_ID || '
 console.log('- RESULT_SPREADSHEET_ID:', process.env.RESULT_SPREADSHEET_ID || 'Missing ✗')
 console.log('- YOUTUBE_API_KEY:', process.env.YOUTUBE_API_KEY ? 'Defined ✓' : 'Missing ✗')
 console.log('- X_BEARER_TOKEN:', process.env.X_BEARER_TOKEN ? 'Defined ✓' : 'Missing ✗')
+console.log('- DATABASE_URL:', process.env.DATABASE_URL ? 'Defined ✓' : 'Missing ✗')
+console.log('- YOUTUBE_ANALYTICS_CLIENT_ID:', process.env.YOUTUBE_ANALYTICS_CLIENT_ID ? 'Defined ✓' : 'Missing ✗')
+console.log('- YOUTUBE_ANALYTICS_CLIENT_SECRET:', process.env.YOUTUBE_ANALYTICS_CLIENT_SECRET ? 'Defined ✓' : 'Missing ✗')
+console.log('- YOUTUBE_ANALYTICS_REDIRECT_URI:', process.env.YOUTUBE_ANALYTICS_REDIRECT_URI || 'Missing ✗')
+console.log('- ANALYTICS_TARGET_SPREADSHEET_ID:', process.env.ANALYTICS_TARGET_SPREADSHEET_ID || 'Missing ✗')
 
 // 新しいHonoアプリを作成して静的ファイル配信を追加
 const wrappedApp = new Hono()
@@ -37,6 +42,11 @@ serve({
       RESULT_SPREADSHEET_ID: process.env.RESULT_SPREADSHEET_ID,
       YOUTUBE_API_KEY: process.env.YOUTUBE_API_KEY,
       X_BEARER_TOKEN: process.env.X_BEARER_TOKEN,
+      DATABASE_URL: process.env.DATABASE_URL,
+      YOUTUBE_ANALYTICS_CLIENT_ID: process.env.YOUTUBE_ANALYTICS_CLIENT_ID,
+      YOUTUBE_ANALYTICS_CLIENT_SECRET: process.env.YOUTUBE_ANALYTICS_CLIENT_SECRET,
+      YOUTUBE_ANALYTICS_REDIRECT_URI: process.env.YOUTUBE_ANALYTICS_REDIRECT_URI,
+      ANALYTICS_TARGET_SPREADSHEET_ID: process.env.ANALYTICS_TARGET_SPREADSHEET_ID,
     })
   },
   port
