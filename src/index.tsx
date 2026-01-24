@@ -361,24 +361,24 @@ app.get('/analytics-data', (c) => {
               <div class="grid grid-cols-4 gap-4">
                 <div class="bg-white rounded-lg p-4 shadow">
                   <p class="text-sm text-gray-600 mb-1">
+                    <i class="fas fa-eye mr-1"></i>インプレッション
+                  </p>
+                  <p class="text-3xl font-bold text-purple-600">\${overall.totalImpressions.toLocaleString()}</p>
+                  <p class="text-xs text-gray-500 mt-1">サムネイル表示回数</p>
+                </div>
+                <div class="bg-white rounded-lg p-4 shadow">
+                  <p class="text-sm text-gray-600 mb-1">
+                    <i class="fas fa-mouse-pointer mr-1"></i>CTR
+                  </p>
+                  <p class="text-3xl font-bold text-blue-600">\${overall.averageClickThroughRate.toFixed(2)}%</p>
+                  <p class="text-xs text-gray-500 mt-1">クリック率</p>
+                </div>
+                <div class="bg-white rounded-lg p-4 shadow">
+                  <p class="text-sm text-gray-600 mb-1">
                     <i class="fas fa-play mr-1"></i>総再生回数
                   </p>
-                  <p class="text-3xl font-bold text-purple-600">\${((shorts.metrics.views || 0) + (regular.metrics.views || 0) + (live.metrics.views || 0)).toLocaleString()}</p>
-                  <p class="text-xs text-gray-500 mt-1">期間内の全動画再生回数</p>
-                </div>
-                <div class="bg-white rounded-lg p-4 shadow">
-                  <p class="text-sm text-gray-600 mb-1">
-                    <i class="fas fa-clock mr-1"></i>総視聴時間
-                  </p>
-                  <p class="text-3xl font-bold text-blue-600">\${((shorts.metrics.estimatedMinutesWatched || 0) + (regular.metrics.estimatedMinutesWatched || 0) + (live.metrics.estimatedMinutesWatched || 0)).toLocaleString()}分</p>
-                  <p class="text-xs text-gray-500 mt-1">視聴者が視聴した総時間</p>
-                </div>
-                <div class="bg-white rounded-lg p-4 shadow">
-                  <p class="text-sm text-gray-600 mb-1">
-                    <i class="fas fa-thumbs-up mr-1"></i>高評価数
-                  </p>
-                  <p class="text-3xl font-bold text-green-600">\${((shorts.metrics.likes || 0) + (regular.metrics.likes || 0) + (live.metrics.likes || 0)).toLocaleString()}</p>
-                  <p class="text-xs text-gray-500 mt-1">期間内の総高評価数</p>
+                  <p class="text-3xl font-bold text-green-600">\${((shorts.metrics.views || 0) + (regular.metrics.views || 0) + (live.metrics.views || 0)).toLocaleString()}</p>
+                  <p class="text-xs text-gray-500 mt-1">全動画の再生回数</p>
                 </div>
                 <div class="bg-white rounded-lg p-4 shadow">
                   <p class="text-sm text-gray-600 mb-1">
@@ -389,17 +389,6 @@ app.get('/analytics-data', (c) => {
                   </p>
                   <p class="text-xs text-gray-500 mt-1">+\${totalSubsGained.toLocaleString()} / -\${totalSubsLost.toLocaleString()}</p>
                 </div>
-              </div>
-              
-              <!-- インプレッション/CTRについての説明 -->
-              <div class="mt-4 bg-blue-50 border-l-4 border-blue-400 p-4 rounded">
-                <p class="text-sm text-blue-800">
-                  <i class="fas fa-info-circle mr-2"></i>
-                  <strong>インプレッション数・クリック率（CTR）について：</strong>
-                  このチャンネルではまだYouTube側でインプレッションデータが利用可能になっていません。
-                  チャンネルの活動履歴が蓄積されると、将来的に取得できるようになります。
-                  現在は<strong>総再生回数・視聴時間・高評価数</strong>などの代替指標で分析できます。
-                </p>
               </div>
             </div>
 
@@ -439,6 +428,14 @@ app.get('/analytics-data', (c) => {
               <div class="bg-\${color}-50 rounded-lg p-4">
                 <p class="text-sm text-gray-600">再生回数</p>
                 <p class="text-2xl font-bold text-\${color}-600">\${metrics.views?.toLocaleString() || 0}</p>
+              </div>
+              <div class="bg-purple-50 rounded-lg p-4">
+                <p class="text-sm text-gray-600">インプレッション</p>
+                <p class="text-2xl font-bold text-purple-600">\${metrics.impressions?.toLocaleString() || 0}</p>
+              </div>
+              <div class="bg-blue-50 rounded-lg p-4">
+                <p class="text-sm text-gray-600">CTR</p>
+                <p class="text-2xl font-bold text-blue-600">\${metrics.impressionClickThroughRate?.toFixed(2) || 0}%</p>
               </div>
               <div class="bg-green-50 rounded-lg p-4">
                 <p class="text-sm text-gray-600">高評価</p>
