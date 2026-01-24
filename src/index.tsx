@@ -3878,4 +3878,15 @@ app.post('/api/analytics/retention', async (c) => {
   }
 });
 
+// 環境変数確認用エンドポイント（デバッグ用）
+app.get('/api/debug/env', (c) => {
+  const databaseUrl = getEnv(c, 'DATABASE_URL');
+  return c.json({
+    DATABASE_URL: databaseUrl ? `${databaseUrl.substring(0, 30)}... (${databaseUrl.length} chars)` : 'MISSING',
+    YOUTUBE_ANALYTICS_CLIENT_ID: getEnv(c, 'YOUTUBE_ANALYTICS_CLIENT_ID') ? 'Defined ✓' : 'Missing ✗',
+    YOUTUBE_ANALYTICS_CLIENT_SECRET: getEnv(c, 'YOUTUBE_ANALYTICS_CLIENT_SECRET') ? 'Defined ✓' : 'Missing ✗',
+    YOUTUBE_ANALYTICS_REDIRECT_URI: getEnv(c, 'YOUTUBE_ANALYTICS_REDIRECT_URI') || 'Missing ✗',
+  });
+});
+
 export default app
