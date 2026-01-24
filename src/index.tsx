@@ -358,20 +358,27 @@ app.get('/analytics-data', (c) => {
               <h3 class="text-xl font-bold text-gray-800 mb-4">
                 <i class="fas fa-chart-line mr-2"></i>過去1週間の概要
               </h3>
-              <div class="grid grid-cols-3 gap-4">
+              <div class="grid grid-cols-4 gap-4">
                 <div class="bg-white rounded-lg p-4 shadow">
                   <p class="text-sm text-gray-600 mb-1">
-                    <i class="fas fa-eye mr-1"></i>サムネイル表示回数
+                    <i class="fas fa-play mr-1"></i>総再生回数
                   </p>
-                  <p class="text-3xl font-bold text-purple-600">\${overall.totalImpressions > 0 ? overall.totalImpressions.toLocaleString() : '--'}</p>
-                  <p class="text-xs text-gray-500 mt-1">\${overall.totalImpressions > 0 ? 'YouTubeでサムネイルが表示された回数' : 'データ利用不可'}</p>
+                  <p class="text-3xl font-bold text-purple-600">\${((shorts.metrics.views || 0) + (regular.metrics.views || 0) + (live.metrics.views || 0)).toLocaleString()}</p>
+                  <p class="text-xs text-gray-500 mt-1">期間内の全動画再生回数</p>
                 </div>
                 <div class="bg-white rounded-lg p-4 shadow">
                   <p class="text-sm text-gray-600 mb-1">
-                    <i class="fas fa-mouse-pointer mr-1"></i>クリック率（CTR）
+                    <i class="fas fa-clock mr-1"></i>総視聴時間
                   </p>
-                  <p class="text-3xl font-bold text-blue-600">\${overall.averageClickThroughRate > 0 ? overall.averageClickThroughRate.toFixed(2) + '%' : '--'}</p>
-                  <p class="text-xs text-gray-500 mt-1">\${overall.averageClickThroughRate > 0 ? 'サムネイルからの視聴開始率' : 'データ利用不可'}</p>
+                  <p class="text-3xl font-bold text-blue-600">\${((shorts.metrics.estimatedMinutesWatched || 0) + (regular.metrics.estimatedMinutesWatched || 0) + (live.metrics.estimatedMinutesWatched || 0)).toLocaleString()}分</p>
+                  <p class="text-xs text-gray-500 mt-1">視聴者が視聴した総時間</p>
+                </div>
+                <div class="bg-white rounded-lg p-4 shadow">
+                  <p class="text-sm text-gray-600 mb-1">
+                    <i class="fas fa-thumbs-up mr-1"></i>高評価数
+                  </p>
+                  <p class="text-3xl font-bold text-green-600">\${((shorts.metrics.likes || 0) + (regular.metrics.likes || 0) + (live.metrics.likes || 0)).toLocaleString()}</p>
+                  <p class="text-xs text-gray-500 mt-1">期間内の総高評価数</p>
                 </div>
                 <div class="bg-white rounded-lg p-4 shadow">
                   <p class="text-sm text-gray-600 mb-1">
@@ -382,6 +389,17 @@ app.get('/analytics-data', (c) => {
                   </p>
                   <p class="text-xs text-gray-500 mt-1">+\${totalSubsGained.toLocaleString()} / -\${totalSubsLost.toLocaleString()}</p>
                 </div>
+              </div>
+              
+              <!-- インプレッション/CTRについての説明 -->
+              <div class="mt-4 bg-blue-50 border-l-4 border-blue-400 p-4 rounded">
+                <p class="text-sm text-blue-800">
+                  <i class="fas fa-info-circle mr-2"></i>
+                  <strong>インプレッション数・クリック率（CTR）について：</strong>
+                  このチャンネルではまだYouTube側でインプレッションデータが利用可能になっていません。
+                  チャンネルの活動履歴が蓄積されると、将来的に取得できるようになります。
+                  現在は<strong>総再生回数・視聴時間・高評価数</strong>などの代替指標で分析できます。
+                </p>
               </div>
             </div>
 
