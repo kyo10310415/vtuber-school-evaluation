@@ -619,7 +619,8 @@ export async function getVideoImpressions(
  */
 /**
  * 複数動画のアナリティクスを一括取得（動画タイプ別）
- * 修正版：インプレッション取得エラーを回避するため、リクエストを2回に分けてマージする
+ * 修正版：フィルタなしの全件取得がエラーになるため、取得した動画IDを使って
+ * 具体的に「video==ID,ID...」とフィルタリングしてインプレッションを取得する
  */
 export async function getVideosByType(
   accessToken: string,
@@ -639,7 +640,7 @@ export async function getVideosByType(
   console.log(`[VideosByType] Fetching analytics for period: ${startDate} to ${endDate}`);
 
   // --------------------------------------------------------------------------
-  // Step 1-A: 基本データの取得（インプレッション以外）
+  // Step 1: 基本データの取得（これは成功しているのでそのまま）
   // --------------------------------------------------------------------------
   const basicParams = new URLSearchParams({
     ids: 'channel==MINE',
@@ -661,31 +662,11 @@ export async function getVideosByType(
     sort: '-views',
   });
 
-  // --------------------------------------------------------------------------
-  // Step 1-B: インプレッションデータの取得（ここを分けることで400エラーを回避）
-  // --------------------------------------------------------------------------
-  const impressionParams = new URLSearchParams({
-    ids: 'channel==MINE',
-    startDate,
-    endDate,
-    metrics: 'impressions,impressionClickThroughRate', // ここはシンプルにする
-    dimensions: 'video',
-    maxResults: '200', // 基本データと同じ数だけ取得
-    sort: '-views',    // ソート順も合わせる
-  });
-
   try {
-    // 2つのAPIリクエストを並行して実行
-    const [basicResponse, impressionResponse] = await Promise.all([
-      fetch(
-        `https://youtubeanalytics.googleapis.com/v2/reports?${basicParams.toString()}`,
-        { headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' } }
-      ),
-      fetch(
-        `https://youtubeanalytics.googleapis.com/v2/reports?${impressionParams.toString()}`,
-        { headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' } }
-      )
-    ]);
+    const basicResponse = await fetch(
+      `https://youtubeanalytics.googleapis.com/v2/reports?${basicParams.toString()}`,
+      { headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' } }
+    );
 
     if (!basicResponse.ok) {
       const error = await basicResponse.text();
@@ -693,25 +674,12 @@ export async function getVideosByType(
       throw new Error(`Failed to fetch basic analytics: ${basicResponse.status}`);
     }
 
-    // インプレッションの方は失敗しても（データがない場合など）全体を止めないようにハンドリング
-    let impressionRows: any[] = [];
-    let impressionHeaders: any[] = [];
-    if (impressionResponse.ok) {
-      const data = await impressionResponse.json();
-      impressionRows = data.rows || [];
-      impressionHeaders = data.columnHeaders || [];
-      console.log(`[VideosByType] Fetched ${impressionRows.length} videos with impression data`);
-    } else {
-      console.warn('[VideosByType] Failed to fetch impression analytics (ignoring):', await impressionResponse.text());
-    }
-
     const basicData = await basicResponse.json();
     const headers = basicData.columnHeaders || [];
     const rows = basicData.rows || [];
 
-    console.log(`[VideosByType] Fetched ${rows.length} videos with data`);
+    console.log(`[VideosByType] Fetched ${rows.length} videos (Basic Data)`);
 
-    // データがない場合の処理
     if (rows.length === 0) {
       const emptyMetrics = {
         metrics: {
@@ -721,7 +689,6 @@ export async function getVideosByType(
         },
         impressions: 0, impressionClickThroughRate: 0, estimatedRevenue: 0,
       };
-      
       return {
         shorts: { channelId, ...emptyMetrics },
         regular: { channelId, ...emptyMetrics },
@@ -731,13 +698,74 @@ export async function getVideosByType(
     }
 
     // --------------------------------------------------------------------------
-    // Step 2: データのマージ準備
+    // Step 2: 動画IDリストを作成し、バッチでインプレッションを取得
     // --------------------------------------------------------------------------
-
+    
     // 基本データのインデックス
     const getIndex = (headerList: any[], name: string) => headerList.findIndex((h: any) => h.name === name);
-    
     const videoIdIndex = getIndex(headers, 'video');
+    
+    // IDのリストを抽出
+    const allVideoIds = rows.map((row: any[]) => row[videoIdIndex]).filter(Boolean);
+    
+    // インプレッション結果を格納するMap
+    const impressionMap = new Map<string, { imp: number, ctr: number }>();
+
+    // 50件ずつ分割してリクエスト（URLの長さ制限とAPI制限回避のため）
+    const chunkSize = 50;
+    for (let i = 0; i < allVideoIds.length; i += chunkSize) {
+      const chunkIds = allVideoIds.slice(i, i + chunkSize);
+      const filterString = `video==${chunkIds.join(',')}`;
+
+      const impressionParams = new URLSearchParams({
+        ids: 'channel==MINE',
+        startDate,
+        endDate,
+        metrics: 'impressions,impressionClickThroughRate',
+        dimensions: 'video',
+        filters: filterString, // 【重要】ここでIDを指定する！
+      });
+
+      try {
+        const impResponse = await fetch(
+          `https://youtubeanalytics.googleapis.com/v2/reports?${impressionParams.toString()}`,
+          { headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' } }
+        );
+
+        if (impResponse.ok) {
+          const impData = await impResponse.json();
+          const impRows = impData.rows || [];
+          const impHeaders = impData.columnHeaders || [];
+          
+          const iVidIdx = getIndex(impHeaders, 'video');
+          const iImpIdx = getIndex(impHeaders, 'impressions');
+          const iCtrIdx = getIndex(impHeaders, 'impressionClickThroughRate');
+
+          impRows.forEach((row: any[]) => {
+            const vid = row[iVidIdx];
+            if (vid) {
+              impressionMap.set(vid, {
+                imp: row[iImpIdx] || 0,
+                ctr: row[iCtrIdx] || 0
+              });
+            }
+          });
+          console.log(`[VideosByType] Fetched impressions for batch ${Math.floor(i / chunkSize) + 1} (${impRows.length} items)`);
+        } else {
+          // 特定のバッチが失敗しても他は続行する
+          console.warn(`[VideosByType] Failed batch ${Math.floor(i / chunkSize) + 1}:`, await impResponse.text());
+        }
+      } catch (e) {
+        console.error(`[VideosByType] Error fetching impression batch:`, e);
+      }
+    }
+
+    console.log(`[VideosByType] Total videos with impression data: ${impressionMap.size}`);
+
+    // --------------------------------------------------------------------------
+    // Step 3: 動画タイプ判定 (Data API)
+    // --------------------------------------------------------------------------
+    // インデックス定義
     const viewsIndex = getIndex(headers, 'views');
     const likesIndex = getIndex(headers, 'likes');
     const commentsIndex = getIndex(headers, 'comments');
@@ -748,48 +776,15 @@ export async function getVideosByType(
     const subscribersGainedIndex = getIndex(headers, 'subscribersGained');
     const subscribersLostIndex = getIndex(headers, 'subscribersLost');
 
-    // インプレッションデータのインデックス
-    const impVideoIdIndex = getIndex(impressionHeaders, 'video');
-    const impIndex = getIndex(impressionHeaders, 'impressions');
-    const ctrIndex = getIndex(impressionHeaders, 'impressionClickThroughRate');
-
-    // インプレッションデータをMapに変換して高速検索できるようにする
-    // Key: VideoID, Value: { impressions, ctr }
-    const impressionMap = new Map<string, { imp: number, ctr: number }>();
-    if (impressionRows.length > 0 && impVideoIdIndex !== -1) {
-      impressionRows.forEach((row: any[]) => {
-        const vid = row[impVideoIdIndex];
-        if (vid) {
-          impressionMap.set(vid, {
-            imp: row[impIndex] || 0,
-            ctr: row[ctrIndex] || 0
-          });
-        }
-      });
-    }
-
-    console.log(`[VideosByType] Merged ${impressionMap.size} videos with impression data`);
-
-    // --------------------------------------------------------------------------
-    // Step 3: Data APIで各動画の種類を判別
-    // --------------------------------------------------------------------------
-    const videoIds = rows.map((row: any[]) => row[videoIdIndex]).filter(Boolean);
-    
-    console.log(`[VideosByType] Classifying ${videoIds.length} videos...`);
-    
+    console.log(`[VideosByType] Classifying ${allVideoIds.length} videos...`);
     const videoInfoMap = new Map<string, { isShort: boolean; isLive: boolean }>();
     
     // YouTube Data API v3で動画情報を取得（最大50件ずつ）
-    for (let i = 0; i < videoIds.length; i += 50) {
-      const batchIds = videoIds.slice(i, i + 50).join(',');
-      // contentDetailsとliveStreamingDetailsを取得
+    for (let i = 0; i < allVideoIds.length; i += 50) {
+      const batchIds = allVideoIds.slice(i, i + 50).join(',');
       const videoResponse = await fetch(
         `https://www.googleapis.com/youtube/v3/videos?id=${batchIds}&part=contentDetails,liveStreamingDetails`,
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        }
+        { headers: { Authorization: `Bearer ${accessToken}` } }
       );
 
       if (videoResponse.ok) {
@@ -801,12 +796,8 @@ export async function getVideosByType(
           const minutes = parseInt(durationMatch?.[2] || '0');
           const seconds = parseInt(durationMatch?.[3] || '0');
           const totalSeconds = hours * 3600 + minutes * 60 + seconds;
-
-          // ショート動画判定: 60秒以下
           const isShort = totalSeconds > 0 && totalSeconds <= 60;
-          // ライブ配信判定: liveStreamingDetailsが存在する
           const isLive = !!item.liveStreamingDetails;
-
           videoInfoMap.set(item.id, { isShort, isLive });
         });
       }
@@ -819,7 +810,7 @@ export async function getVideosByType(
     });
 
     // --------------------------------------------------------------------------
-    // Step 4: 集計処理
+    // Step 4: 集計処理 (マージ)
     // --------------------------------------------------------------------------
     const createMetrics = () => ({ 
       views: 0, likes: 0, comments: 0, shares: 0, 
@@ -837,15 +828,13 @@ export async function getVideosByType(
       const videoId = row[videoIdIndex];
       const videoInfo = videoInfoMap.get(videoId);
       
-      // 動画情報が取れなかった場合はスキップ
       if (!videoInfo) return;
 
-      // インプレッションデータをMapから取得してマージ
+      // インプレッションMapからデータを取得 (なければ0)
       const impData = impressionMap.get(videoId) || { imp: 0, ctr: 0 };
       
       const impressions = impData.imp;
       const ctr = impData.ctr;
-      // クリック数を逆算 (インプレッション * CTR%)
       const clicks = impressions * (ctr / 100);
 
       const metrics = {
@@ -871,7 +860,6 @@ export async function getVideosByType(
         targetData = regularData;
       }
 
-      // 合計を加算
       Object.keys(metrics).forEach(key => {
         targetData[key] += (metrics as any)[key];
       });
@@ -881,18 +869,15 @@ export async function getVideosByType(
     // 平均値と最終CTRの計算
     const calculateAverages = (data: any) => {
       if (data.count === 0) return data;
-      
       data.averageViewPercentage = data.averageViewPercentage / data.count;
       data.averageViewDuration = data.averageViewDuration / data.count;
       
-      // CTR再計算: 合計クリック / 合計インプレッション
       if (data.impressions > 0) {
         data.impressionClickThroughRate = (data.clicks / data.impressions) * 100;
       } else {
         data.impressionClickThroughRate = 0;
       }
-      
-      delete data.clicks; // 一時変数を消去
+      delete data.clicks;
       return data;
     };
 
@@ -904,11 +889,9 @@ export async function getVideosByType(
     const totalImpressions = shortsData.impressions + regularData.impressions + liveData.impressions;
     let averageClickThroughRate = 0;
     
-    // 全体のCTRを加重平均で計算
     if (totalImpressions > 0) {
       const getClicks = (d: any) => d.impressions * (d.impressionClickThroughRate / 100);
       const totalClicks = getClicks(shortsData) + getClicks(regularData) + getClicks(liveData);
-      
       averageClickThroughRate = (totalClicks / totalImpressions) * 100;
     }
 
@@ -919,7 +902,6 @@ export async function getVideosByType(
       overall: { totalImpressions, averageClickThroughRate: averageClickThroughRate.toFixed(2) + '%' },
     });
 
-    // 整形関数
     const formatData = (data: any) => ({
       metrics: {
         views: data.views,
@@ -949,7 +931,6 @@ export async function getVideosByType(
 
   } catch (error) {
     console.error('[VideosByType] Error:', error);
-    // エラー時の空データ返却
     const emptyMetrics = {
       metrics: { views: 0, likes: 0, comments: 0, shares: 0, estimatedMinutesWatched: 0, averageViewDuration: 0, averageViewPercentage: 0, subscribersGained: 0, subscribersLost: 0 },
       impressions: 0, impressionClickThroughRate: 0, estimatedRevenue: 0,
