@@ -159,8 +159,9 @@ export async function getChannelImpressions(
   impressionClickThroughRate: number;
 }> {
   // インプレッション関連のメトリクスは dimensions なしで取得
+  // ids=channel==MINE を使用（OAuth認証済みチャンネルの場合）
   const params = new URLSearchParams({
-    ids: `channel==${channelId}`,
+    ids: 'channel==MINE',
     startDate,
     endDate,
     metrics: 'impressions,impressionClickThroughRate',
@@ -204,7 +205,7 @@ export async function getChannelAnalytics(
 ): Promise<YouTubeAnalyticsData> {
   // YouTube Analytics API v2を使用
   const params = new URLSearchParams({
-    ids: `channel==${channelId}`,
+    ids: 'channel==MINE',
     startDate,
     endDate,
     metrics: [
@@ -329,7 +330,7 @@ export async function getTrafficSources(
   endDate: string
 ): Promise<YouTubeAnalyticsData['trafficSources']> {
   const params = new URLSearchParams({
-    ids: `channel==${channelId}`,
+    ids: 'channel==MINE',
     startDate,
     endDate,
     metrics: 'views',
@@ -405,7 +406,7 @@ export async function getDemographics(
   endDate: string
 ): Promise<YouTubeAnalyticsData['demographics']> {
   const params = new URLSearchParams({
-    ids: `channel==${channelId}`,
+    ids: 'channel==MINE',
     startDate,
     endDate,
     metrics: 'viewsPercentage',
@@ -637,7 +638,7 @@ export async function getVideosByType(
   // 注意: impressions, impressionClickThroughRate, estimatedRevenueは
   // dimensions=videoと組み合わせると400エラーになるため除外
   const params = new URLSearchParams({
-    ids: `channel==${channelId}`,
+    ids: 'channel==MINE',
     startDate,
     endDate,
     metrics: [
@@ -857,7 +858,7 @@ export async function getVideosByType(
     let totalRevenue = 0;
     try {
       const revenueParams = new URLSearchParams({
-        ids: `channel==${channelId}`,
+        ids: 'channel==MINE',
         startDate,
         endDate,
         metrics: 'estimatedRevenue',
