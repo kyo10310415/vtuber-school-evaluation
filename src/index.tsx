@@ -4419,29 +4419,21 @@ app.post('/api/analytics/auto-fetch', async (c) => {
     }
     
     // スプレッドシートから生徒情報を取得
-    let serviceAccount;
-    try {
-      const serviceAccountStr = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT');
-      console.log('[Auto Fetch] Service account type:', typeof serviceAccountStr);
-      console.log('[Auto Fetch] Service account length:', serviceAccountStr?.length || 0);
-      
-      if (typeof serviceAccountStr === 'object') {
-        // すでにオブジェクトの場合
-        serviceAccount = serviceAccountStr;
-      } else {
-        // 文字列の場合、パース
-        serviceAccount = JSON.parse(serviceAccountStr);
-      }
-    } catch (error: any) {
-      console.error('[Auto Fetch] Service account parse error:', error);
+    const serviceAccountStr = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT');
+    console.log('[Auto Fetch] Service account type:', typeof serviceAccountStr);
+    console.log('[Auto Fetch] Service account length:', serviceAccountStr?.length || 0);
+    
+    if (!serviceAccountStr || serviceAccountStr.length === 0) {
       return c.json({
         success: false,
-        error: `Failed to parse service account: ${error.message}`,
+        error: 'GOOGLE_SERVICE_ACCOUNT is not configured',
       }, 500);
     }
     
     const spreadsheetId = getEnv(c, 'ANALYTICS_TARGET_SPREADSHEET_ID');
-    const students = await fetchStudents(serviceAccount, spreadsheetId);
+    
+    // fetchStudents は文字列（JSON文字列）を期待している
+    const students = await fetchStudents(serviceAccountStr, spreadsheetId);
     
     // 前週のデータを取得（月曜日〜日曜日）
     const now = new Date();
