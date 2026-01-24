@@ -312,7 +312,8 @@ app.get('/analytics-data', (c) => {
           container.innerHTML = '<p class="text-gray-500">読み込み中...</p>';
 
           try {
-            const response = await fetch('/api/analytics/channel', {
+            // 動画タイプ別のアナリティクスを取得
+            const response = await fetch('/api/analytics/by-type', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -324,20 +325,106 @@ app.get('/analytics-data', (c) => {
               }),
             });
 
-            const data = await response.json();
+            const result = await response.json();
 
-            if (!data.success) {
-              throw new Error(data.error);
+            if (!result.success) {
+              throw new Error(result.error);
             }
 
-            renderAnalytics(studentId, data.analytics);
+            renderAnalyticsByType(studentId, result.data);
           } catch (error) {
             console.error('アナリティクス読み込みエラー:', error);
             container.innerHTML = \`<p class="text-red-500 text-sm">エラー: \${error.message}</p>\`;
           }
         }
 
-        // アナリティクスデータを表示
+        // 動画タイプ別アナリティクスデータを表示
+        function renderAnalyticsByType(studentId, data) {
+          const container = document.getElementById(\`analytics-\${studentId}\`);
+          const { shorts, regular, live, overall } = data;
+
+          container.innerHTML = \`
+            <!-- 全体の概要 -->
+            <div class="bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg p-6 mb-6">
+              <h3 class="text-xl font-bold text-gray-800 mb-4">
+                <i class="fas fa-chart-line mr-2"></i>過去1週間の概要
+              </h3>
+              <div class="grid grid-cols-2 gap-4">
+                <div class="bg-white rounded-lg p-4 shadow">
+                  <p class="text-sm text-gray-600 mb-1">合計インプレッション</p>
+                  <p class="text-3xl font-bold text-purple-600">\${overall.totalImpressions.toLocaleString()}</p>
+                </div>
+                <div class="bg-white rounded-lg p-4 shadow">
+                  <p class="text-sm text-gray-600 mb-1">平均クリック率</p>
+                  <p class="text-3xl font-bold text-blue-600">\${overall.averageClickThroughRate.toFixed(2)}%</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- ショート動画 -->
+            <div class="mb-6">
+              <h4 class="text-lg font-bold text-gray-800 mb-3 flex items-center">
+                <i class="fas fa-mobile-alt text-pink-500 mr-2"></i>
+                ショート動画
+              </h4>
+              \${renderMetricsGrid(shorts.metrics, 'pink')}
+            </div>
+
+            <!-- 通常動画 -->
+            <div class="mb-6">
+              <h4 class="text-lg font-bold text-gray-800 mb-3 flex items-center">
+                <i class="fas fa-video text-blue-500 mr-2"></i>
+                通常動画
+              </h4>
+              \${renderMetricsGrid(regular.metrics, 'blue')}
+            </div>
+
+            <!-- ライブ配信アーカイブ -->
+            <div class="mb-6">
+              <h4 class="text-lg font-bold text-gray-800 mb-3 flex items-center">
+                <i class="fas fa-broadcast-tower text-red-500 mr-2"></i>
+                ライブ配信アーカイブ
+              </h4>
+              \${renderMetricsGrid(live.metrics, 'red')}
+            </div>
+          \`;
+        }
+
+        // メトリクスグリッドを生成
+        function renderMetricsGrid(metrics, color) {
+          return \`
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div class="bg-\${color}-50 rounded-lg p-4">
+                <p class="text-sm text-gray-600">再生回数</p>
+                <p class="text-2xl font-bold text-\${color}-600">\${metrics.views?.toLocaleString() || 0}</p>
+              </div>
+              <div class="bg-green-50 rounded-lg p-4">
+                <p class="text-sm text-gray-600">高評価</p>
+                <p class="text-2xl font-bold text-green-600">\${metrics.likes?.toLocaleString() || 0}</p>
+              </div>
+              <div class="bg-yellow-50 rounded-lg p-4">
+                <p class="text-sm text-gray-600">コメント</p>
+                <p class="text-2xl font-bold text-yellow-600">\${metrics.comments?.toLocaleString() || 0}</p>
+              </div>
+              <div class="bg-indigo-50 rounded-lg p-4">
+                <p class="text-sm text-gray-600">平均視聴率</p>
+                <p class="text-2xl font-bold text-indigo-600">\${metrics.averageViewPercentage?.toFixed(1) || 0}%</p>
+              </div>
+            </div>
+
+            <div class="mt-4">
+              <h5 class="font-semibold text-gray-800 mb-2">詳細データ</h5>
+              <div class="bg-gray-50 rounded p-4 text-sm space-y-1">
+                <p>視聴時間: \${(metrics.estimatedMinutesWatched || 0).toLocaleString()} 分</p>
+                <p>平均視聴時間: \${(metrics.averageViewDuration || 0).toFixed(1)} 秒</p>
+                <p>登録者増加: +\${metrics.subscribersGained || 0}</p>
+                <p>登録者減少: -\${metrics.subscribersLost || 0}</p>
+              </div>
+            </div>
+          \`;
+        }
+
+        // アナリティクスデータを表示（旧バージョン - 互換性のため残す）
         function renderAnalytics(studentId, analytics) {
           const container = document.getElementById(\`analytics-\${studentId}\`);
           const metrics = analytics.metrics;
@@ -3681,6 +3768,43 @@ app.post('/api/analytics/channel', async (c) => {
     });
   } catch (error: any) {
     console.error('[Analytics Channel] Error:', error);
+    return c.json({
+      success: false,
+      error: error.message,
+    }, 500);
+  }
+});
+
+// 動画タイプ別アナリティクスを取得（OAuth認証済み）
+app.post('/api/analytics/by-type', async (c) => {
+  const { env } = c;
+  
+  try {
+    const body = await c.req.json();
+    const { studentId, channelId, accessToken, startDate, endDate } = body;
+    
+    if (!studentId || !channelId || !accessToken) {
+      return c.json({
+        success: false,
+        error: 'studentId, channelId, accessToken are required',
+      }, 400);
+    }
+    
+    console.log('[Analytics By Type] Fetching:', { studentId, channelId, startDate, endDate });
+    
+    // 動的インポート
+    const { getVideosByType } = await import('./lib/youtube-analytics-client');
+    
+    // 動画タイプ別のアナリティクスを取得
+    const data = await getVideosByType(accessToken, channelId, startDate, endDate);
+    
+    return c.json({
+      success: true,
+      studentId,
+      data,
+    });
+  } catch (error: any) {
+    console.error('[Analytics By Type] Error:', error);
     return c.json({
       success: false,
       error: error.message,

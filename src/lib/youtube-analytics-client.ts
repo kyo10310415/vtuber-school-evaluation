@@ -393,3 +393,357 @@ export async function getDemographics(
     viewsPercentage: row[2] || 0,
   }));
 }
+
+/**
+ * チャンネルの動画リストを取得（過去1週間）
+ */
+export async function getRecentVideos(
+  accessToken: string,
+  channelId: string,
+  daysBack: number = 7
+): Promise<Array<{
+  videoId: string;
+  title: string;
+  publishedAt: string;
+  duration: string;
+  isShort: boolean;
+  isLive: boolean;
+}>> {
+  // 過去N日間の日付を計算
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - daysBack);
+  const publishedAfter = startDate.toISOString();
+
+  // YouTube Data API v3で動画リストを取得
+  const searchParams = new URLSearchParams({
+    part: 'id,snippet',
+    channelId: channelId,
+    maxResults: '50',
+    order: 'date',
+    publishedAfter: publishedAfter,
+    type: 'video',
+  });
+
+  const searchResponse = await fetch(
+    `https://www.googleapis.com/youtube/v3/search?${searchParams.toString()}`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/json',
+      },
+    }
+  );
+
+  if (!searchResponse.ok) {
+    const error = await searchResponse.text();
+    throw new Error(`Failed to fetch videos: ${searchResponse.status} ${error}`);
+  }
+
+  const searchData = await searchResponse.json();
+  const items = searchData.items || [];
+
+  if (items.length === 0) {
+    return [];
+  }
+
+  // 動画IDのリスト
+  const videoIds = items.map((item: any) => item.id.videoId).join(',');
+
+  // 動画の詳細情報を取得（duration, liveBroadcastContentを含む）
+  const videosParams = new URLSearchParams({
+    part: 'contentDetails,liveStreamingDetails',
+    id: videoIds,
+  });
+
+  const videosResponse = await fetch(
+    `https://www.googleapis.com/youtube/v3/videos?${videosParams.toString()}`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/json',
+      },
+    }
+  );
+
+  if (!videosResponse.ok) {
+    const error = await videosResponse.text();
+    throw new Error(`Failed to fetch video details: ${videosResponse.status} ${error}`);
+  }
+
+  const videosData = await videosResponse.json();
+  const videoDetailsMap = new Map();
+  
+  videosData.items?.forEach((item: any) => {
+    videoDetailsMap.set(item.id, {
+      duration: item.contentDetails.duration,
+      liveBroadcastContent: item.snippet?.liveBroadcastContent,
+      actualStartTime: item.liveStreamingDetails?.actualStartTime,
+    });
+  });
+
+  // 動画リストを整形
+  return items.map((item: any) => {
+    const videoId = item.id.videoId;
+    const details = videoDetailsMap.get(videoId) || {};
+    const duration = details.duration || 'PT0S';
+    
+    // ISO 8601形式の期間をパース（例：PT1M30S -> 90秒）
+    const parseDuration = (iso8601Duration: string): number => {
+      const match = iso8601Duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+      if (!match) return 0;
+      const hours = parseInt(match[1] || '0');
+      const minutes = parseInt(match[2] || '0');
+      const seconds = parseInt(match[3] || '0');
+      return hours * 3600 + minutes * 60 + seconds;
+    };
+
+    const durationSeconds = parseDuration(duration);
+    
+    // ショート動画判定：60秒以下
+    const isShort = durationSeconds > 0 && durationSeconds <= 60;
+    
+    // ライブ配信判定：actualStartTimeがある or liveBroadcastContent == 'live'/'completed'
+    const isLive = !!details.actualStartTime;
+
+    return {
+      videoId,
+      title: item.snippet.title,
+      publishedAt: item.snippet.publishedAt,
+      duration,
+      isShort,
+      isLive,
+    };
+  });
+}
+
+/**
+ * 動画のインプレッション/クリック率を取得
+ */
+export async function getVideoImpressions(
+  accessToken: string,
+  videoId: string,
+  startDate: string,
+  endDate: string
+): Promise<{
+  impressions: number;
+  impressionClickThroughRate: number;
+  views: number;
+}> {
+  const params = new URLSearchParams({
+    ids: `channel==MINE`,
+    startDate,
+    endDate,
+    metrics: 'cardImpressions,cardClickRate,views',
+    filters: `video==${videoId}`,
+  });
+
+  const response = await fetch(
+    `https://youtubeanalytics.googleapis.com/v2/reports?${params.toString()}`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/json',
+      },
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.text();
+    console.error(`Failed to fetch video impressions: ${response.status} ${error}`);
+    return { impressions: 0, impressionClickThroughRate: 0, views: 0 };
+  }
+
+  const data = await response.json();
+  const row = data.rows?.[0] || [];
+
+  return {
+    impressions: row[0] || 0,
+    impressionClickThroughRate: row[1] || 0,
+    views: row[2] || 0,
+  };
+}
+
+/**
+ * 複数動画のアナリティクスを一括取得（動画タイプ別）
+ */
+export async function getVideosByType(
+  accessToken: string,
+  channelId: string,
+  startDate: string,
+  endDate: string
+): Promise<{
+  shorts: YouTubeAnalyticsData;
+  regular: YouTubeAnalyticsData;
+  live: YouTubeAnalyticsData;
+  overall: {
+    totalImpressions: number;
+    averageClickThroughRate: number;
+  };
+}> {
+  // 過去1週間の動画を取得
+  const videos = await getRecentVideos(accessToken, channelId, 7);
+
+  // 動画タイプ別に分類
+  const shorts = videos.filter(v => v.isShort && !v.isLive);
+  const regular = videos.filter(v => !v.isShort && !v.isLive);
+  const live = videos.filter(v => v.isLive);
+
+  console.log('[VideosByType] Videos found:', {
+    total: videos.length,
+    shorts: shorts.length,
+    regular: regular.length,
+    live: live.length,
+  });
+
+  // 各タイプのメトリクスを集計（動画IDフィルター使用）
+  const aggregateMetrics = async (videoList: typeof videos, typeName: string) => {
+    if (videoList.length === 0) {
+      return {
+        metrics: {
+          views: 0,
+          likes: 0,
+          comments: 0,
+          shares: 0,
+          estimatedMinutesWatched: 0,
+          averageViewDuration: 0,
+          averageViewPercentage: 0,
+          subscribersGained: 0,
+          subscribersLost: 0,
+        },
+        totalImpressions: 0,
+        averageCTR: 0,
+      };
+    }
+
+    // 動画IDのフィルター（カンマ区切り）
+    const videoIdFilter = videoList.map(v => v.videoId).join(',');
+
+    // YouTube Analytics APIでフィルター付きクエリ
+    const params = new URLSearchParams({
+      ids: \`channel==\${channelId}\`,
+      startDate,
+      endDate,
+      metrics: [
+        'views',
+        'likes',
+        'comments',
+        'shares',
+        'estimatedMinutesWatched',
+        'averageViewDuration',
+        'averageViewPercentage',
+        'subscribersGained',
+        'subscribersLost',
+        'cardImpressions',
+        'cardClickRate',
+      ].join(','),
+      filters: \`video==\${videoIdFilter}\`,
+    });
+
+    try {
+      const response = await fetch(
+        \`https://youtubeanalytics.googleapis.com/v2/reports?\${params.toString()}\`,
+        {
+          headers: {
+            Authorization: \`Bearer \${accessToken}\`,
+            Accept: 'application/json',
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response.text();
+        console.error(\`[VideosByType] Failed to fetch \${typeName}:\`, response.status, error);
+        throw new Error(\`Failed to fetch analytics for \${typeName}\`);
+      }
+
+      const data = await response.json();
+      const headers = data.columnHeaders || [];
+      const row = data.rows?.[0] || [];
+
+      const metrics: any = {};
+      headers.forEach((header: any, index: number) => {
+        if (header.columnType === 'METRIC') {
+          metrics[header.name] = row[index] || 0;
+        }
+      });
+
+      // cardImpressions と cardClickRate を取得
+      const totalImpressions = metrics.cardImpressions || 0;
+      const averageCTR = metrics.cardClickRate || 0;
+
+      return {
+        metrics: {
+          views: metrics.views || 0,
+          likes: metrics.likes || 0,
+          comments: metrics.comments || 0,
+          shares: metrics.shares || 0,
+          estimatedMinutesWatched: metrics.estimatedMinutesWatched || 0,
+          averageViewDuration: metrics.averageViewDuration || 0,
+          averageViewPercentage: metrics.averageViewPercentage || 0,
+          subscribersGained: metrics.subscribersGained || 0,
+          subscribersLost: metrics.subscribersLost || 0,
+        },
+        totalImpressions,
+        averageCTR,
+      };
+    } catch (error) {
+      console.error(\`[VideosByType] Error fetching \${typeName}:\`, error);
+      return {
+        metrics: {
+          views: 0,
+          likes: 0,
+          comments: 0,
+          shares: 0,
+          estimatedMinutesWatched: 0,
+          averageViewDuration: 0,
+          averageViewPercentage: 0,
+          subscribersGained: 0,
+          subscribersLost: 0,
+        },
+        totalImpressions: 0,
+        averageCTR: 0,
+      };
+    }
+  };
+
+  // 各タイプのデータを並列取得
+  const [shortsData, regularData, liveData] = await Promise.all([
+    aggregateMetrics(shorts, 'shorts'),
+    aggregateMetrics(regular, 'regular'),
+    aggregateMetrics(live, 'live'),
+  ]);
+
+  // 全体の合計
+  const totalImpressions = shortsData.totalImpressions + regularData.totalImpressions + liveData.totalImpressions;
+  const totalVideos = (shorts.length > 0 ? 1 : 0) + (regular.length > 0 ? 1 : 0) + (live.length > 0 ? 1 : 0);
+  const averageClickThroughRate = totalVideos > 0
+    ? (shortsData.averageCTR + regularData.averageCTR + liveData.averageCTR) / totalVideos
+    : 0;
+
+  console.log('[VideosByType] Results:', {
+    totalImpressions,
+    averageClickThroughRate,
+    shorts: shortsData.metrics.views,
+    regular: regularData.metrics.views,
+    live: liveData.metrics.views,
+  });
+
+  return {
+    shorts: {
+      channelId,
+      metrics: shortsData.metrics,
+    },
+    regular: {
+      channelId,
+      metrics: regularData.metrics,
+    },
+    live: {
+      channelId,
+      metrics: liveData.metrics,
+    },
+    overall: {
+      totalImpressions,
+      averageClickThroughRate,
+    },
+  };
+}
