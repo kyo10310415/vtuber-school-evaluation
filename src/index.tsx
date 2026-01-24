@@ -349,7 +349,7 @@ app.get('/analytics-data', (c) => {
               <h3 class="text-xl font-bold text-gray-800 mb-4">
                 <i class="fas fa-chart-line mr-2"></i>過去1週間の概要
               </h3>
-              <div class="grid grid-cols-2 gap-4">
+              <div class="grid grid-cols-3 gap-4">
                 <div class="bg-white rounded-lg p-4 shadow">
                   <p class="text-sm text-gray-600 mb-1">
                     <i class="fas fa-eye mr-1"></i>サムネイル表示回数
@@ -363,6 +363,15 @@ app.get('/analytics-data', (c) => {
                   </p>
                   <p class="text-3xl font-bold text-blue-600">\${overall.averageClickThroughRate.toFixed(2)}%</p>
                   <p class="text-xs text-gray-500 mt-1">サムネイルからの視聴開始率</p>
+                </div>
+                <div class="bg-white rounded-lg p-4 shadow">
+                  <p class="text-sm text-gray-600 mb-1">
+                    <i class="fas fa-user-plus mr-1"></i>登録者増減
+                  </p>
+                  <p class="text-3xl font-bold \${netSubsChange >= 0 ? 'text-green-600' : 'text-red-600'}">
+                    \${netSubsChange >= 0 ? '+' : ''}\${netSubsChange.toLocaleString()}
+                  </p>
+                  <p class="text-xs text-gray-500 mt-1">+\${totalSubsGained.toLocaleString()} / -\${totalSubsLost.toLocaleString()}</p>
                 </div>
               </div>
             </div>
@@ -422,7 +431,7 @@ app.get('/analytics-data', (c) => {
               <h5 class="font-semibold text-gray-800 mb-2">詳細データ</h5>
               <div class="bg-gray-50 rounded p-4 text-sm space-y-1">
                 <p>視聴時間: \${(metrics.estimatedMinutesWatched || 0).toLocaleString()} 分</p>
-                <p>平均視聴時間: \${(metrics.averageViewDuration || 0).toFixed(1)} 秒</p>
+                <p>平均視聴時間: \${((metrics.averageViewDuration || 0) / 60).toFixed(1)} 分</p>
                 <p>登録者増加: +\${metrics.subscribersGained || 0}</p>
                 <p>登録者減少: -\${metrics.subscribersLost || 0}</p>
               </div>
@@ -459,7 +468,7 @@ app.get('/analytics-data', (c) => {
               <h4 class="font-semibold text-gray-800 mb-2">詳細データ</h4>
               <div class="bg-gray-50 rounded p-4 text-sm space-y-1">
                 <p>視聴時間: \${(metrics.estimatedMinutesWatched || 0).toLocaleString()} 分</p>
-                <p>平均視聴時間: \${(metrics.averageViewDuration || 0).toFixed(1)} 秒</p>
+                <p>平均視聴時間: \${((metrics.averageViewDuration || 0) / 60).toFixed(1)} 分</p>
                 <p>登録者増加: +\${metrics.subscribersGained || 0}</p>
                 <p>登録者減少: -\${metrics.subscribersLost || 0}</p>
               </div>

@@ -785,7 +785,10 @@ export async function getVideosByType(
       const videoId = row[videoIdIndex];
       const videoInfo = videoInfoMap.get(videoId);
       
-      if (!videoInfo) return;
+      if (!videoInfo) {
+        console.log(`[VideosByType] Video ${videoId} not found in videoInfoMap`);
+        return;
+      }
 
       const metrics = {
         views: row[viewsIndex] || 0,
@@ -800,13 +803,19 @@ export async function getVideosByType(
       };
 
       let targetData;
+      let typeName;
       if (videoInfo.isShort && !videoInfo.isLive) {
         targetData = shortsData;
+        typeName = 'short';
       } else if (videoInfo.isLive) {
         targetData = liveData;
+        typeName = 'live';
       } else {
         targetData = regularData;
+        typeName = 'regular';
       }
+
+      console.log(`[VideosByType] Video ${videoId} classified as ${typeName} (isShort: ${videoInfo.isShort}, isLive: ${videoInfo.isLive}, views: ${metrics.views})`);
 
       // 合計を計算
       Object.keys(metrics).forEach(key => {
