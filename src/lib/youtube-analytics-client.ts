@@ -144,6 +144,52 @@ export async function refreshAccessToken(
 }
 
 /**
+ * チャンネル全体のインプレッション/CTRを取得
+ */
+export async function getChannelImpressions(
+  accessToken: string,
+  channelId: string,
+  startDate: string,
+  endDate: string
+): Promise<{
+  impressions: number;
+  impressionClickThroughRate: number;
+}> {
+  // インプレッション関連のメトリクスは dimensions なしで取得
+  const params = new URLSearchParams({
+    ids: `channel==${channelId}`,
+    startDate,
+    endDate,
+    metrics: 'impressions,impressionClickThroughRate',
+  });
+
+  const response = await fetch(
+    `https://youtubeanalytics.googleapis.com/v2/reports?${params.toString()}`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/json',
+      },
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.text();
+    console.error(`Failed to fetch channel impressions: ${response.status} ${error}`);
+    // エラーの場合は0を返す（cardImpressionsにフォールバック）
+    return { impressions: 0, impressionClickThroughRate: 0 };
+  }
+
+  const data = await response.json();
+  const row = data.rows?.[0] || [];
+
+  return {
+    impressions: row[0] || 0,
+    impressionClickThroughRate: row[1] || 0,
+  };
+}
+
+/**
  * チャンネルの詳細アナリティクスを取得
  */
 export async function getChannelAnalytics(
@@ -713,16 +759,25 @@ export async function getVideosByType(
     aggregateMetrics(live, 'live'),
   ]);
 
-  // 全体の合計
-  const totalImpressions = shortsData.totalImpressions + regularData.totalImpressions + liveData.totalImpressions;
-  const totalVideos = (shorts.length > 0 ? 1 : 0) + (regular.length > 0 ? 1 : 0) + (live.length > 0 ? 1 : 0);
-  const averageClickThroughRate = totalVideos > 0
-    ? (shortsData.averageCTR + regularData.averageCTR + liveData.averageCTR) / totalVideos
-    : 0;
+  // チャンネル全体のインプレッション/CTRを取得（サムネイル表示数）
+  let channelImpressions = { impressions: 0, impressionClickThroughRate: 0 };
+  try {
+    channelImpressions = await getChannelImpressions(accessToken, channelId, startDate, endDate);
+    console.log('[VideosByType] Channel impressions:', channelImpressions);
+  } catch (error) {
+    console.error('[VideosByType] Failed to fetch channel impressions:', error);
+    // フォールバック: カードインプレッションの合計を使用
+    channelImpressions = {
+      impressions: shortsData.totalImpressions + regularData.totalImpressions + liveData.totalImpressions,
+      impressionClickThroughRate: 
+        (shortsData.averageCTR + regularData.averageCTR + liveData.averageCTR) / 
+        ((shorts.length > 0 ? 1 : 0) + (regular.length > 0 ? 1 : 0) + (live.length > 0 ? 1 : 0) || 1),
+    };
+  }
 
   console.log('[VideosByType] Results:', {
-    totalImpressions,
-    averageClickThroughRate,
+    totalImpressions: channelImpressions.impressions,
+    averageClickThroughRate: channelImpressions.impressionClickThroughRate,
     shorts: shortsData.metrics.views,
     regular: regularData.metrics.views,
     live: liveData.metrics.views,
@@ -742,8 +797,8 @@ export async function getVideosByType(
       metrics: liveData.metrics,
     },
     overall: {
-      totalImpressions,
-      averageClickThroughRate,
+      totalImpressions: channelImpressions.impressions,
+      averageClickThroughRate: channelImpressions.impressionClickThroughRate,
     },
   };
 }

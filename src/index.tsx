@@ -351,12 +351,18 @@ app.get('/analytics-data', (c) => {
               </h3>
               <div class="grid grid-cols-2 gap-4">
                 <div class="bg-white rounded-lg p-4 shadow">
-                  <p class="text-sm text-gray-600 mb-1">合計インプレッション</p>
+                  <p class="text-sm text-gray-600 mb-1">
+                    <i class="fas fa-eye mr-1"></i>サムネイル表示回数
+                  </p>
                   <p class="text-3xl font-bold text-purple-600">\${overall.totalImpressions.toLocaleString()}</p>
+                  <p class="text-xs text-gray-500 mt-1">YouTubeでサムネイルが表示された回数</p>
                 </div>
                 <div class="bg-white rounded-lg p-4 shadow">
-                  <p class="text-sm text-gray-600 mb-1">平均クリック率</p>
+                  <p class="text-sm text-gray-600 mb-1">
+                    <i class="fas fa-mouse-pointer mr-1"></i>クリック率（CTR）
+                  </p>
                   <p class="text-3xl font-bold text-blue-600">\${overall.averageClickThroughRate.toFixed(2)}%</p>
+                  <p class="text-xs text-gray-500 mt-1">サムネイルからの視聴開始率</p>
                 </div>
               </div>
             </div>
