@@ -4464,4 +4464,25 @@ app.post('/api/analytics/auto-fetch', async (c) => {
   }
 });
 
+// データベースマイグレーション実行エンドポイント
+app.post('/api/admin/run-migrations', async (c) => {
+  try {
+    console.log('[Admin] Running database migrations...');
+    
+    const { runMigrations } = await import('./lib/migrations');
+    await runMigrations(getEnv(c, 'DATABASE_URL'));
+    
+    return c.json({
+      success: true,
+      message: 'Migrations completed successfully',
+    });
+  } catch (error: any) {
+    console.error('[Admin] Migration error:', error);
+    return c.json({
+      success: false,
+      error: error.message,
+    }, 500);
+  }
+});
+
 export default app
