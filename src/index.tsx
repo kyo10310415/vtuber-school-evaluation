@@ -498,7 +498,32 @@ app.get('/analytics-data', (c) => {
               if (!tokenData.success) {
                 console.error('Token fetch failed:', student.studentId, tokenData.error);
                 const container = document.getElementById(\`analytics-\${student.studentId}\`);
-                container.innerHTML = \`<p class="text-red-500 text-sm">トークンの取得に失敗: \${tokenData.error}</p>\`;
+                
+                // needsAuthフラグがある場合は再認証を促す
+                if (tokenData.needsAuth) {
+                  container.innerHTML = \`
+                    <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                      <p class="text-yellow-800 text-sm mb-2">
+                        <i class="fas fa-exclamation-triangle mr-2"></i>
+                        認証の有効期限が切れました。再認証が必要です。
+                      </p>
+                      <button 
+                        onclick="window.location.href='https://youtube-oauth-auth.onrender.com/?studentId=\${student.studentId}'" 
+                        class="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 text-sm"
+                      >
+                        <i class="fab fa-youtube mr-2"></i>再認証する
+                      </button>
+                    </div>
+                  \`;
+                  
+                  // キャッシュから認証状態を削除
+                  analyticsCache[student.studentId].authenticated = false;
+                  
+                  // ボタンの表示を更新
+                  renderStudentsList();
+                } else {
+                  container.innerHTML = \`<p class="text-red-500 text-sm">トークンの取得に失敗: \${tokenData.error}</p>\`;
+                }
                 continue;
               }
               
