@@ -635,7 +635,8 @@ export async function getVideosByType(
   console.log(`[VideosByType] Fetching analytics for period: ${startDate} to ${endDate}`);
   
   // Step 1: Analytics APIで全動画のデータを取得（dimensions=video）
-  // impressions, impressionClickThroughRate も取得可能
+  // 注意: このチャンネルでは impressions, impressionClickThroughRate は
+  // dimensions=video と組み合わせるとエラーになるため除外
   const params = new URLSearchParams({
     ids: 'channel==MINE',
     startDate,
@@ -650,8 +651,6 @@ export async function getVideosByType(
       'averageViewPercentage',
       'subscribersGained',
       'subscribersLost',
-      'impressions',
-      'impressionClickThroughRate',
     ].join(','),
     dimensions: 'video',
     maxResults: '200',
@@ -724,8 +723,6 @@ export async function getVideosByType(
     const averageViewPercentageIndex = getIndex('averageViewPercentage');
     const subscribersGainedIndex = getIndex('subscribersGained');
     const subscribersLostIndex = getIndex('subscribersLost');
-    const impressionsIndex = getIndex('impressions');
-    const impressionClickThroughRateIndex = getIndex('impressionClickThroughRate');
 
     // Step 2: Data APIで各動画の種類を判別
     const videoIds = rows.map((row: any[]) => row[videoIdIndex]).filter(Boolean);
@@ -771,21 +768,18 @@ export async function getVideosByType(
       views: 0, likes: 0, comments: 0, shares: 0, 
       estimatedMinutesWatched: 0, averageViewDuration: 0, averageViewPercentage: 0, 
       subscribersGained: 0, subscribersLost: 0,
-      impressions: 0, impressionClickThroughRate: 0,
       count: 0 
     };
     const regularData: any = { 
       views: 0, likes: 0, comments: 0, shares: 0, 
       estimatedMinutesWatched: 0, averageViewDuration: 0, averageViewPercentage: 0, 
       subscribersGained: 0, subscribersLost: 0,
-      impressions: 0, impressionClickThroughRate: 0,
       count: 0 
     };
     const liveData: any = { 
       views: 0, likes: 0, comments: 0, shares: 0, 
       estimatedMinutesWatched: 0, averageViewDuration: 0, averageViewPercentage: 0, 
       subscribersGained: 0, subscribersLost: 0,
-      impressions: 0, impressionClickThroughRate: 0,
       count: 0 
     };
 
@@ -808,8 +802,6 @@ export async function getVideosByType(
         averageViewPercentage: row[averageViewPercentageIndex] || 0,
         subscribersGained: row[subscribersGainedIndex] || 0,
         subscribersLost: row[subscribersLostIndex] || 0,
-        impressions: row[impressionsIndex] || 0,
-        impressionClickThroughRate: row[impressionClickThroughRateIndex] || 0,
       };
 
       let targetData;
@@ -853,6 +845,15 @@ export async function getVideosByType(
     calculateAverages(regularData);
     calculateAverages(liveData);
 
+    // チャンネル全体のインプレッション/CTRを取得（dimensionsなし）
+    let channelImpressions = { impressions: 0, impressionClickThroughRate: 0 };
+    try {
+      channelImpressions = await getChannelImpressions(accessToken, channelId, startDate, endDate);
+      console.log('[VideosByType] Channel impressions:', channelImpressions);
+    } catch (error) {
+      console.error('[VideosByType] Failed to fetch channel impressions:', error);
+    }
+
     // データを整形して返す
     const formatData = (data: any) => ({
       metrics: {
@@ -865,19 +866,8 @@ export async function getVideosByType(
         averageViewPercentage: data.averageViewPercentage,
         subscribersGained: data.subscribersGained,
         subscribersLost: data.subscribersLost,
-        impressions: data.impressions,
-        impressionClickThroughRate: data.impressionClickThroughRate,
       },
     });
-
-    // 全体のインプレッション/CTRを計算
-    const totalImpressions = shortsData.impressions + regularData.impressions + liveData.impressions;
-    const totalCounts = shortsData.count + regularData.count + liveData.count;
-    const averageClickThroughRate = totalCounts > 0
-      ? (shortsData.impressionClickThroughRate * shortsData.count +
-         regularData.impressionClickThroughRate * regularData.count +
-         liveData.impressionClickThroughRate * liveData.count) / totalCounts
-      : 0;
 
     return {
       shorts: {
@@ -893,9 +883,9 @@ export async function getVideosByType(
         ...formatData(liveData),
       },
       overall: {
-        totalImpressions,
-        averageClickThroughRate,
-        estimatedRevenue: 0,  // 推定収益は別途取得が必要
+        totalImpressions: channelImpressions.impressions,
+        averageClickThroughRate: channelImpressions.impressionClickThroughRate,
+        estimatedRevenue: 0,
       },
     };
   } catch (error) {
