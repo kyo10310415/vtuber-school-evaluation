@@ -4382,7 +4382,7 @@ app.get('/api/analytics/auto-fetch/test', async (c) => {
     let students = [];
     let studentsError = null;
     try {
-      students = await fetchStudents(serviceAccountStr, spreadsheetId);
+      students = await fetchStudents(serviceAccountStr, spreadsheetId, 'アナリティクス取得');
     } catch (error: any) {
       studentsError = error.message;
     }
@@ -4457,7 +4457,8 @@ app.post('/api/analytics/auto-fetch', async (c) => {
     const spreadsheetId = getEnv(c, 'ANALYTICS_TARGET_SPREADSHEET_ID');
     
     // fetchStudents は文字列（JSON文字列）を期待している
-    const students = await fetchStudents(serviceAccountStr, spreadsheetId);
+    // シート名は「アナリティクス取得」を指定
+    const students = await fetchStudents(serviceAccountStr, spreadsheetId, 'アナリティクス取得');
     
     // 前週のデータを取得（月曜日〜日曜日）
     const now = new Date();
