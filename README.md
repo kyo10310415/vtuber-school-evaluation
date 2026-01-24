@@ -455,3 +455,4 @@ npm run deploy:prod
 ## 📝 ライセンス
 
 © 2024 VTuberスクール. All rights reserved.
+# Trigger redeploy
