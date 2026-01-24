@@ -619,8 +619,7 @@ export async function getVideoImpressions(
  */
 /**
  * 複数動画のアナリティクスを一括取得（動画タイプ別）
- * 修正版：フィルタなしの全件取得がエラーになるため、取得した動画IDを使って
- * 具体的に「video==ID,ID...」とフィルタリングしてインプレッションを取得する
+ * 修正版：インプレッション取得の確実性を最優先にするため、動画ごとに個別取得を行う
  */
 export async function getVideosByType(
   accessToken: string,
@@ -662,6 +661,7 @@ export async function getVideosByType(
     sort: '-views',
   });
 
+  let basicData;
   try {
     const basicResponse = await fetch(
       `https://youtubeanalytics.googleapis.com/v2/reports?${basicParams.toString()}`,
@@ -673,264 +673,9 @@ export async function getVideosByType(
       console.error('[VideosByType] Failed to fetch basic analytics:', basicResponse.status, error);
       throw new Error(`Failed to fetch basic analytics: ${basicResponse.status}`);
     }
-
-    const basicData = await basicResponse.json();
-    const headers = basicData.columnHeaders || [];
-    const rows = basicData.rows || [];
-
-    console.log(`[VideosByType] Fetched ${rows.length} videos (Basic Data)`);
-
-    if (rows.length === 0) {
-      const emptyMetrics = {
-        metrics: {
-          views: 0, likes: 0, comments: 0, shares: 0,
-          estimatedMinutesWatched: 0, averageViewDuration: 0, averageViewPercentage: 0,
-          subscribersGained: 0, subscribersLost: 0,
-        },
-        impressions: 0, impressionClickThroughRate: 0, estimatedRevenue: 0,
-      };
-      return {
-        shorts: { channelId, ...emptyMetrics },
-        regular: { channelId, ...emptyMetrics },
-        live: { channelId, ...emptyMetrics },
-        overall: { totalImpressions: 0, averageClickThroughRate: 0, estimatedRevenue: 0 },
-      };
-    }
-
-    // --------------------------------------------------------------------------
-    // Step 2: 動画IDリストを作成し、バッチでインプレッションを取得
-    // --------------------------------------------------------------------------
-    
-    // 基本データのインデックス
-    const getIndex = (headerList: any[], name: string) => headerList.findIndex((h: any) => h.name === name);
-    const videoIdIndex = getIndex(headers, 'video');
-    
-    // IDのリストを抽出
-    const allVideoIds = rows.map((row: any[]) => row[videoIdIndex]).filter(Boolean);
-    
-    // インプレッション結果を格納するMap
-    const impressionMap = new Map<string, { imp: number, ctr: number }>();
-
-    // 50件ずつ分割してリクエスト（URLの長さ制限とAPI制限回避のため）
-    const chunkSize = 50;
-    for (let i = 0; i < allVideoIds.length; i += chunkSize) {
-      const chunkIds = allVideoIds.slice(i, i + chunkSize);
-      const filterString = `video==${chunkIds.join(',')}`;
-
-      const impressionParams = new URLSearchParams({
-        ids: 'channel==MINE',
-        startDate,
-        endDate,
-        metrics: 'impressions,impressionClickThroughRate',
-        dimensions: 'video',
-        filters: filterString, // 【重要】ここでIDを指定する！
-      });
-
-      try {
-        const impResponse = await fetch(
-          `https://youtubeanalytics.googleapis.com/v2/reports?${impressionParams.toString()}`,
-          { headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' } }
-        );
-
-        if (impResponse.ok) {
-          const impData = await impResponse.json();
-          const impRows = impData.rows || [];
-          const impHeaders = impData.columnHeaders || [];
-          
-          const iVidIdx = getIndex(impHeaders, 'video');
-          const iImpIdx = getIndex(impHeaders, 'impressions');
-          const iCtrIdx = getIndex(impHeaders, 'impressionClickThroughRate');
-
-          impRows.forEach((row: any[]) => {
-            const vid = row[iVidIdx];
-            if (vid) {
-              impressionMap.set(vid, {
-                imp: row[iImpIdx] || 0,
-                ctr: row[iCtrIdx] || 0
-              });
-            }
-          });
-          console.log(`[VideosByType] Fetched impressions for batch ${Math.floor(i / chunkSize) + 1} (${impRows.length} items)`);
-        } else {
-          // 特定のバッチが失敗しても他は続行する
-          console.warn(`[VideosByType] Failed batch ${Math.floor(i / chunkSize) + 1}:`, await impResponse.text());
-        }
-      } catch (e) {
-        console.error(`[VideosByType] Error fetching impression batch:`, e);
-      }
-    }
-
-    console.log(`[VideosByType] Total videos with impression data: ${impressionMap.size}`);
-
-    // --------------------------------------------------------------------------
-    // Step 3: 動画タイプ判定 (Data API)
-    // --------------------------------------------------------------------------
-    // インデックス定義
-    const viewsIndex = getIndex(headers, 'views');
-    const likesIndex = getIndex(headers, 'likes');
-    const commentsIndex = getIndex(headers, 'comments');
-    const sharesIndex = getIndex(headers, 'shares');
-    const estimatedMinutesWatchedIndex = getIndex(headers, 'estimatedMinutesWatched');
-    const averageViewDurationIndex = getIndex(headers, 'averageViewDuration');
-    const averageViewPercentageIndex = getIndex(headers, 'averageViewPercentage');
-    const subscribersGainedIndex = getIndex(headers, 'subscribersGained');
-    const subscribersLostIndex = getIndex(headers, 'subscribersLost');
-
-    console.log(`[VideosByType] Classifying ${allVideoIds.length} videos...`);
-    const videoInfoMap = new Map<string, { isShort: boolean; isLive: boolean }>();
-    
-    // YouTube Data API v3で動画情報を取得（最大50件ずつ）
-    for (let i = 0; i < allVideoIds.length; i += 50) {
-      const batchIds = allVideoIds.slice(i, i + 50).join(',');
-      const videoResponse = await fetch(
-        `https://www.googleapis.com/youtube/v3/videos?id=${batchIds}&part=contentDetails,liveStreamingDetails`,
-        { headers: { Authorization: `Bearer ${accessToken}` } }
-      );
-
-      if (videoResponse.ok) {
-        const videoData = await videoResponse.json();
-        videoData.items?.forEach((item: any) => {
-          const duration = item.contentDetails?.duration || '';
-          const durationMatch = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
-          const hours = parseInt(durationMatch?.[1] || '0');
-          const minutes = parseInt(durationMatch?.[2] || '0');
-          const seconds = parseInt(durationMatch?.[3] || '0');
-          const totalSeconds = hours * 3600 + minutes * 60 + seconds;
-          const isShort = totalSeconds > 0 && totalSeconds <= 60;
-          const isLive = !!item.liveStreamingDetails;
-          videoInfoMap.set(item.id, { isShort, isLive });
-        });
-      }
-    }
-
-    console.log('[VideosByType] Classification complete:', {
-      shorts: Array.from(videoInfoMap.values()).filter(v => v.isShort && !v.isLive).length,
-      regular: Array.from(videoInfoMap.values()).filter(v => !v.isShort && !v.isLive).length,
-      live: Array.from(videoInfoMap.values()).filter(v => v.isLive).length,
-    });
-
-    // --------------------------------------------------------------------------
-    // Step 4: 集計処理 (マージ)
-    // --------------------------------------------------------------------------
-    const createMetrics = () => ({ 
-      views: 0, likes: 0, comments: 0, shares: 0, 
-      estimatedMinutesWatched: 0, averageViewDuration: 0, averageViewPercentage: 0, 
-      subscribersGained: 0, subscribersLost: 0,
-      impressions: 0, clicks: 0,
-      count: 0 
-    });
-
-    const shortsData: any = createMetrics();
-    const regularData: any = createMetrics();
-    const liveData: any = createMetrics();
-
-    rows.forEach((row: any[]) => {
-      const videoId = row[videoIdIndex];
-      const videoInfo = videoInfoMap.get(videoId);
-      
-      if (!videoInfo) return;
-
-      // インプレッションMapからデータを取得 (なければ0)
-      const impData = impressionMap.get(videoId) || { imp: 0, ctr: 0 };
-      
-      const impressions = impData.imp;
-      const ctr = impData.ctr;
-      const clicks = impressions * (ctr / 100);
-
-      const metrics = {
-        views: row[viewsIndex] || 0,
-        likes: row[likesIndex] || 0,
-        comments: row[commentsIndex] || 0,
-        shares: row[sharesIndex] || 0,
-        estimatedMinutesWatched: row[estimatedMinutesWatchedIndex] || 0,
-        averageViewDuration: row[averageViewDurationIndex] || 0,
-        averageViewPercentage: row[averageViewPercentageIndex] || 0,
-        subscribersGained: row[subscribersGainedIndex] || 0,
-        subscribersLost: row[subscribersLostIndex] || 0,
-        impressions,
-        clicks,
-      };
-
-      let targetData;
-      if (videoInfo.isShort && !videoInfo.isLive) {
-        targetData = shortsData;
-      } else if (videoInfo.isLive) {
-        targetData = liveData;
-      } else {
-        targetData = regularData;
-      }
-
-      Object.keys(metrics).forEach(key => {
-        targetData[key] += (metrics as any)[key];
-      });
-      targetData.count += 1;
-    });
-
-    // 平均値と最終CTRの計算
-    const calculateAverages = (data: any) => {
-      if (data.count === 0) return data;
-      data.averageViewPercentage = data.averageViewPercentage / data.count;
-      data.averageViewDuration = data.averageViewDuration / data.count;
-      
-      if (data.impressions > 0) {
-        data.impressionClickThroughRate = (data.clicks / data.impressions) * 100;
-      } else {
-        data.impressionClickThroughRate = 0;
-      }
-      delete data.clicks;
-      return data;
-    };
-
-    calculateAverages(shortsData);
-    calculateAverages(regularData);
-    calculateAverages(liveData);
-
-    // 全体の集計
-    const totalImpressions = shortsData.impressions + regularData.impressions + liveData.impressions;
-    let averageClickThroughRate = 0;
-    
-    if (totalImpressions > 0) {
-      const getClicks = (d: any) => d.impressions * (d.impressionClickThroughRate / 100);
-      const totalClicks = getClicks(shortsData) + getClicks(regularData) + getClicks(liveData);
-      averageClickThroughRate = (totalClicks / totalImpressions) * 100;
-    }
-
-    console.log('[VideosByType] Final stats:', {
-      shorts: { count: shortsData.count, impressions: shortsData.impressions, ctr: shortsData.impressionClickThroughRate.toFixed(2) + '%' },
-      regular: { count: regularData.count, impressions: regularData.impressions, ctr: regularData.impressionClickThroughRate.toFixed(2) + '%' },
-      live: { count: liveData.count, impressions: liveData.impressions, ctr: liveData.impressionClickThroughRate.toFixed(2) + '%' },
-      overall: { totalImpressions, averageClickThroughRate: averageClickThroughRate.toFixed(2) + '%' },
-    });
-
-    const formatData = (data: any) => ({
-      metrics: {
-        views: data.views,
-        likes: data.likes,
-        comments: data.comments,
-        shares: data.shares,
-        estimatedMinutesWatched: data.estimatedMinutesWatched,
-        averageViewDuration: data.averageViewDuration,
-        averageViewPercentage: data.averageViewPercentage,
-        subscribersGained: data.subscribersGained,
-        subscribersLost: data.subscribersLost,
-        impressions: data.impressions,
-        impressionClickThroughRate: data.impressionClickThroughRate,
-      },
-    });
-
-    return {
-      shorts: { channelId, ...formatData(shortsData) },
-      regular: { channelId, ...formatData(regularData) },
-      live: { channelId, ...formatData(liveData) },
-      overall: {
-        totalImpressions,
-        averageClickThroughRate,
-        estimatedRevenue: 0,
-      },
-    };
-
+    basicData = await basicResponse.json();
   } catch (error) {
-    console.error('[VideosByType] Error:', error);
+    console.error('[VideosByType] Error fetching basic data:', error);
     const emptyMetrics = {
       metrics: { views: 0, likes: 0, comments: 0, shares: 0, estimatedMinutesWatched: 0, averageViewDuration: 0, averageViewPercentage: 0, subscribersGained: 0, subscribersLost: 0 },
       impressions: 0, impressionClickThroughRate: 0, estimatedRevenue: 0,
@@ -942,4 +687,254 @@ export async function getVideosByType(
       overall: { totalImpressions: 0, averageClickThroughRate: 0, estimatedRevenue: 0 },
     };
   }
+
+  const headers = basicData.columnHeaders || [];
+  const rows = basicData.rows || [];
+
+  console.log(`[VideosByType] Fetched ${rows.length} videos (Basic Data)`);
+
+  if (rows.length === 0) {
+    const emptyMetrics = {
+      metrics: { views: 0, likes: 0, comments: 0, shares: 0, estimatedMinutesWatched: 0, averageViewDuration: 0, averageViewPercentage: 0, subscribersGained: 0, subscribersLost: 0 },
+      impressions: 0, impressionClickThroughRate: 0, estimatedRevenue: 0,
+    };
+    return {
+      shorts: { channelId, ...emptyMetrics },
+      regular: { channelId, ...emptyMetrics },
+      live: { channelId, ...emptyMetrics },
+      overall: { totalImpressions: 0, averageClickThroughRate: 0, estimatedRevenue: 0 },
+    };
+  }
+
+  // --------------------------------------------------------------------------
+  // Step 2: 動画IDリストを作成し、動画ごとにインプレッションを取得
+  // --------------------------------------------------------------------------
+  
+  // 基本データのインデックス
+  const getIndex = (headerList: any[], name: string) => headerList.findIndex((h: any) => h.name === name);
+  const videoIdIndex = getIndex(headers, 'video');
+  
+  // IDのリストを抽出
+  const allVideoIds = rows.map((row: any[]) => row[videoIdIndex]).filter(Boolean);
+  
+  // インプレッション結果を格納するMap
+  const impressionMap = new Map<string, { imp: number, ctr: number }>();
+
+  // 並列リクエスト数の制限（一度に大量のリクエストを送らないようにする）
+  const CONCURRENT_LIMIT = 5; 
+  
+  // IDごとに個別にリクエストを送る関数
+  const fetchImpressionForVideo = async (videoId: string) => {
+    const params = new URLSearchParams({
+      ids: 'channel==MINE',
+      startDate,
+      endDate,
+      metrics: 'impressions,impressionClickThroughRate',
+      filters: `video==${videoId}`, // dimensions=video は指定しない（単一動画なので不要）
+    });
+
+    try {
+      const res = await fetch(
+        `https://youtubeanalytics.googleapis.com/v2/reports?${params.toString()}`,
+        { headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' } }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const row = data.rows?.[0]; // dimensions指定なしなので1行だけ返るはず
+        if (row) {
+          // ヘッダー順序を確認（通常は imp, ctr の順だが念のため）
+          const h = data.columnHeaders || [];
+          const impIdx = getIndex(h, 'impressions');
+          const ctrIdx = getIndex(h, 'impressionClickThroughRate');
+          
+          impressionMap.set(videoId, {
+            imp: row[impIdx] || 0,
+            ctr: row[ctrIdx] || 0
+          });
+        }
+      }
+    } catch (e) {
+      console.warn(`[VideosByType] Failed to fetch impression for ${videoId}`, e);
+    }
+  };
+
+  // チャンクに分けて並列実行
+  console.log(`[VideosByType] Fetching impressions for ${allVideoIds.length} videos (5 concurrent)...`);
+  for (let i = 0; i < allVideoIds.length; i += CONCURRENT_LIMIT) {
+    const chunk = allVideoIds.slice(i, i + CONCURRENT_LIMIT);
+    await Promise.all(chunk.map(id => fetchImpressionForVideo(id)));
+    
+    // 進捗表示
+    if ((i + CONCURRENT_LIMIT) % 25 === 0 || i + CONCURRENT_LIMIT >= allVideoIds.length) {
+      console.log(`[VideosByType] Progress: ${Math.min(i + CONCURRENT_LIMIT, allVideoIds.length)}/${allVideoIds.length} videos processed`);
+    }
+  }
+  
+  console.log(`[VideosByType] Successfully fetched impressions for ${impressionMap.size}/${allVideoIds.length} videos`);
+
+  // --------------------------------------------------------------------------
+  // Step 3: 動画タイプ判定 (Data API)
+  // --------------------------------------------------------------------------
+  const viewsIndex = getIndex(headers, 'views');
+  const likesIndex = getIndex(headers, 'likes');
+  const commentsIndex = getIndex(headers, 'comments');
+  const sharesIndex = getIndex(headers, 'shares');
+  const estimatedMinutesWatchedIndex = getIndex(headers, 'estimatedMinutesWatched');
+  const averageViewDurationIndex = getIndex(headers, 'averageViewDuration');
+  const averageViewPercentageIndex = getIndex(headers, 'averageViewPercentage');
+  const subscribersGainedIndex = getIndex(headers, 'subscribersGained');
+  const subscribersLostIndex = getIndex(headers, 'subscribersLost');
+
+  console.log(`[VideosByType] Classifying ${allVideoIds.length} videos...`);
+  const videoInfoMap = new Map<string, { isShort: boolean; isLive: boolean }>();
+  
+  // YouTube Data API v3で動画情報を取得（最大50件ずつ）
+  for (let i = 0; i < allVideoIds.length; i += 50) {
+    const batchIds = allVideoIds.slice(i, i + 50).join(',');
+    const videoResponse = await fetch(
+      `https://www.googleapis.com/youtube/v3/videos?id=${batchIds}&part=contentDetails,liveStreamingDetails`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+
+    if (videoResponse.ok) {
+      const videoData = await videoResponse.json();
+      videoData.items?.forEach((item: any) => {
+        const duration = item.contentDetails?.duration || '';
+        const durationMatch = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+        const hours = parseInt(durationMatch?.[1] || '0');
+        const minutes = parseInt(durationMatch?.[2] || '0');
+        const seconds = parseInt(durationMatch?.[3] || '0');
+        const totalSeconds = hours * 3600 + minutes * 60 + seconds;
+        const isShort = totalSeconds > 0 && totalSeconds <= 60;
+        const isLive = !!item.liveStreamingDetails;
+        videoInfoMap.set(item.id, { isShort, isLive });
+      });
+    }
+  }
+
+  console.log('[VideosByType] Classification complete:', {
+    shorts: Array.from(videoInfoMap.values()).filter(v => v.isShort && !v.isLive).length,
+    regular: Array.from(videoInfoMap.values()).filter(v => !v.isShort && !v.isLive).length,
+    live: Array.from(videoInfoMap.values()).filter(v => v.isLive).length,
+  });
+
+  // --------------------------------------------------------------------------
+  // Step 4: 集計処理 (マージ)
+  // --------------------------------------------------------------------------
+  const createMetrics = () => ({ 
+    views: 0, likes: 0, comments: 0, shares: 0, 
+    estimatedMinutesWatched: 0, averageViewDuration: 0, averageViewPercentage: 0, 
+    subscribersGained: 0, subscribersLost: 0,
+    impressions: 0, clicks: 0,
+    count: 0 
+  });
+
+  const shortsData: any = createMetrics();
+  const regularData: any = createMetrics();
+  const liveData: any = createMetrics();
+
+  rows.forEach((row: any[]) => {
+    const videoId = row[videoIdIndex];
+    const videoInfo = videoInfoMap.get(videoId);
+    
+    if (!videoInfo) return;
+
+    // インプレッションMapからデータを取得 (なければ0)
+    const impData = impressionMap.get(videoId) || { imp: 0, ctr: 0 };
+    
+    const impressions = impData.imp;
+    const ctr = impData.ctr;
+    const clicks = impressions * (ctr / 100);
+
+    const metrics = {
+      views: row[viewsIndex] || 0,
+      likes: row[likesIndex] || 0,
+      comments: row[commentsIndex] || 0,
+      shares: row[sharesIndex] || 0,
+      estimatedMinutesWatched: row[estimatedMinutesWatchedIndex] || 0,
+      averageViewDuration: row[averageViewDurationIndex] || 0,
+      averageViewPercentage: row[averageViewPercentageIndex] || 0,
+      subscribersGained: row[subscribersGainedIndex] || 0,
+      subscribersLost: row[subscribersLostIndex] || 0,
+      impressions,
+      clicks,
+    };
+
+    let targetData;
+    if (videoInfo.isShort && !videoInfo.isLive) {
+      targetData = shortsData;
+    } else if (videoInfo.isLive) {
+      targetData = liveData;
+    } else {
+      targetData = regularData;
+    }
+
+    Object.keys(metrics).forEach(key => {
+      targetData[key] += (metrics as any)[key];
+    });
+    targetData.count += 1;
+  });
+
+  // 平均値と最終CTRの計算
+  const calculateAverages = (data: any) => {
+    if (data.count === 0) return data;
+    data.averageViewPercentage = data.averageViewPercentage / data.count;
+    data.averageViewDuration = data.averageViewDuration / data.count;
+    
+    if (data.impressions > 0) {
+      data.impressionClickThroughRate = (data.clicks / data.impressions) * 100;
+    } else {
+      data.impressionClickThroughRate = 0;
+    }
+    delete data.clicks;
+    return data;
+  };
+
+  calculateAverages(shortsData);
+  calculateAverages(regularData);
+  calculateAverages(liveData);
+
+  // 全体の集計
+  const totalImpressions = shortsData.impressions + regularData.impressions + liveData.impressions;
+  let averageClickThroughRate = 0;
+  
+  if (totalImpressions > 0) {
+    const getClicks = (d: any) => d.impressions * (d.impressionClickThroughRate / 100);
+    const totalClicks = getClicks(shortsData) + getClicks(regularData) + getClicks(liveData);
+    averageClickThroughRate = (totalClicks / totalImpressions) * 100;
+  }
+
+  console.log('[VideosByType] Final aggregation:', {
+    shorts: { count: shortsData.count, impressions: shortsData.impressions, ctr: shortsData.impressionClickThroughRate.toFixed(2) + '%' },
+    regular: { count: regularData.count, impressions: regularData.impressions, ctr: regularData.impressionClickThroughRate.toFixed(2) + '%' },
+    live: { count: liveData.count, impressions: liveData.impressions, ctr: liveData.impressionClickThroughRate.toFixed(2) + '%' },
+    overall: { totalImpressions, averageClickThroughRate: averageClickThroughRate.toFixed(2) + '%' },
+  });
+
+  const formatData = (data: any) => ({
+    metrics: {
+      views: data.views,
+      likes: data.likes,
+      comments: data.comments,
+      shares: data.shares,
+      estimatedMinutesWatched: data.estimatedMinutesWatched,
+      averageViewDuration: data.averageViewDuration,
+      averageViewPercentage: data.averageViewPercentage,
+      subscribersGained: data.subscribersGained,
+      subscribersLost: data.subscribersLost,
+      impressions: data.impressions,
+      impressionClickThroughRate: data.impressionClickThroughRate,
+    },
+  });
+
+  return {
+    shorts: { channelId, ...formatData(shortsData) },
+    regular: { channelId, ...formatData(regularData) },
+    live: { channelId, ...formatData(liveData) },
+    overall: {
+      totalImpressions,
+      averageClickThroughRate,
+      estimatedRevenue: 0,
+    },
+  };
 }
