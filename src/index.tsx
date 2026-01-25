@@ -195,8 +195,13 @@ app.get('/analytics-history/:studentId', (c) => {
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ショート再生</th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">通常再生</th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ライブ再生</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ショート視聴時間</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">通常視聴時間</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ライブ視聴時間</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ショート視聴率</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">通常視聴率</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ライブ視聴率</th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">登録者増減</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">総視聴時間</th>
                   </tr>
                 </thead>
                 <tbody id="history-tbody" class="bg-white divide-y divide-gray-200">
@@ -344,7 +349,7 @@ app.get('/analytics-history/:studentId', (c) => {
             }
           });
 
-          // 視聴時間グラフ
+          // 視聴時間グラフ（2軸）
           const watchCtx = document.getElementById('watchtime-chart').getContext('2d');
           charts.watchtime = new Chart(watchCtx, {
             type: 'line',
@@ -356,21 +361,24 @@ app.get('/analytics-history/:studentId', (c) => {
                   data: sortedHistory.map(h => h.shortsWatchTimeMinutes),
                   borderColor: 'rgb(236, 72, 153)',
                   backgroundColor: 'rgba(236, 72, 153, 0.1)',
-                  tension: 0.4
+                  tension: 0.4,
+                  yAxisID: 'y'
                 },
                 {
                   label: '通常動画',
                   data: sortedHistory.map(h => h.regularWatchTimeMinutes),
                   borderColor: 'rgb(59, 130, 246)',
                   backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                  tension: 0.4
+                  tension: 0.4,
+                  yAxisID: 'y'
                 },
                 {
                   label: 'ライブ',
                   data: sortedHistory.map(h => h.liveWatchTimeMinutes),
                   borderColor: 'rgb(239, 68, 68)',
                   backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                  tension: 0.4
+                  tension: 0.4,
+                  yAxisID: 'y1'
                 }
               ]
             },
@@ -383,9 +391,30 @@ app.get('/analytics-history/:studentId', (c) => {
               },
               scales: {
                 y: {
+                  type: 'linear',
+                  position: 'left',
                   beginAtZero: true,
+                  title: {
+                    display: true,
+                    text: 'ショート/通常 (分)'
+                  },
                   ticks: {
                     callback: value => value.toLocaleString() + ' 分'
+                  }
+                },
+                y1: {
+                  type: 'linear',
+                  position: 'right',
+                  beginAtZero: true,
+                  title: {
+                    display: true,
+                    text: 'ライブ (分)'
+                  },
+                  ticks: {
+                    callback: value => value.toLocaleString() + ' 分'
+                  },
+                  grid: {
+                    drawOnChartArea: false
                   }
                 }
               }
@@ -449,16 +478,24 @@ app.get('/analytics-history/:studentId', (c) => {
           history.forEach(h => {
             const totalSubs = ((h.shortsSubscribersGained || 0) + (h.regularSubscribersGained || 0) + (h.liveSubscribersGained || 0)) - 
                              ((h.shortsSubscribersLost || 0) + (h.regularSubscribersLost || 0) + (h.liveSubscribersLost || 0));
-            const totalWatchTime = (h.shortsWatchTimeMinutes || 0) + (h.regularWatchTimeMinutes || 0) + (h.liveWatchTimeMinutes || 0);
+
+            // 期間から時刻を除去（YYYY-MM-DDのみ表示）
+            const periodStartDate = h.periodStart.split(' ')[0];
+            const periodEndDate = h.periodEnd.split(' ')[0];
 
             const row = document.createElement('tr');
             row.innerHTML = \`
-              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">\${h.periodStart} ~ \${h.periodEnd}</td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">\${periodStartDate} ~ \${periodEndDate}</td>
               <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">\${(h.shortsViews || 0).toLocaleString()}</td>
               <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">\${(h.regularViews || 0).toLocaleString()}</td>
               <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">\${(h.liveViews || 0).toLocaleString()}</td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">\${(h.shortsWatchTimeMinutes || 0).toLocaleString()} 分</td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">\${(h.regularWatchTimeMinutes || 0).toLocaleString()} 分</td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">\${(h.liveWatchTimeMinutes || 0).toLocaleString()} 分</td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">\${(h.shortsAvgViewPercentage || 0).toFixed(1)}%</td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">\${(h.regularAvgViewPercentage || 0).toFixed(1)}%</td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">\${(h.liveAvgViewPercentage || 0).toFixed(1)}%</td>
               <td class="px-6 py-4 whitespace-nowrap text-sm \${totalSubs >= 0 ? 'text-green-600' : 'text-red-600'}">\${totalSubs >= 0 ? '+' : ''}\${totalSubs}</td>
-              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">\${totalWatchTime.toLocaleString()} 分</td>
             \`;
             tbody.appendChild(row);
           });
