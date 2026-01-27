@@ -53,7 +53,7 @@ export async function ssoAuthMiddleware(c, next) {
       setCookie(c, 'wannav_sso', token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        maxAge: 7 * 24 * 60 * 60, // 7日間
+        maxAge: 60 * 60, // 1時間（秒単位）
         sameSite: 'Lax',
         path: '/'
       });
