@@ -32,9 +32,9 @@ VTuber育成スクールの生徒様の成長度を評価・可視化するシ�
 - OAuth 2.0 認証による個人データアクセス
 - 動画タイプ別分析（ショート/通常動画/ライブ配信）
 - 再生回数、高評価、コメント、視聴時間などの詳細メトリクス
-- **自動週次データ取得**（毎週水曜日）
+- **自動週次データ取得**（毎週水曜日 10:00 JST）
 - **履歴データ保存**（PostgreSQLに自動保存）
-- **グラフ表示**（Chart.jsで推移を可視化）
+- **グラフ表示**（Chart.jsで推移を可視化：2軸グラフ対応）
 
 ✅ **バックエンドAPI**
 - `/api/evaluate` - **統合評価実行エンドポイント**（プロレベル + YouTube + X）
@@ -85,13 +85,23 @@ VTuber育成スクールの生徒様の成長度を評価・可視化するシ�
   - トップページへ戻るボタン
   - ページ間のスムーズな遷移
 
-✅ **自動評価スケジュール（バッチ処理版）**
-- GitHub Actions による月次自動評価（毎月1日 午前3時 JST）
+✅ **自動実行スケジュール**
+
+**1. プロレベル + YouTube + X の統合評価（月次）**
+- **エンドポイント**: `/api/auto-evaluate`
+- **頻度**: 毎月1日 午前10時（JST）
+- **Cron設定**: `0 10 1 * *`
+- **対象**: 全生徒の総合評価（プロレベル + YouTube + X）
 - **バッチ処理**: 300名ずつに分割して評価（15分間隔）
 - **ステータスフィルタリング**: 「アクティブ」のみ評価、「永久会員」は除外
-- **アカウント情報チェック**: YouTubeチャンネルID/Xアカウントが設定されている生徒のみ
-- 前月分の評価を自動実行
-- デフォルト評価月を前月に変更
+
+**2. YouTube Analytics データ取得（週次）**
+- **エンドポイント**: `/api/analytics/auto-fetch`
+- **頻度**: 毎週水曜日 午前10時（JST）
+- **Cron設定**: `0 10 * * 3`
+- **対象**: OAuth認証済み生徒のアナリティクス履歴
+- **取得期間**: 前週月曜日〜日曜日（1週間分）
+- **保存先**: PostgreSQL（`analytics_history`テーブル）
 
 ✅ **評価結果キャッシング**
 - YouTube/X評価結果をスプレッドシートにキャッシュ
@@ -498,21 +508,36 @@ cd /home/user/webapp
 
 ### 2. 週次自動データ取得の設定
 
-**方法1: 外部Cronサービスを使用（推奨）**
+**外部Cronサービスの設定（推奨）**
 
-[cron-job.org](https://cron-job.org/) や [EasyCron](https://www.easycron.com/) などで設定：
+[cron-job.org](https://cron-job.org/) などで以下の2つのジョブを設定：
 
+**1. YouTube Analytics 週次データ取得**
+- **Title**: VTuber Analytics Weekly Fetch
 - **URL**: `https://vtuber-school-evaluation.onrender.com/api/analytics/auto-fetch`
 - **Method**: POST
 - **スケジュール**: 毎週水曜日 午前10:00（日本時間）
 - **Cron式**: `0 10 * * 3`
 
-**方法2: Render.comのCron Jobs（将来的に移行可能）**
+**2. プロレベル + YouTube + X の月次評価**
+- **Title**: VTuber Monthly Evaluation
+- **URL**: `https://vtuber-school-evaluation.onrender.com/api/auto-evaluate`
+- **Method**: POST
+- **スケジュール**: 毎月1日 午前10:00（日本時間）
+- **Cron式**: `0 10 1 * *`
+
+**Render.comのCron Jobs（将来的に移行可能）**
 
 Render.comのダッシュボードでCron Jobを設定：
 
+**YouTube Analytics 週次取得**:
 ```bash
 curl -X POST https://vtuber-school-evaluation.onrender.com/api/analytics/auto-fetch
+```
+
+**月次評価**:
+```bash
+curl -X POST https://vtuber-school-evaluation.onrender.com/api/auto-evaluate
 ```
 
 ### 3. 履歴データの表示
