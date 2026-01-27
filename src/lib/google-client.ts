@@ -212,6 +212,106 @@ function columnToIndex(column: string): number {
 }
 
 // 支払いデータを取得
+// 支払い漏れ数確認シートから支払いステータスを取得（新仕様）
+export async function fetchPaymentStatusFromUnpaidSheet(
+  serviceAccountJson: string,
+  month: string
+): Promise<PaymentData[]> {
+  const accessToken = await getAccessToken(serviceAccountJson);
+  
+  // 支払い漏れ数確認スプレッドシート
+  // https://docs.google.com/spreadsheets/d/1iqrAhNjW8jTvobkur5N_9r9uUWFHCKqrhxM72X5z-iM/edit
+  const unpaidSpreadsheetId = '1iqrAhNjW8jTvobkur5N_9r9uUWFHCKqrhxM72X5z-iM';
+  const sheetName = 'RAW_支払い漏れ数確認';
+  
+  // ヘッダー行: 3行目
+  // 列名形式: yyyy年mm月末の未払い（例: 2023年12月末の未払い）
+  
+  // monthをyyyy年mm月形式に変換（例: 2024-12 → 2024年12月）
+  const [year, monthNum] = month.split('-');
+  const previousMonth = new Date(parseInt(year), parseInt(monthNum) - 2); // 前月を取得
+  const targetYear = previousMonth.getFullYear();
+  const targetMonth = previousMonth.getMonth() + 1; // 0-indexedなので+1
+  const targetMonthStr = `${targetYear}年${targetMonth}月末の未払い`;
+  
+  console.log(`[Payment] Looking for column: ${targetMonthStr}`);
+  
+  // ヘッダー行を取得して対象月の列を特定
+  const headerResponse = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${unpaidSpreadsheetId}/values/${encodeURIComponent(sheetName)}!A3:ZZ3`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    }
+  );
+
+  const headerData = await headerResponse.json();
+  const headers = headerData.values?.[0] || [];
+  
+  // 対象月の列インデックスを検索
+  let targetColumnIndex = -1;
+  for (let i = 0; i < headers.length; i++) {
+    if (headers[i] === targetMonthStr) {
+      targetColumnIndex = i;
+      console.log(`[Payment] Found column at index ${i}: ${headers[i]}`);
+      break;
+    }
+  }
+
+  if (targetColumnIndex === -1) {
+    console.warn(`[Payment] Column not found: ${targetMonthStr}`);
+    console.warn(`[Payment] Available columns:`, headers.slice(0, 10));
+    return [];
+  }
+
+  // 列番号を列名に変換（A=0, B=1, ...）
+  const targetColumn = indexToColumn(targetColumnIndex);
+
+  // 全データを取得（4行目以降、A列からターゲット列まで）
+  const dataResponse = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${unpaidSpreadsheetId}/values/${encodeURIComponent(sheetName)}!A4:${targetColumn}`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    }
+  );
+
+  const dataData = await dataResponse.json();
+  const rows = dataData.values || [];
+  const paymentData: PaymentData[] = [];
+
+  console.log(`[Payment] Processing ${rows.length} rows`);
+
+  // 各行をチェック
+  for (const row of rows) {
+    if (!row || row.length === 0) continue;
+    
+    // ターゲット列のセル値を取得
+    const cellValue = row[targetColumnIndex] || '';
+    
+    // セルに学籍番号のパターンが含まれているかチェック
+    // 学籍番号形式: OLTS240246-QQ, OLST230013-OS など
+    const studentIdMatches = cellValue.match(/OL[A-Z]{2}\d{6}-[A-Z]{2}/g);
+    
+    if (studentIdMatches && studentIdMatches.length > 0) {
+      // 見つかった学籍番号すべてに対してD評価
+      for (const studentId of studentIdMatches) {
+        paymentData.push({
+          studentId,
+          paymentStatus: 'unpaid', // D評価
+          month,
+        });
+      }
+    }
+  }
+
+  console.log(`[Payment] Found ${paymentData.length} unpaid students`);
+  
+  return paymentData;
+}
+
 export async function fetchPaymentData(
   serviceAccountJson: string,
   spreadsheetId: string,

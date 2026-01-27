@@ -18,18 +18,10 @@ export function evaluateAbsence(absenceCount: number): Grade {
   return 'D'; // 4回以上
 }
 
-// 支払い状況から評価を算出
+// 支払い状況から評価を算出（新仕様: S or D のみ）
 export function evaluatePayment(paymentStatus: 'paid' | 'unpaid' | 'partial'): Grade {
-  switch (paymentStatus) {
-    case 'paid':
-      return 'S';
-    case 'partial':
-      return 'B';
-    case 'unpaid':
-      return 'D';
-    default:
-      return 'C';
-  }
+  // unpaid の場合は D、それ以外は S
+  return paymentStatus === 'unpaid' ? 'D' : 'S';
 }
 
 // 総合評価を計算（6項目の平均）

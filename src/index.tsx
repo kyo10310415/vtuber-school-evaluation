@@ -3276,6 +3276,11 @@ app.post('/api/evaluate', async (c) => {
 
     // 欠席データを取得（直近3ヶ月以内から集計）
     const absenceDataList = await fetchAbsenceData(GOOGLE_SERVICE_ACCOUNT, ABSENCE_SPREADSHEET_ID, request.month)
+    
+    // 支払いデータを取得（新仕様: 支払い漏れ数確認シート）
+    const { fetchPaymentStatusFromUnpaidSheet } = await import('./lib/google-client')
+    const paymentDataList = await fetchPaymentStatusFromUnpaidSheet(GOOGLE_SERVICE_ACCOUNT, request.month)
+    console.log(`[/api/evaluate] Fetched ${paymentDataList.length} payment records`)
 
     const results: EvaluationResult[] = []
     const errors: string[] = []
@@ -3308,11 +3313,14 @@ app.post('/api/evaluate', async (c) => {
         // 欠席データを取得
         const absenceData = absenceDataList.find(a => a.studentId === student.studentId)
 
+        // 支払いデータを取得
+        const paymentData = paymentDataList.find(p => p.studentId === student.studentId)
+
         // プロレベル評価を実施
         const result = evaluateStudent(
           student,
           absenceData,
-          undefined, // 支払いデータは一旦なし
+          paymentData, // 支払いデータを渡す
           geminiAnalysis,
           request.month
         )
@@ -3561,6 +3569,13 @@ app.post('/api/auto-evaluate', async (c) => {
       console.log(`[Auto Evaluate] Fetched absence data for ${absenceDataList.length} students`)
     }
     
+    // 支払いデータを取得（プロレベル評価が必要な場合のみ）
+    const { fetchPaymentStatusFromUnpaidSheet } = await import('./lib/google-client')
+    const paymentDataList = skipProLevel ? [] : await fetchPaymentStatusFromUnpaidSheet(GOOGLE_SERVICE_ACCOUNT, month)
+    if (!skipProLevel) {
+      console.log(`[Auto Evaluate] Fetched payment data for ${paymentDataList.length} students`)
+    }
+    
     // 各生徒の評価を実行
     for (const student of students) {
       try {
@@ -3605,11 +3620,14 @@ app.post('/api/auto-evaluate', async (c) => {
               // 欠席データを取得
               const absenceData = absenceDataList.find(a => a.studentId === student.studentId)
               
+              // 支払いデータを取得
+              const paymentData = paymentDataList.find(p => p.studentId === student.studentId)
+              
               // プロレベル評価を実施
               const proLevelResult = evaluateStudent(
                 student,
                 absenceData,
-                undefined, // 支払いデータは一旦なし
+                paymentData, // 支払いデータを渡す
                 geminiAnalysis,
                 month
               )
