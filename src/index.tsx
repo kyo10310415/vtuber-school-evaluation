@@ -521,12 +521,17 @@ app.get('/analytics-data', (c) => {
     </head>
     <body class="bg-gray-100">
       <div class="container mx-auto px-4 py-8">
-        <div class="mb-6">
-          <h1 class="text-3xl font-bold text-gray-800">
-            <i class="fab fa-youtube text-red-600 mr-2"></i>
-            所属生データ（YouTube Analytics）
-          </h1>
-          <p class="text-gray-600 mt-2">各生徒のYouTubeチャンネルの詳細アナリティクスデータ</p>
+        <div class="mb-6 flex items-center justify-between">
+          <div>
+            <h1 class="text-3xl font-bold text-gray-800">
+              <i class="fab fa-youtube text-red-600 mr-2"></i>
+              所属生データ（YouTube Analytics）
+            </h1>
+            <p class="text-gray-600 mt-2">各生徒のYouTubeチャンネルの詳細アナリティクスデータ</p>
+          </div>
+          <a href="/" class="bg-gray-600 text-white px-6 py-3 rounded-lg hover:bg-gray-700 transition">
+            <i class="fas fa-home mr-2"></i>ホームに戻る
+          </a>
         </div>
 
         <!-- 期間選択 -->
