@@ -775,6 +775,7 @@ app.get('/analytics-data', (c) => {
                 accessToken,
                 startDate,
                 endDate,
+                saveHistory: true, // 履歴をデータベースに保存
               }),
             });
 
