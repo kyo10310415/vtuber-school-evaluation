@@ -70,9 +70,10 @@ app.use('/api/*', cors())
 // 自動化エンドポイント（Cron等）はSSO認証を除外
 const publicApiRoutes = [
   '/api/analytics/auto-fetch',
+  '/api/auto-evaluate',  // 月次評価エンドポイントも追加
   '/api/admin/run-migrations',
   '/api/analytics/auto-fetch/test',
-  '/health',
+  '/api/health',  // 修正: /health → /api/health
   '/api/debug/env',
 ];
 
