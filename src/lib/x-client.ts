@@ -225,77 +225,106 @@ export async function fetchRecentTweets(
     console.log(`[X API] Fetching tweets for ${targetMonth}: ${startTime} to ${endTime}`);
   }
 
-  // URL パラメータを構築
-  const params = new URLSearchParams({
-    max_results: maxResults.toString(),
-    'tweet.fields': 'created_at,public_metrics',
-    exclude: 'replies' // リプライを除外
-  });
-  
-  if (startTime) params.append('start_time', startTime);
-  if (endTime) params.append('end_time', endTime);
-  
-  const url = `https://api.twitter.com/2/users/${userId}/tweets?${params.toString()}`;
+  // すべてのツイートを格納する配列
+  let allTweets: XTweet[] = [];
+  let nextToken: string | undefined = undefined;
+  let pageCount = 0;
+  const maxPages = 10; // 最大10ページ（1000件）まで取得
 
-  console.log(`[X API] Fetching tweets for user: ${userId}, maxResults: ${maxResults}`);
-  
   try {
-    const response = await fetch(url, {
-      headers: {
-        'Authorization': `Bearer ${bearerToken}`,
-      },
-    });
-
-    console.log(`[X API] Tweets fetch response status: ${response.status}`);
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`[X API] Tweets fetch error: ${response.status} - ${errorText}`);
+    do {
+      pageCount++;
       
-      // エラーメッセージを詳細に解析
-      try {
-        const errorJson = JSON.parse(errorText);
-        console.error(`[X API] Tweets error details:`, errorJson);
+      // URL パラメータを構築
+      const params = new URLSearchParams({
+        max_results: maxResults.toString(),
+        'tweet.fields': 'created_at,public_metrics',
+        exclude: 'replies' // リプライを除外
+      });
+      
+      if (startTime) params.append('start_time', startTime);
+      if (endTime) params.append('end_time', endTime);
+      if (nextToken) params.append('pagination_token', nextToken);
+      
+      const url = `https://api.twitter.com/2/users/${userId}/tweets?${params.toString()}`;
+
+      console.log(`[X API] Fetching tweets page ${pageCount} for user: ${userId}, maxResults: ${maxResults}`);
+      
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${bearerToken}`,
+        },
+      });
+
+      console.log(`[X API] Tweets fetch response status: ${response.status}`);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[X API] Tweets fetch error: ${response.status} - ${errorText}`);
         
-        // 429 Too Many Requests の場合は特別な処理
-        if (response.status === 429) {
-          console.warn(`[X API] Rate limit exceeded for user ${userId}. Tweets will be skipped.`);
-          // レート制限エラーはフラグを立てて返す
-          return { tweets: [], rateLimited: true };
+        // エラーメッセージを詳細に解析
+        try {
+          const errorJson = JSON.parse(errorText);
+          console.error(`[X API] Tweets error details:`, errorJson);
+          
+          // 429 Too Many Requests の場合は特別な処理
+          if (response.status === 429) {
+            console.warn(`[X API] Rate limit exceeded for user ${userId}. Tweets will be skipped.`);
+            // レート制限エラーはフラグを立てて返す
+            return { tweets: allTweets, rateLimited: true };
+          }
+        } catch {
+          // JSON解析に失敗した場合はそのままテキストを出力
         }
-      } catch {
-        // JSON解析に失敗した場合はそのままテキストを出力
+        
+        // エラー時は現在までに取得したツイートを返す
+        return { tweets: allTweets, rateLimited: false };
+      }
+
+      const data = await response.json();
+      console.log(`[X API] Retrieved ${data.data?.length || 0} tweets on page ${pageCount}`);
+
+      if (!data.data || data.data.length === 0) {
+        console.log(`[X API] No more tweets found for user: ${userId}`);
+        break;
+      }
+
+      const tweets = data.data.map((tweet: any) => ({
+        tweetId: tweet.id,
+        text: tweet.text,
+        createdAt: tweet.created_at,
+        publicMetrics: {
+          retweetCount: tweet.public_metrics?.retweet_count || 0,
+          replyCount: tweet.public_metrics?.reply_count || 0,
+          likeCount: tweet.public_metrics?.like_count || 0,
+          quoteCount: tweet.public_metrics?.quote_count || 0,
+          bookmarkCount: tweet.public_metrics?.bookmark_count || 0,
+          impressionCount: tweet.public_metrics?.impression_count || 0,
+        },
+      }));
+      
+      allTweets = allTweets.concat(tweets);
+      
+      // 次のページトークンを取得
+      nextToken = data.meta?.next_token;
+      
+      // 対象月のツイートがなくなったら終了（期間指定がある場合）
+      if (targetMonth && tweets.length > 0) {
+        const lastTweetMonth = tweets[tweets.length - 1].createdAt.substring(0, 7);
+        if (lastTweetMonth < targetMonth) {
+          console.log(`[X API] Reached tweets before target month. Stopping pagination.`);
+          break;
+        }
       }
       
-      return { tweets: [], rateLimited: false };
-    }
-
-    const data = await response.json();
-    console.log(`[X API] Retrieved ${data.data?.length || 0} tweets`);
-
-    if (!data.data || data.data.length === 0) {
-      console.log(`[X API] No tweets found for user: ${userId}`);
-      return { tweets: [], rateLimited: false };
-    }
-
-    const tweets = data.data.map((tweet: any) => ({
-      tweetId: tweet.id,
-      text: tweet.text,
-      createdAt: tweet.created_at,
-      publicMetrics: {
-        retweetCount: tweet.public_metrics?.retweet_count || 0,
-        replyCount: tweet.public_metrics?.reply_count || 0,
-        likeCount: tweet.public_metrics?.like_count || 0,
-        quoteCount: tweet.public_metrics?.quote_count || 0,
-        bookmarkCount: tweet.public_metrics?.bookmark_count || 0,
-        impressionCount: tweet.public_metrics?.impression_count || 0,
-      },
-    }));
+    } while (nextToken && pageCount < maxPages);
     
-    return { tweets, rateLimited: false };
+    console.log(`[X API] Total tweets retrieved: ${allTweets.length} (${pageCount} pages)`);
+    return { tweets: allTweets, rateLimited: false };
+    
   } catch (error: any) {
     console.error(`[X API] Fetch tweets exception:`, error);
-    return { tweets: [], rateLimited: false };
+    return { tweets: allTweets, rateLimited: false };
   }
 }
 

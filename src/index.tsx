@@ -71,6 +71,7 @@ app.use('/api/*', cors())
 const publicApiRoutes = [
   '/api/analytics/auto-fetch',
   '/api/auto-evaluate',  // 月次評価エンドポイントも追加
+  '/api/auto-evaluate-x-only',  // X評価専用バッチエンドポイント
   '/api/admin/run-migrations',
   '/api/analytics/auto-fetch/test',
   '/api/health',  // 修正: /health → /api/health
@@ -4744,5 +4745,195 @@ app.post('/api/admin/run-migrations', async (c) => {
     }, 500);
   }
 });
+
+// X評価専用バッチエンドポイント（レート制限対策: 1日100人ずつ処理）
+app.post('/api/auto-evaluate-x-only', async (c) => {
+  try {
+    const GOOGLE_SERVICE_ACCOUNT = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT')
+    const STUDENT_MASTER_SPREADSHEET_ID = getEnv(c, 'STUDENT_MASTER_SPREADSHEET_ID')
+    const RESULT_SPREADSHEET_ID = getEnv(c, 'RESULT_SPREADSHEET_ID')
+    const X_BEARER_TOKEN = getEnv(c, 'X_BEARER_TOKEN')
+    
+    if (!X_BEARER_TOKEN) {
+      return c.json({ success: false, error: 'X_BEARER_TOKEN が設定されていません' }, 400)
+    }
+    
+    // パラメータ取得
+    const { month, batchIndex = 0, batchSize = 100 } = c.req.query()
+    
+    // 評価対象月（デフォルト: 前月）
+    const evaluationMonth = month || (() => {
+      const now = new Date()
+      const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+      return `${lastMonth.getFullYear()}-${String(lastMonth.getMonth() + 1).padStart(2, '0')}`
+    })()
+    
+    console.log(`[Auto Evaluate X Only] Starting X evaluation for ${evaluationMonth}, batch ${batchIndex}`)
+    
+    // 全生徒を取得
+    const allStudents = await fetchStudents(GOOGLE_SERVICE_ACCOUNT, STUDENT_MASTER_SPREADSHEET_ID)
+    
+    // フィルタリング: アクティブのみ、永久会員を除外、Xアカウント保持者のみ
+    const filteredStudents = allStudents.filter(student => {
+      const status = student.status || ''
+      const isActive = status === 'アクティブ'
+      const isPermanent = status === '永久会員'
+      return isActive && !isPermanent && student.xAccount
+    })
+    
+    console.log(`[Auto Evaluate X Only] Total active students with X accounts: ${filteredStudents.length}`)
+    
+    // バッチ処理
+    const startIndex = parseInt(String(batchIndex)) * parseInt(String(batchSize))
+    const endIndex = Math.min(startIndex + parseInt(String(batchSize)), filteredStudents.length)
+    const batchStudents = filteredStudents.slice(startIndex, endIndex)
+    
+    console.log(`[Auto Evaluate X Only] Processing batch ${batchIndex}: ${startIndex} to ${endIndex} (${batchStudents.length} students)`)
+    
+    const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
+    const { evaluateXAccount } = await import('./lib/x-client')
+    const { getCachedEvaluation, saveCachedEvaluation, getPreviousMonth } = await import('./lib/evaluation-cache')
+    
+    const results: any[] = []
+    let successCount = 0
+    let errorCount = 0
+    let skippedCount = 0
+    const errors: string[] = []
+    
+    for (const student of batchStudents) {
+      try {
+        console.log(`[Auto Evaluate X Only] Evaluating ${student.studentId} (${student.name})`)
+        
+        // キャッシュを確認
+        let cachedData = await getCachedEvaluation(
+          accessToken,
+          RESULT_SPREADSHEET_ID,
+          student.studentId,
+          evaluationMonth,
+          'x'
+        )
+        
+        if (cachedData) {
+          console.log(`[Auto Evaluate X Only] Using cached X evaluation for ${student.studentId}`)
+          results.push({
+            studentId: student.studentId,
+            studentName: student.name,
+            xAccount: student.xAccount,
+            evaluation: { ...cachedData, cached: true },
+            status: 'cached'
+          })
+          skippedCount++
+          continue
+        }
+        
+        // 前月のX評価データを取得
+        const previousMonth = getPreviousMonth(evaluationMonth)
+        const previousXData = await getCachedEvaluation(
+          accessToken,
+          RESULT_SPREADSHEET_ID,
+          student.studentId,
+          previousMonth,
+          'x'
+        )
+        
+        const previousFollowersCount = previousXData?.followersCount
+        const previousEngagement = previousXData ? 
+          (previousXData.totalLikes || 0) + (previousXData.totalRetweets || 0) + (previousXData.totalReplies || 0) : undefined
+        const previousImpressions = previousXData?.totalImpressions
+        
+        console.log(`[Auto Evaluate X Only] Previous X data for ${student.studentId}: followers=${previousFollowersCount}, engagement=${previousEngagement}`)
+        
+        // X評価を実行
+        const xEval = await evaluateXAccount(
+          X_BEARER_TOKEN,
+          student.xAccount,
+          evaluationMonth,
+          previousFollowersCount,
+          previousEngagement,
+          previousImpressions
+        )
+        
+        if (xEval && !xEval.error) {
+          // キャッシュに保存
+          await saveCachedEvaluation(
+            accessToken,
+            RESULT_SPREADSHEET_ID,
+            student.studentId,
+            student.name,
+            evaluationMonth,
+            'x',
+            xEval
+          )
+          console.log(`[Auto Evaluate X Only] X evaluation saved for ${student.studentId}`)
+          
+          results.push({
+            studentId: student.studentId,
+            studentName: student.name,
+            xAccount: student.xAccount,
+            evaluation: xEval,
+            status: 'success'
+          })
+          successCount++
+        } else {
+          console.error(`[Auto Evaluate X Only] X evaluation failed for ${student.studentId}:`, xEval?.error)
+          errors.push(`${student.name}(${student.studentId}): ${xEval?.error || '不明なエラー'}`)
+          results.push({
+            studentId: student.studentId,
+            studentName: student.name,
+            xAccount: student.xAccount,
+            error: xEval?.error || '不明なエラー',
+            status: 'error'
+          })
+          errorCount++
+        }
+        
+        // レート制限対策: リクエスト間に少し待機
+        await new Promise(resolve => setTimeout(resolve, 500))
+        
+      } catch (error: any) {
+        console.error(`[Auto Evaluate X Only] Error for ${student.studentId}:`, error.message)
+        errors.push(`${student.name}(${student.studentId}): ${error.message}`)
+        results.push({
+          studentId: student.studentId,
+          studentName: student.name,
+          xAccount: student.xAccount,
+          error: error.message,
+          status: 'error'
+        })
+        errorCount++
+      }
+    }
+    
+    const hasNextBatch = endIndex < filteredStudents.length
+    const nextBatchIndex = hasNextBatch ? parseInt(String(batchIndex)) + 1 : null
+    
+    console.log(`[Auto Evaluate X Only] Complete: ${successCount} success, ${errorCount} errors, ${skippedCount} skipped`)
+    
+    return c.json({
+      success: true,
+      month: evaluationMonth,
+      summary: {
+        total: batchStudents.length,
+        success: successCount,
+        errors: errorCount,
+        skipped: skippedCount
+      },
+      batchInfo: {
+        batchIndex: parseInt(String(batchIndex)),
+        batchSize: parseInt(String(batchSize)),
+        startIndex,
+        endIndex,
+        totalStudents: filteredStudents.length,
+        hasNextBatch,
+        nextBatchIndex
+      },
+      errors: errors.length > 0 ? errors : undefined,
+      results
+    })
+  } catch (error: any) {
+    console.error('[Auto Evaluate X Only] Error:', error.message, error.stack)
+    return c.json({ success: false, error: error.message, stack: error.stack }, 500)
+  }
+})
 
 export default app
