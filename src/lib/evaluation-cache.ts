@@ -13,6 +13,18 @@ export interface CachedEvaluation {
 }
 
 /**
+ * 前月を計算（YYYY-MM形式）
+ */
+export function getPreviousMonth(month: string): string {
+  const [year, monthNum] = month.split('-').map(Number);
+  const date = new Date(year, monthNum - 1, 1);
+  date.setMonth(date.getMonth() - 1);
+  const prevYear = date.getFullYear();
+  const prevMonth = String(date.getMonth() + 1).padStart(2, '0');
+  return `${prevYear}-${prevMonth}`;
+}
+
+/**
  * キャッシュされた評価を取得
  */
 export async function getCachedEvaluation(

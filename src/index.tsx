@@ -3332,10 +3332,26 @@ app.post('/api/evaluate', async (c) => {
         if (student.youtubeChannelId && YOUTUBE_API_KEY) {
           try {
             console.log(`[/api/evaluate] Evaluating YouTube for ${student.studentId}`)
+            
+            // 前月のYouTube評価データを取得
+            const { getPreviousMonth } = await import('./lib/evaluation-cache')
+            const previousMonth = getPreviousMonth(request.month)
+            const previousYoutubeData = await getCachedEvaluation(
+              accessToken,
+              RESULT_SPREADSHEET_ID,
+              student.studentId,
+              previousMonth,
+              'youtube'
+            )
+            
+            const previousSubscriberCount = previousYoutubeData?.subscriberCount
+            console.log(`[/api/evaluate] Previous YouTube data for ${student.studentId}: subscriberCount=${previousSubscriberCount}`)
+            
             const youtubeEval = await evaluateYouTubeChannel(
               YOUTUBE_API_KEY,
               student.youtubeChannelId,
-              request.month
+              request.month,
+              previousSubscriberCount
             )
             
             // ✅ 成功時のみキャッシュに保存（動画が1件以上ある場合）
@@ -3363,10 +3379,32 @@ app.post('/api/evaluate', async (c) => {
         if (student.xAccount && X_BEARER_TOKEN) {
           try {
             console.log(`[/api/evaluate] Evaluating X for ${student.studentId}`)
+            
+            // 前月のX評価データを取得
+            const { getPreviousMonth } = await import('./lib/evaluation-cache')
+            const previousMonth = getPreviousMonth(request.month)
+            const previousXData = await getCachedEvaluation(
+              accessToken,
+              RESULT_SPREADSHEET_ID,
+              student.studentId,
+              previousMonth,
+              'x'
+            )
+            
+            const previousFollowersCount = previousXData?.followersCount
+            const previousEngagement = previousXData ? 
+              (previousXData.totalLikes || 0) + (previousXData.totalRetweets || 0) + (previousXData.totalReplies || 0) : undefined
+            const previousImpressions = previousXData?.totalImpressions
+            
+            console.log(`[/api/evaluate] Previous X data for ${student.studentId}: followersCount=${previousFollowersCount}, engagement=${previousEngagement}, impressions=${previousImpressions}`)
+            
             const xEval = await evaluateXAccount(
               X_BEARER_TOKEN,
               student.xAccount,
-              request.month
+              request.month,
+              previousFollowersCount,
+              previousEngagement,
+              previousImpressions
             )
             
             // ✅ 評価が成功した場合のみキャッシュに保存（ツイート1件以上またはユーザー情報取得成功）
@@ -3677,10 +3715,26 @@ app.post('/api/auto-evaluate', async (c) => {
                 console.log(`[Auto Evaluate] YouTube評価（キャッシュ使用）: ${student.studentId}`)
               } else {
                 const { evaluateYouTubeChannel } = await import('./lib/youtube-client')
+                const { getPreviousMonth } = await import('./lib/evaluation-cache')
+                
+                // 前月のYouTube評価データを取得
+                const previousMonth = getPreviousMonth(month)
+                const previousYoutubeData = await getCachedEvaluation(
+                  accessToken,
+                  RESULT_SPREADSHEET_ID,
+                  student.studentId,
+                  previousMonth,
+                  'youtube'
+                )
+                
+                const previousSubscriberCount = previousYoutubeData?.subscriberCount
+                console.log(`[Auto Evaluate] Previous YouTube data for ${student.studentId}: subscriberCount=${previousSubscriberCount}`)
+                
                 const evaluation = await evaluateYouTubeChannel(
                   YOUTUBE_API_KEY,
                   student.youtubeChannelId,
-                  month
+                  month,
+                  previousSubscriberCount
                 )
                 
                 if (evaluation && !evaluation.error) {
@@ -3732,10 +3786,32 @@ app.post('/api/auto-evaluate', async (c) => {
                 console.log(`[Auto Evaluate] X評価（キャッシュ使用）: ${student.studentId}`)
               } else {
                 const { evaluateXAccount } = await import('./lib/x-client')
+                const { getPreviousMonth } = await import('./lib/evaluation-cache')
+                
+                // 前月のX評価データを取得
+                const previousMonth = getPreviousMonth(month)
+                const previousXData = await getCachedEvaluation(
+                  accessToken,
+                  RESULT_SPREADSHEET_ID,
+                  student.studentId,
+                  previousMonth,
+                  'x'
+                )
+                
+                const previousFollowersCount = previousXData?.followersCount
+                const previousEngagement = previousXData ? 
+                  (previousXData.totalLikes || 0) + (previousXData.totalRetweets || 0) + (previousXData.totalReplies || 0) : undefined
+                const previousImpressions = previousXData?.totalImpressions
+                
+                console.log(`[Auto Evaluate] Previous X data for ${student.studentId}: followersCount=${previousFollowersCount}, engagement=${previousEngagement}, impressions=${previousImpressions}`)
+                
                 const evaluation = await evaluateXAccount(
                   X_BEARER_TOKEN,
                   student.xAccount,
-                  month
+                  month,
+                  previousFollowersCount,
+                  previousEngagement,
+                  previousImpressions
                 )
                 
                 if (evaluation && !evaluation.error) {
