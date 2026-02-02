@@ -69,7 +69,7 @@ export function evaluateStudent(
     absence: evaluateAbsence(absenceData?.absenceCount || 0),
     lateness: geminiAnalysis.lateness.grade,
     mission: geminiAnalysis.mission.grade,
-    payment: paymentData ? evaluatePayment(paymentData.paymentStatus) : 'C', // 支払いデータなしの場合はC評価
+    payment: paymentData ? evaluatePayment(paymentData.paymentStatus) : 'S', // 支払いデータなし（未払いリストに含まれていない）= S評価
     activeListening: geminiAnalysis.activeListening.grade,
     comprehension: geminiAnalysis.comprehension.grade,
   };
