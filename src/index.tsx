@@ -3940,17 +3940,35 @@ app.get('/api/auto-evaluate/status', async (c) => {
       student.youtubeChannelId || student.xAccount
     )
     
-    const batchSize = 100  // X APIレート制限対策: 100名/バッチ（300リクエスト/15分以内）
-    const totalBatches = Math.ceil(studentsWithAccounts.length / batchSize)
+    // 統合評価用のバッチサイズ（ProLevel + YouTube）
+    const integratedBatchSize = 300
+    const integratedTotalBatches = Math.ceil(filteredStudents.length / integratedBatchSize)
+    
+    // X評価専用のバッチサイズ
+    const xBatchSize = 100
+    const xStudents = filteredStudents.filter(student => student.xAccount)
+    const xTotalBatches = Math.ceil(xStudents.length / xBatchSize)
     
     return c.json({
       success: true,
       totalStudents: allStudents.length,
       activeStudents: filteredStudents.length,
       studentsWithAccounts: studentsWithAccounts.length,
-      batchSize,
-      totalBatches,
-      estimatedTime: `${totalBatches * 15}分（15分間隔で${totalBatches}バッチ）`
+      integrated: {
+        batchSize: integratedBatchSize,
+        totalBatches: integratedTotalBatches,
+        estimatedTime: `${integratedTotalBatches * 15}分（15分間隔で${integratedTotalBatches}バッチ）`
+      },
+      x: {
+        totalStudents: xStudents.length,
+        batchSize: xBatchSize,
+        totalBatches: xTotalBatches,
+        estimatedTime: `${xTotalBatches * 30}分（30分間隔で${xTotalBatches}バッチ）`
+      },
+      // 後方互換性のため残す
+      batchSize: integratedBatchSize,
+      totalBatches: integratedTotalBatches,
+      estimatedTime: `${integratedTotalBatches * 15}分（15分間隔で${integratedTotalBatches}バッチ）`
     })
   } catch (error: any) {
     return c.json({ success: false, error: error.message }, 500)
