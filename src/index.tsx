@@ -3335,14 +3335,12 @@ app.post('/api/evaluate', async (c) => {
           try {
             console.log(`[/api/evaluate] Evaluating YouTube for ${student.studentId}`)
             
-            // 前月のYouTube評価データを取得
-            const { getPreviousMonth } = await import('./lib/evaluation-cache')
-            const previousMonth = getPreviousMonth(request.month)
-            const previousYoutubeData = await getCachedEvaluation(
+            // 前月のYouTube評価データをスプレッドシートから取得
+            const previousYoutubeData = await getPreviousEvaluationFromSheet(
               accessToken,
               RESULT_SPREADSHEET_ID,
               student.studentId,
-              previousMonth,
+              request.month,
               'youtube'
             )
             
@@ -3382,21 +3380,18 @@ app.post('/api/evaluate', async (c) => {
           try {
             console.log(`[/api/evaluate] Evaluating X for ${student.studentId}`)
             
-            // 前月のX評価データを取得
-            const { getPreviousMonth } = await import('./lib/evaluation-cache')
-            const previousMonth = getPreviousMonth(request.month)
-            const previousXData = await getCachedEvaluation(
+            // 前月のX評価データをスプレッドシートから取得
+            const previousXData = await getPreviousEvaluationFromSheet(
               accessToken,
               RESULT_SPREADSHEET_ID,
               student.studentId,
-              previousMonth,
+              request.month,
               'x'
             )
             
             const previousFollowersCount = previousXData?.followersCount
-            const previousEngagement = previousXData ? 
-              (previousXData.totalLikes || 0) + (previousXData.totalRetweets || 0) + (previousXData.totalReplies || 0) : undefined
-            const previousImpressions = previousXData?.totalImpressions
+            const previousEngagement = previousXData?.engagement
+            const previousImpressions = previousXData?.impressions
             
             console.log(`[/api/evaluate] Previous X data for ${student.studentId}: followersCount=${previousFollowersCount}, engagement=${previousEngagement}, impressions=${previousImpressions}`)
             
@@ -3718,15 +3713,13 @@ app.post('/api/auto-evaluate', async (c) => {
                 console.log(`[Auto Evaluate] YouTube評価（キャッシュ使用）: ${student.studentId}`)
               } else {
                 const { evaluateYouTubeChannel } = await import('./lib/youtube-client')
-                const { getPreviousMonth } = await import('./lib/evaluation-cache')
                 
-                // 前月のYouTube評価データを取得
-                const previousMonth = getPreviousMonth(month)
-                const previousYoutubeData = await getCachedEvaluation(
+                // 前月のYouTube評価データをスプレッドシートから取得
+                const previousYoutubeData = await getPreviousEvaluationFromSheet(
                   accessToken,
                   RESULT_SPREADSHEET_ID,
                   student.studentId,
-                  previousMonth,
+                  month,
                   'youtube'
                 )
                 
@@ -3789,22 +3782,19 @@ app.post('/api/auto-evaluate', async (c) => {
                 console.log(`[Auto Evaluate] X評価（キャッシュ使用）: ${student.studentId}`)
               } else {
                 const { evaluateXAccount } = await import('./lib/x-client')
-                const { getPreviousMonth } = await import('./lib/evaluation-cache')
                 
-                // 前月のX評価データを取得
-                const previousMonth = getPreviousMonth(month)
-                const previousXData = await getCachedEvaluation(
+                // 前月のX評価データをスプレッドシートから取得
+                const previousXData = await getPreviousEvaluationFromSheet(
                   accessToken,
                   RESULT_SPREADSHEET_ID,
                   student.studentId,
-                  previousMonth,
+                  month,
                   'x'
                 )
                 
                 const previousFollowersCount = previousXData?.followersCount
-                const previousEngagement = previousXData ? 
-                  (previousXData.totalLikes || 0) + (previousXData.totalRetweets || 0) + (previousXData.totalReplies || 0) : undefined
-                const previousImpressions = previousXData?.totalImpressions
+                const previousEngagement = previousXData?.engagement
+                const previousImpressions = previousXData?.impressions
                 
                 console.log(`[Auto Evaluate] Previous X data for ${student.studentId}: followersCount=${previousFollowersCount}, engagement=${previousEngagement}, impressions=${previousImpressions}`)
                 
@@ -4033,6 +4023,119 @@ async function getAccessToken(serviceAccountJson: string): Promise<string> {
   
   const tokenData = await tokenResponse.json()
   return tokenData.access_token
+}
+
+/**
+ * スプレッドシートから前月の評価データを取得
+ * @param accessToken Google OAuth2 アクセストークン
+ * @param spreadsheetId スプレッドシートID
+ * @param studentId 学籍番号
+ * @param month 評価月 (YYYY-MM)
+ * @param evaluationType 評価タイプ ('youtube' | 'x')
+ * @returns 前月データ or null
+ */
+async function getPreviousEvaluationFromSheet(
+  accessToken: string,
+  spreadsheetId: string,
+  studentId: string,
+  month: string,
+  evaluationType: 'youtube' | 'x'
+): Promise<any | null> {
+  try {
+    const previousMonth = getPreviousMonth(month)
+    console.log(`[Spreadsheet] Fetching ${evaluationType} data for ${studentId}, month: ${previousMonth}`)
+    
+    // メインシート名を設定 (評価結果シート)
+    const sheetName = '評価結果'
+    
+    // スプレッドシートから全データを取得
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}`
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+      },
+    })
+    
+    if (!response.ok) {
+      console.warn(`[Spreadsheet] Failed to fetch sheet: ${response.status}`)
+      return null
+    }
+    
+    const data = await response.json()
+    const rows = data.values || []
+    
+    if (rows.length < 2) {
+      console.warn(`[Spreadsheet] No data in sheet: ${sheetName}`)
+      return null
+    }
+    
+    // ヘッダー行からカラムインデックスを取得
+    const headers = rows[0]
+    const studentIdIndex = headers.findIndex((h: string) => h === '学籍番号')
+    const monthIndex = headers.findIndex((h: string) => h === '評価月')
+    
+    if (studentIdIndex === -1 || monthIndex === -1) {
+      console.warn(`[Spreadsheet] Required headers not found`)
+      return null
+    }
+    
+    // evaluationType に応じたカラム名を取得
+    let dataColumns: string[] = []
+    if (evaluationType === 'youtube') {
+      dataColumns = [
+        'YouTube登録者数',
+        'YouTube総視聴回数',
+        'YouTube月間動画数',
+        'YouTube週間配信数',
+        'YouTube平均配信時間',
+      ]
+    } else if (evaluationType === 'x') {
+      dataColumns = [
+        'Xフォロワー数',
+        'X総いいね数',
+        'X総リツイート数',
+        'X総リプライ数',
+        'X総インプレッション数',
+        'X月間投稿数',
+      ]
+    }
+    
+    const dataIndexes = dataColumns.map(col => headers.findIndex((h: string) => h === col))
+    
+    // 該当する前月データを検索
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i]
+      if (row[studentIdIndex] === studentId && row[monthIndex] === previousMonth) {
+        console.log(`[Spreadsheet] Found ${evaluationType} data for ${studentId}, month: ${previousMonth}`)
+        
+        if (evaluationType === 'youtube') {
+          return {
+            subscriberCount: parseInt(row[dataIndexes[0]] || '0', 10),
+            totalViews: parseInt(row[dataIndexes[1]] || '0', 10),
+            videosInMonth: parseInt(row[dataIndexes[2]] || '0', 10),
+            weeklyStreamCount: parseFloat(row[dataIndexes[3]] || '0'),
+            averageStreamDuration: parseFloat(row[dataIndexes[4]] || '0'),
+          }
+        } else if (evaluationType === 'x') {
+          const totalLikes = parseInt(row[dataIndexes[1]] || '0', 10)
+          const totalRetweets = parseInt(row[dataIndexes[2]] || '0', 10)
+          const totalReplies = parseInt(row[dataIndexes[3]] || '0', 10)
+          
+          return {
+            followersCount: parseInt(row[dataIndexes[0]] || '0', 10),
+            engagement: totalLikes + totalRetweets + totalReplies,
+            impressions: parseInt(row[dataIndexes[4]] || '0', 10),
+          }
+        }
+      }
+    }
+    
+    console.log(`[Spreadsheet] No ${evaluationType} data found for ${studentId}, month: ${previousMonth}`)
+    return null
+  } catch (error: any) {
+    console.error(`[Spreadsheet] Error fetching previous evaluation:`, error.message)
+    return null
+  }
 }
 
 // ====================================
@@ -4906,7 +5009,7 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
       
       const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
       const { evaluateXAccount } = await import('./lib/x-client')
-      const { getCachedEvaluation, saveCachedEvaluation, getPreviousMonth } = await import('./lib/evaluation-cache')
+      const { getCachedEvaluation, saveCachedEvaluation } = await import('./lib/evaluation-cache')
       
       const results: any[] = []
       let successCount = 0
@@ -4940,20 +5043,18 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
           continue
         }
         
-        // 前月のX評価データを取得
-        const previousMonth = getPreviousMonth(evaluationMonth)
-        const previousXData = await getCachedEvaluation(
+        // 前月のX評価データをスプレッドシートから取得
+        const previousXData = await getPreviousEvaluationFromSheet(
           accessToken,
           RESULT_SPREADSHEET_ID,
           student.studentId,
-          previousMonth,
+          evaluationMonth,
           'x'
         )
         
         const previousFollowersCount = previousXData?.followersCount
-        const previousEngagement = previousXData ? 
-          (previousXData.totalLikes || 0) + (previousXData.totalRetweets || 0) + (previousXData.totalReplies || 0) : undefined
-        const previousImpressions = previousXData?.totalImpressions
+        const previousEngagement = previousXData?.engagement
+        const previousImpressions = previousXData?.impressions
         
         console.log(`[Auto Evaluate X Only] Previous X data for ${student.studentId}: followers=${previousFollowersCount}, engagement=${previousEngagement}`)
         
