@@ -3565,9 +3565,10 @@ app.post('/api/auto-evaluate', async (c) => {
     const batchSize = parseInt(c.req.query('batchSize') || '300') // デフォルト300名
     const batchIndex = parseInt(c.req.query('batchIndex') || '0') // デフォルト0（最初のバッチ）
     const skipProLevel = c.req.query('skipProLevel') === 'true' // プロレベル評価をスキップするか
+    const skipX = c.req.query('skipX') === 'true' // X評価をスキップするか（レート制限対策）
     
     console.log(`[Auto Evaluate] Starting evaluation for ${month}`)
-    console.log(`[Auto Evaluate] Batch size: ${batchSize}, Batch index: ${batchIndex}, Skip pro-level: ${skipProLevel}`)
+    console.log(`[Auto Evaluate] Batch size: ${batchSize}, Batch index: ${batchIndex}, Skip pro-level: ${skipProLevel}, Skip X: ${skipX}`)
     
     // Gemini初期化（プロレベル評価が必要な場合のみ）
     const gemini = skipProLevel ? null : new GeminiAnalyzer(GEMINI_API_KEY)
@@ -3768,7 +3769,7 @@ app.post('/api/auto-evaluate', async (c) => {
         }
         
         // X評価
-        if (student.xAccount) {
+        if (student.xAccount && !skipX) {
           hasAnyAccount = true
           if (X_BEARER_TOKEN) {
             try {
@@ -3840,6 +3841,8 @@ app.post('/api/auto-evaluate', async (c) => {
           } else {
             result.evaluations.x = { error: 'X_BEARER_TOKEN が設定されていません' }
           }
+        } else if (skipX && student.xAccount) {
+          result.evaluations.x = { info: 'X評価スキップ（skipX=true）' }
         } else {
           result.evaluations.x = { info: 'Xアカウント情報なし' }
         }
