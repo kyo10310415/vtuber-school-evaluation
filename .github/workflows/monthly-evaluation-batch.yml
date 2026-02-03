@@ -1,38 +1,25 @@
-name: Monthly Auto Evaluation (Batch Processing)
+name: Monthly Auto Evaluation (Complete)
 
-# 毎月1日の午前3時（JST = UTC+9）= UTC 18:00 (前日) に実行
 on:
   schedule:
-    - cron: '0 18 * * *'  # 毎日 UTC 18:00 = JST 03:00 に実行（月初判定はスクリプト内で行う）
-  workflow_dispatch:  # 手動実行も可能
+    # 毎月1日 JST 10:00 (UTC 01:00)
+    - cron: '0 1 1 * *'
+  workflow_dispatch:
     inputs:
       month:
-        description: '評価対象月 (YYYY-MM)'
+        description: 'Evaluation month (YYYY-MM, leave empty for previous month)'
         required: false
         type: string
 
 jobs:
-  evaluate:
+  monthly-evaluation:
     runs-on: ubuntu-latest
+    timeout-minutes: 240  # 4時間タイムアウト
     
     steps:
-      - name: Check if today is the 1st of the month
-        id: check_date
-        run: |
-          DAY=$(date -u +%d)
-          echo "Today is day $DAY of the month"
-          if [ "$DAY" = "01" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "should_run=true" >> $GITHUB_OUTPUT
-          else
-            echo "should_run=false" >> $GITHUB_OUTPUT
-            echo "Skipping evaluation - not the 1st of the month"
-          fi
-      
-      # 🔥 新規追加: Renderサービスのウォームアップ
       - name: Wake up Render service
-        if: steps.check_date.outputs.should_run == 'true'
         run: |
-          echo "Waking up Render service..."
+          echo "🔥 Waking up Render service..."
           for i in {1..10}; do
             echo "Attempt $i/10: Pinging health endpoint..."
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://vtuber-school-evaluation.onrender.com/api/health || echo "000")
@@ -49,18 +36,16 @@ jobs:
             fi
           done
           
-          # 最終確認
           FINAL_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://vtuber-school-evaluation.onrender.com/api/health || echo "000")
           if [ "$FINAL_STATUS" != "200" ]; then
-            echo "::error::Service failed to wake up after 10 attempts"
+            echo "::error::Service failed to wake up"
             exit 1
           fi
           
-          echo "Service is fully operational. Waiting 5 more seconds for stability..."
+          echo "Service ready. Waiting 5 seconds for stability..."
           sleep 5
       
-      - name: Get previous month
-        if: steps.check_date.outputs.should_run == 'true'
+      - name: Get evaluation month
         id: get_month
         run: |
           if [ -n "${{ inputs.month }}" ]; then
@@ -69,44 +54,43 @@ jobs:
             MONTH=$(date -u -d "1 month ago" +%Y-%m)
           fi
           echo "month=$MONTH" >> $GITHUB_OUTPUT
-          echo "Evaluating for month: $MONTH"
+          echo "📅 Evaluating for month: $MONTH"
       
-      - name: Get batch info
-        if: steps.check_date.outputs.should_run == 'true'
+      # ============================================
+      # Part 1: 統合評価（プロレベル + YouTube + X）
+      # ============================================
+      
+      - name: Get batch info for integrated evaluation
         id: batch_info
         run: |
-          MONTH="${{ steps.get_month.outputs.month }}"
-          
-          # バッチ情報を取得
+          echo "📊 Getting batch information..."
           STATUS=$(curl -s "https://vtuber-school-evaluation.onrender.com/api/auto-evaluate/status")
-          echo "Status: $STATUS"
+          echo "$STATUS" | jq '.'
           
           TOTAL_BATCHES=$(echo "$STATUS" | jq -r '.totalBatches')
           echo "total_batches=$TOTAL_BATCHES" >> $GITHUB_OUTPUT
-          echo "Total batches to process: $TOTAL_BATCHES"
+          echo "Total batches for integrated evaluation: $TOTAL_BATCHES"
       
-      - name: Process batches
-        if: steps.check_date.outputs.should_run == 'true'
+      - name: Process integrated evaluation batches
         run: |
           MONTH="${{ steps.get_month.outputs.month }}"
           TOTAL_BATCHES="${{ steps.batch_info.outputs.total_batches }}"
           
-          echo "Starting batch processing for $MONTH"
+          echo "🚀 Starting integrated evaluation for $MONTH"
           echo "Total batches: $TOTAL_BATCHES"
           
           for ((i=0; i<$TOTAL_BATCHES; i++)); do
             echo "============================================"
-            echo "Processing batch $((i+1))/$TOTAL_BATCHES"
+            echo "📦 Processing Batch $((i+1))/$TOTAL_BATCHES (Integrated Evaluation)"
             echo "============================================"
             
-            # バッチ評価を実行（リトライロジック付き）
             MAX_RETRIES=3
             RETRY_COUNT=0
             SUCCESS=false
             
             while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$SUCCESS" = "false" ]; do
               if [ $RETRY_COUNT -gt 0 ]; then
-                echo "Retry $RETRY_COUNT/$MAX_RETRIES after 30 seconds..."
+                echo "⏳ Retry $RETRY_COUNT/$MAX_RETRIES after 30 seconds..."
                 sleep 30
               fi
               
@@ -133,16 +117,155 @@ jobs:
             
             if [ "$SUCCESS" = "false" ]; then
               echo "::error::Batch $((i+1)) failed after $MAX_RETRIES attempts"
-              # エラーでも続行（次のバッチを試行）
             fi
             
-            # 次のバッチの前に15分待機（最後のバッチを除く）
+            # 次のバッチの前に15分待機
             if [ $i -lt $((TOTAL_BATCHES-1)) ]; then
-              echo "Waiting 15 minutes before next batch..."
-              sleep 900  # 15分 = 900秒
+              echo "⏳ Waiting 15 minutes before next batch..."
+              sleep 900
             fi
           done
           
+          echo "✅ Integrated evaluation completed!"
+      
+      # ============================================
+      # Part 2: X評価専用バッチ（追加処理、30分間隔）
+      # ============================================
+      
+      - name: Reset X evaluation progress for new month
+        run: |
+          MONTH="${{ steps.get_month.outputs.month }}"
+          echo "🔄 Resetting X evaluation progress for $MONTH..."
+          curl -s -X POST "https://vtuber-school-evaluation.onrender.com/api/auto-evaluate-x-only?reset=true&month=$MONTH" | jq '.'
+      
+      - name: Process X Evaluation Batch 0
+        run: |
+          MONTH="${{ steps.get_month.outputs.month }}"
+          echo "🔄 Processing X Evaluation Batch 0..."
+          RESPONSE=$(curl -s -X POST "https://vtuber-school-evaluation.onrender.com/api/auto-evaluate-x-only?month=$MONTH")
+          echo "$RESPONSE" | jq '.'
+          
+          SUCCESS=$(echo "$RESPONSE" | jq -r '.success')
+          if [ "$SUCCESS" != "true" ]; then
+            echo "::warning::X Batch 0 failed"
+          else
+            COMPLETED=$(echo "$RESPONSE" | jq -r '.progress.completedStudents')
+            TOTAL=$(echo "$RESPONSE" | jq -r '.progress.totalStudents')
+            echo "✅ X Batch 0 completed: $COMPLETED/$TOTAL students"
+          fi
+      
+      - name: Wait 30 minutes
+        run: |
+          echo "⏳ Waiting 30 minutes before next X batch..."
+          sleep 1800
+      
+      - name: Process X Evaluation Batch 1
+        run: |
+          MONTH="${{ steps.get_month.outputs.month }}"
+          echo "🔄 Processing X Evaluation Batch 1..."
+          RESPONSE=$(curl -s -X POST "https://vtuber-school-evaluation.onrender.com/api/auto-evaluate-x-only?month=$MONTH")
+          echo "$RESPONSE" | jq '.'
+          
+          IS_COMPLETED=$(echo "$RESPONSE" | jq -r '.progress.isCompleted')
+          if [ "$IS_COMPLETED" = "true" ]; then
+            echo "🎉 All X evaluations completed!"
+            exit 0
+          fi
+          
+          COMPLETED=$(echo "$RESPONSE" | jq -r '.progress.completedStudents')
+          TOTAL=$(echo "$RESPONSE" | jq -r '.progress.totalStudents')
+          echo "✅ X Batch 1 completed: $COMPLETED/$TOTAL students"
+      
+      - name: Wait 30 minutes
+        run: |
+          echo "⏳ Waiting 30 minutes before next X batch..."
+          sleep 1800
+      
+      - name: Process X Evaluation Batch 2
+        run: |
+          MONTH="${{ steps.get_month.outputs.month }}"
+          echo "🔄 Processing X Evaluation Batch 2..."
+          RESPONSE=$(curl -s -X POST "https://vtuber-school-evaluation.onrender.com/api/auto-evaluate-x-only?month=$MONTH")
+          echo "$RESPONSE" | jq '.'
+          
+          IS_COMPLETED=$(echo "$RESPONSE" | jq -r '.progress.isCompleted')
+          if [ "$IS_COMPLETED" = "true" ]; then
+            echo "🎉 All X evaluations completed!"
+            exit 0
+          fi
+          
+          COMPLETED=$(echo "$RESPONSE" | jq -r '.progress.completedStudents')
+          TOTAL=$(echo "$RESPONSE" | jq -r '.progress.totalStudents')
+          echo "✅ X Batch 2 completed: $COMPLETED/$TOTAL students"
+      
+      - name: Wait 30 minutes
+        run: |
+          echo "⏳ Waiting 30 minutes before next X batch..."
+          sleep 1800
+      
+      - name: Process X Evaluation Batch 3
+        run: |
+          MONTH="${{ steps.get_month.outputs.month }}"
+          echo "🔄 Processing X Evaluation Batch 3..."
+          RESPONSE=$(curl -s -X POST "https://vtuber-school-evaluation.onrender.com/api/auto-evaluate-x-only?month=$MONTH")
+          echo "$RESPONSE" | jq '.'
+          
+          IS_COMPLETED=$(echo "$RESPONSE" | jq -r '.progress.isCompleted')
+          if [ "$IS_COMPLETED" = "true" ]; then
+            echo "🎉 All X evaluations completed!"
+            exit 0
+          fi
+          
+          COMPLETED=$(echo "$RESPONSE" | jq -r '.progress.completedStudents')
+          TOTAL=$(echo "$RESPONSE" | jq -r '.progress.totalStudents')
+          echo "✅ X Batch 3 completed: $COMPLETED/$TOTAL students"
+      
+      - name: Wait 30 minutes
+        run: |
+          echo "⏳ Waiting 30 minutes before next X batch..."
+          sleep 1800
+      
+      - name: Process X Evaluation Batch 4
+        run: |
+          MONTH="${{ steps.get_month.outputs.month }}"
+          echo "🔄 Processing X Evaluation Batch 4..."
+          RESPONSE=$(curl -s -X POST "https://vtuber-school-evaluation.onrender.com/api/auto-evaluate-x-only?month=$MONTH")
+          echo "$RESPONSE" | jq '.'
+          
+          IS_COMPLETED=$(echo "$RESPONSE" | jq -r '.progress.isCompleted')
+          if [ "$IS_COMPLETED" = "true" ]; then
+            echo "🎉 All X evaluations completed!"
+            exit 0
+          fi
+          
+          COMPLETED=$(echo "$RESPONSE" | jq -r '.progress.completedStudents')
+          TOTAL=$(echo "$RESPONSE" | jq -r '.progress.totalStudents')
+          echo "✅ X Batch 4 completed: $COMPLETED/$TOTAL students"
+      
+      - name: Wait 30 minutes
+        run: |
+          echo "⏳ Waiting 30 minutes before next X batch..."
+          sleep 1800
+      
+      - name: Process X Evaluation Batch 5 (Final)
+        run: |
+          MONTH="${{ steps.get_month.outputs.month }}"
+          echo "🔄 Processing X Evaluation Batch 5 (Final)..."
+          RESPONSE=$(curl -s -X POST "https://vtuber-school-evaluation.onrender.com/api/auto-evaluate-x-only?month=$MONTH")
+          echo "$RESPONSE" | jq '.'
+          
+          COMPLETED=$(echo "$RESPONSE" | jq -r '.progress.completedStudents')
+          TOTAL=$(echo "$RESPONSE" | jq -r '.progress.totalStudents')
+          echo "✅ X Batch 5 completed: $COMPLETED/$TOTAL students"
+          echo "🎉 All evaluations completed successfully!"
+      
+      - name: Summary
+        if: always()
+        run: |
           echo "============================================"
-          echo "All batches completed!"
+          echo "📊 Monthly Evaluation Summary"
+          echo "============================================"
+          echo "Date: $(date)"
+          echo "Month: ${{ steps.get_month.outputs.month }}"
+          echo "Status: Completed"
           echo "============================================"
