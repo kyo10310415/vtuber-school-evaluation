@@ -1,0 +1,222 @@
+name: Daily X Evaluation (Multiple Batches)
+
+on:
+  schedule:
+    # 毎日 JST 10:00 (UTC 01:00)
+    - cron: '0 1 * * *'
+  workflow_dispatch:
+    inputs:
+      month:
+        description: 'Evaluation month (YYYY-MM, leave empty for previous month)'
+        required: false
+        type: string
+
+jobs:
+  x-evaluation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180  # 3時間タイムアウト
+    
+    steps:
+      - name: Check if evaluation is already completed
+        id: check_completion
+        run: |
+          echo "Checking if evaluation is already completed..."
+          RESPONSE=$(curl -s -X POST https://vtuber-school-evaluation.onrender.com/api/auto-evaluate-x-only)
+          echo "Response: $RESPONSE"
+          
+          # isCompletedがtrueの場合はスキップ
+          IS_COMPLETED=$(echo "$RESPONSE" | jq -r '.progress.isCompleted // false')
+          
+          if [ "$IS_COMPLETED" = "true" ]; then
+            echo "✅ Evaluation already completed. Skipping."
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          else
+            echo "🚀 Evaluation not completed. Starting batches."
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Process Batch 0
+        if: steps.check_completion.outputs.should_run == 'true'
+        run: |
+          echo "🔄 Processing Batch 0..."
+          RESPONSE=$(curl -s -X POST https://vtuber-school-evaluation.onrender.com/api/auto-evaluate-x-only)
+          echo "$RESPONSE" | jq '.'
+          
+          # エラーチェック
+          SUCCESS=$(echo "$RESPONSE" | jq -r '.success')
+          if [ "$SUCCESS" != "true" ]; then
+            echo "❌ Batch 0 failed"
+            exit 1
+          fi
+          
+          # 進捗確認
+          COMPLETED=$(echo "$RESPONSE" | jq -r '.progress.completedStudents')
+          TOTAL=$(echo "$RESPONSE" | jq -r '.progress.totalStudents')
+          IS_COMPLETED=$(echo "$RESPONSE" | jq -r '.progress.isCompleted')
+          
+          echo "✅ Batch 0 completed: $COMPLETED/$TOTAL students"
+          
+          # すべて完了している場合は次のバッチをスキップ
+          if [ "$IS_COMPLETED" = "true" ]; then
+            echo "🎉 All students evaluated! Stopping."
+            exit 0
+          fi
+      
+      - name: Wait 30 minutes
+        if: steps.check_completion.outputs.should_run == 'true'
+        run: |
+          echo "⏳ Waiting 30 minutes before next batch..."
+          sleep 1800
+      
+      - name: Process Batch 1
+        if: steps.check_completion.outputs.should_run == 'true'
+        run: |
+          echo "🔄 Processing Batch 1..."
+          RESPONSE=$(curl -s -X POST https://vtuber-school-evaluation.onrender.com/api/auto-evaluate-x-only)
+          echo "$RESPONSE" | jq '.'
+          
+          SUCCESS=$(echo "$RESPONSE" | jq -r '.success')
+          if [ "$SUCCESS" != "true" ]; then
+            echo "❌ Batch 1 failed"
+            exit 1
+          fi
+          
+          COMPLETED=$(echo "$RESPONSE" | jq -r '.progress.completedStudents')
+          TOTAL=$(echo "$RESPONSE" | jq -r '.progress.totalStudents')
+          IS_COMPLETED=$(echo "$RESPONSE" | jq -r '.progress.isCompleted')
+          
+          echo "✅ Batch 1 completed: $COMPLETED/$TOTAL students"
+          
+          if [ "$IS_COMPLETED" = "true" ]; then
+            echo "🎉 All students evaluated! Stopping."
+            exit 0
+          fi
+      
+      - name: Wait 30 minutes
+        if: steps.check_completion.outputs.should_run == 'true'
+        run: |
+          echo "⏳ Waiting 30 minutes before next batch..."
+          sleep 1800
+      
+      - name: Process Batch 2
+        if: steps.check_completion.outputs.should_run == 'true'
+        run: |
+          echo "🔄 Processing Batch 2..."
+          RESPONSE=$(curl -s -X POST https://vtuber-school-evaluation.onrender.com/api/auto-evaluate-x-only)
+          echo "$RESPONSE" | jq '.'
+          
+          SUCCESS=$(echo "$RESPONSE" | jq -r '.success')
+          if [ "$SUCCESS" != "true" ]; then
+            echo "❌ Batch 2 failed"
+            exit 1
+          fi
+          
+          COMPLETED=$(echo "$RESPONSE" | jq -r '.progress.completedStudents')
+          TOTAL=$(echo "$RESPONSE" | jq -r '.progress.totalStudents')
+          IS_COMPLETED=$(echo "$RESPONSE" | jq -r '.progress.isCompleted')
+          
+          echo "✅ Batch 2 completed: $COMPLETED/$TOTAL students"
+          
+          if [ "$IS_COMPLETED" = "true" ]; then
+            echo "🎉 All students evaluated! Stopping."
+            exit 0
+          fi
+      
+      - name: Wait 30 minutes
+        if: steps.check_completion.outputs.should_run == 'true'
+        run: |
+          echo "⏳ Waiting 30 minutes before next batch..."
+          sleep 1800
+      
+      - name: Process Batch 3
+        if: steps.check_completion.outputs.should_run == 'true'
+        run: |
+          echo "🔄 Processing Batch 3..."
+          RESPONSE=$(curl -s -X POST https://vtuber-school-evaluation.onrender.com/api/auto-evaluate-x-only)
+          echo "$RESPONSE" | jq '.'
+          
+          SUCCESS=$(echo "$RESPONSE" | jq -r '.success')
+          if [ "$SUCCESS" != "true" ]; then
+            echo "❌ Batch 3 failed"
+            exit 1
+          fi
+          
+          COMPLETED=$(echo "$RESPONSE" | jq -r '.progress.completedStudents')
+          TOTAL=$(echo "$RESPONSE" | jq -r '.progress.totalStudents')
+          IS_COMPLETED=$(echo "$RESPONSE" | jq -r '.progress.isCompleted')
+          
+          echo "✅ Batch 3 completed: $COMPLETED/$TOTAL students"
+          
+          if [ "$IS_COMPLETED" = "true" ]; then
+            echo "🎉 All students evaluated! Stopping."
+            exit 0
+          fi
+      
+      - name: Wait 30 minutes
+        if: steps.check_completion.outputs.should_run == 'true'
+        run: |
+          echo "⏳ Waiting 30 minutes before next batch..."
+          sleep 1800
+      
+      - name: Process Batch 4
+        if: steps.check_completion.outputs.should_run == 'true'
+        run: |
+          echo "🔄 Processing Batch 4..."
+          RESPONSE=$(curl -s -X POST https://vtuber-school-evaluation.onrender.com/api/auto-evaluate-x-only)
+          echo "$RESPONSE" | jq '.'
+          
+          SUCCESS=$(echo "$RESPONSE" | jq -r '.success')
+          if [ "$SUCCESS" != "true" ]; then
+            echo "❌ Batch 4 failed"
+            exit 1
+          fi
+          
+          COMPLETED=$(echo "$RESPONSE" | jq -r '.progress.completedStudents')
+          TOTAL=$(echo "$RESPONSE" | jq -r '.progress.totalStudents')
+          IS_COMPLETED=$(echo "$RESPONSE" | jq -r '.progress.isCompleted')
+          
+          echo "✅ Batch 4 completed: $COMPLETED/$TOTAL students"
+          
+          if [ "$IS_COMPLETED" = "true" ]; then
+            echo "🎉 All students evaluated! Stopping."
+            exit 0
+          fi
+      
+      - name: Wait 30 minutes
+        if: steps.check_completion.outputs.should_run == 'true'
+        run: |
+          echo "⏳ Waiting 30 minutes before next batch..."
+          sleep 1800
+      
+      - name: Process Batch 5 (Final)
+        if: steps.check_completion.outputs.should_run == 'true'
+        run: |
+          echo "🔄 Processing Batch 5 (Final)..."
+          RESPONSE=$(curl -s -X POST https://vtuber-school-evaluation.onrender.com/api/auto-evaluate-x-only)
+          echo "$RESPONSE" | jq '.'
+          
+          SUCCESS=$(echo "$RESPONSE" | jq -r '.success')
+          if [ "$SUCCESS" != "true" ]; then
+            echo "❌ Batch 5 failed"
+            exit 1
+          fi
+          
+          COMPLETED=$(echo "$RESPONSE" | jq -r '.progress.completedStudents')
+          TOTAL=$(echo "$RESPONSE" | jq -r '.progress.totalStudents')
+          IS_COMPLETED=$(echo "$RESPONSE" | jq -r '.progress.isCompleted')
+          
+          echo "✅ Batch 5 completed: $COMPLETED/$TOTAL students"
+          
+          if [ "$IS_COMPLETED" = "true" ]; then
+            echo "🎉 All students evaluated successfully!"
+          else
+            echo "⚠️ Some students remaining, will continue tomorrow"
+          fi
+      
+      - name: Summary
+        if: always()
+        run: |
+          echo "📊 X Evaluation Summary"
+          echo "======================="
+          echo "Date: $(date)"
+          echo "Status: Completed"
