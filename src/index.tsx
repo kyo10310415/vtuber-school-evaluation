@@ -71,6 +71,7 @@ app.use('/api/*', cors())
 const publicApiRoutes = [
   '/api/analytics/auto-fetch',
   '/api/auto-evaluate',  // 月次評価エンドポイントも追加
+  '/api/auto-evaluate/status',  // バッチ情報取得
   '/api/auto-evaluate-x-only',  // X評価専用バッチエンドポイント
   '/api/admin/run-migrations',
   '/api/analytics/auto-fetch/test',
