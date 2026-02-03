@@ -3558,7 +3558,7 @@ app.post('/api/auto-evaluate', async (c) => {
     const month = c.req.query('month') || getPreviousMonth()
     
     // バッチ処理のパラメータ
-    const batchSize = parseInt(c.req.query('batchSize') || '300') // デフォルト300名
+    const batchSize = parseInt(c.req.query('batchSize') || '100') // デフォルト100名（タイムアウト回避）
     const batchIndex = parseInt(c.req.query('batchIndex') || '0') // デフォルト0（最初のバッチ）
     const skipProLevel = c.req.query('skipProLevel') === 'true' // プロレベル評価をスキップするか
     const skipX = c.req.query('skipX') === 'true' // X評価をスキップするか（レート制限対策）
@@ -3932,7 +3932,8 @@ app.get('/api/auto-evaluate/status', async (c) => {
     )
     
     // 統合評価用のバッチサイズ（ProLevel + YouTube）
-    const integratedBatchSize = 300
+    // バッチサイズを100に変更してタイムアウトを回避
+    const integratedBatchSize = 100
     const integratedTotalBatches = Math.ceil(filteredStudents.length / integratedBatchSize)
     
     // X評価専用のバッチサイズ
