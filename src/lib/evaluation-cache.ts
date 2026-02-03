@@ -117,9 +117,9 @@ export async function saveCachedEvaluation(
   try {
     const sheetName = evaluationType === 'youtube' ? 'youtube_cache' : 'x_cache'
     
-    // 有効期限: 24時間後
+    // 有効期限: 35日後（前月データとして次回評価時に使用するため長めに設定）
     const expiresAt = new Date()
-    expiresAt.setHours(expiresAt.getHours() + 24)
+    expiresAt.setDate(expiresAt.getDate() + 35)
     
     const cachedAt = new Date().toISOString()
     
