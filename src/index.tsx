@@ -2768,7 +2768,7 @@ app.post('/api/x/evaluate-batch', async (c) => {
       try {
         console.log(`[X Batch] Evaluating ${student.studentId} (${student.name})`)
         
-        // ✅ キャッシュチェックを追加
+        // ✅ キャッシュチェック（レート制限による部分データは再評価対象）
         const cachedEval = await getCachedEvaluation(
           accessToken,
           RESULT_SPREADSHEET_ID,
@@ -2777,8 +2777,9 @@ app.post('/api/x/evaluate-batch', async (c) => {
           'x'
         )
         
-        if (cachedEval) {
-          // キャッシュ使用 - X API呼び出しをスキップ
+        // レート制限による部分データは再評価する
+        if (cachedEval && !(cachedEval as any).rateLimited) {
+          // 完全なキャッシュデータ - スキップ
           results.push({
             studentId: student.studentId,
             studentName: student.name,
@@ -2789,9 +2790,11 @@ app.post('/api/x/evaluate-batch', async (c) => {
           skippedCount++
           console.log(`[X Batch] Cached: ${student.studentId} - Grade ${cachedEval.overallGrade} (skipped API call)`)
           continue
+        } else if (cachedEval && (cachedEval as any).rateLimited) {
+          console.log(`[X Batch] Found partial data (rate limited) for ${student.studentId} - will re-evaluate`)
         }
         
-        // キャッシュがない場合のみX API呼び出し
+        // キャッシュがない、または部分データの場合はX API呼び出し
         const evaluation = await evaluateXAccount(
           X_BEARER_TOKEN,
           student.xAccount!,
@@ -3870,7 +3873,7 @@ app.post('/api/auto-evaluate', async (c) => {
           hasAnyAccount = true
           if (X_BEARER_TOKEN) {
             try {
-              // キャッシュを確認
+              // キャッシュを確認（レート制限による部分データは再評価対象）
               const { getCachedEvaluation, saveCachedEvaluation } = await import('./lib/evaluation-cache')
               let cachedData = await getCachedEvaluation(
                 accessToken,
@@ -3880,10 +3883,15 @@ app.post('/api/auto-evaluate', async (c) => {
                 'x'
               )
               
-              if (cachedData) {
+              // レート制限による部分データは再評価する
+              if (cachedData && !(cachedData as any).rateLimited) {
                 result.evaluations.x = { ...cachedData, cached: true }
                 console.log(`[Auto Evaluate] X評価（キャッシュ使用）: ${student.studentId}`)
               } else {
+                if (cachedData && (cachedData as any).rateLimited) {
+                  console.log(`[Auto Evaluate] Found partial X data (rate limited) for ${student.studentId} - will re-evaluate`)
+                }
+                
                 const { evaluateXAccount } = await import('./lib/x-client')
                 
                 // 前月のX評価データをスプレッドシートから取得
@@ -5178,7 +5186,7 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
         try {
           console.log(`[Auto Evaluate X Only] Evaluating ${student.studentId} (${student.name})`)
           
-          // キャッシュを確認
+          // キャッシュを確認（レート制限による部分データは再評価対象）
           let cachedData = await getCachedEvaluation(
             accessToken,
             RESULT_SPREADSHEET_ID,
@@ -5187,7 +5195,8 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
             'x'
         )
         
-        if (cachedData) {
+        // ✅ レート制限による部分データは再評価する
+        if (cachedData && !(cachedData as any).rateLimited) {
           console.log(`[Auto Evaluate X Only] Using cached X evaluation for ${student.studentId}`)
           results.push({
             studentId: student.studentId,
@@ -5198,6 +5207,8 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
           })
           skippedCount++
           continue
+        } else if (cachedData && (cachedData as any).rateLimited) {
+          console.log(`[Auto Evaluate X Only] Found partial data (rate limited) for ${student.studentId} - will re-evaluate`)
         }
         
         // 前月のX評価データをスプレッドシートから取得
