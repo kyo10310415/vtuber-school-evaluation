@@ -5071,6 +5071,23 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
     
     console.log(`[Auto Evaluate X Only] Current month: ${currentMonth}, Evaluation month: ${evaluationMonth}`)
     
+    // ✅ クォータチェックを追加
+    const { getQuotaStatus, getAvailableStudentCount } = await import('./lib/x-quota-manager')
+    const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
+    
+    // クォータ状況を確認
+    const quotaStatus = await getQuotaStatus(accessToken, RESULT_SPREADSHEET_ID)
+    console.log(`[Auto Evaluate X Only] Quota status:`, quotaStatus)
+    
+    if (quotaStatus.remainingQuota <= 0) {
+      return c.json({
+        success: false,
+        error: `X API 月間クォータを使い切りました（${quotaStatus.month}）`,
+        quota: quotaStatus,
+        message: '次月（翌月1日）までお待ちください'
+      }, 429)
+    }
+    
     // データベース接続
     const { Pool } = await import('pg')
     const pool = new Pool({ connectionString: DATABASE_URL })
@@ -5336,11 +5353,18 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
       }
     }
     
+    // ✅ クォータ使用量を記録
+    const { recordQuotaUsage } = await import('./lib/x-quota-manager')
+    await recordQuotaUsage(accessToken, RESULT_SPREADSHEET_ID, successCount)
+    
     // 進捗を更新
     const completedStudents = progress.completed_students + successCount
     const hasNextBatch = endIndex < filteredStudents.length
     const nextBatchIndex = hasNextBatch ? batchIndex + 1 : batchIndex
     const isCompleted = !hasNextBatch
+    
+    // 更新されたクォータ状況を取得
+    const updatedQuota = await getQuotaStatus(accessToken, RESULT_SPREADSHEET_ID)
     
     await pool.query(`
       UPDATE x_evaluation_progress 
@@ -5354,6 +5378,7 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
     
     console.log(`[Auto Evaluate X Only] Complete: ${successCount} success, ${errorCount} errors, ${skippedCount} skipped`)
     console.log(`[Auto Evaluate X Only] Progress: ${completedStudents}/${filteredStudents.length} students completed`)
+    console.log(`[Auto Evaluate X Only] Quota: ${updatedQuota.totalRequests}/${updatedQuota.totalRequests + updatedQuota.remainingQuota} used`)
     
     return c.json({
       success: true,
@@ -5372,6 +5397,7 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
         isCompleted,
         remainingStudents: filteredStudents.length - completedStudents
       },
+      quota: updatedQuota,
       errors: errors.length > 0 ? errors : undefined,
       results
     })
@@ -5381,6 +5407,53 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
   } catch (error: any) {
     console.error('[Auto Evaluate X Only] Error:', error.message, error.stack)
     return c.json({ success: false, error: error.message, stack: error.stack }, 500)
+  }
+})
+
+// X API クォータ状況確認エンドポイント
+app.get('/api/x/quota', async (c) => {
+  try {
+    const GOOGLE_SERVICE_ACCOUNT = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT')
+    const RESULT_SPREADSHEET_ID = getEnv(c, 'RESULT_SPREADSHEET_ID')
+    
+    const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
+    const { getQuotaStatus } = await import('./lib/x-quota-manager')
+    
+    const status = await getQuotaStatus(accessToken, RESULT_SPREADSHEET_ID)
+    
+    return c.json({
+      success: true,
+      quota: status,
+      usage: {
+        percentage: ((status.totalRequests / (status.totalRequests + status.remainingQuota)) * 100).toFixed(1) + '%',
+        canEvaluate: status.remainingQuota > 0,
+        maxStudents: Math.floor(status.remainingQuota / 1) // 1人あたり1リクエスト
+      }
+    })
+  } catch (error: any) {
+    console.error('[X Quota] Error:', error.message)
+    return c.json({ success: false, error: error.message }, 500)
+  }
+})
+
+// X API クォータリセット（管理者用）
+app.post('/api/x/quota/reset', async (c) => {
+  try {
+    const GOOGLE_SERVICE_ACCOUNT = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT')
+    const RESULT_SPREADSHEET_ID = getEnv(c, 'RESULT_SPREADSHEET_ID')
+    
+    const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
+    const { initializeQuotaSheet } = await import('./lib/x-quota-manager')
+    
+    await initializeQuotaSheet(accessToken, RESULT_SPREADSHEET_ID)
+    
+    return c.json({
+      success: true,
+      message: 'Quota sheet initialized successfully'
+    })
+  } catch (error: any) {
+    console.error('[X Quota Reset] Error:', error.message)
+    return c.json({ success: false, error: error.message }, 500)
   }
 })
 
