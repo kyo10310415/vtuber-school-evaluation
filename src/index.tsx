@@ -3562,9 +3562,10 @@ app.post('/api/auto-evaluate', async (c) => {
     const batchIndex = parseInt(c.req.query('batchIndex') || '0') // デフォルト0（最初のバッチ）
     const skipProLevel = c.req.query('skipProLevel') === 'true' // プロレベル評価をスキップするか
     const skipX = c.req.query('skipX') === 'true' // X評価をスキップするか（レート制限対策）
+    const skipYouTube = c.req.query('skipYouTube') === 'true' // YouTube評価をスキップするか（クォータ対策）
     
     console.log(`[Auto Evaluate] Starting evaluation for ${month}`)
-    console.log(`[Auto Evaluate] Batch size: ${batchSize}, Batch index: ${batchIndex}, Skip pro-level: ${skipProLevel}, Skip X: ${skipX}`)
+    console.log(`[Auto Evaluate] Batch size: ${batchSize}, Batch index: ${batchIndex}, Skip pro-level: ${skipProLevel}, Skip X: ${skipX}, Skip YouTube: ${skipYouTube}`)
     
     // Gemini初期化（プロレベル評価が必要な場合のみ）
     const gemini = skipProLevel ? null : new GeminiAnalyzer(GEMINI_API_KEY)
@@ -3694,7 +3695,7 @@ app.post('/api/auto-evaluate', async (c) => {
         }
         
         // YouTube評価
-        if (student.youtubeChannelId) {
+        if (student.youtubeChannelId && !skipYouTube) {
           hasAnyAccount = true
           if (YOUTUBE_API_KEY) {
             try {
@@ -3758,6 +3759,8 @@ app.post('/api/auto-evaluate', async (c) => {
           } else {
             result.evaluations.youtube = { error: 'YOUTUBE_API_KEY が設定されていません' }
           }
+        } else if (skipYouTube && student.youtubeChannelId) {
+          result.evaluations.youtube = { info: 'YouTube評価スキップ（skipYouTube=true）' }
         } else {
           result.evaluations.youtube = { info: 'YouTubeチャンネル情報なし' }
         }
@@ -4058,7 +4061,8 @@ async function getPreviousEvaluationFromSheet(
     })
     
     if (!response.ok) {
-      console.warn(`[Spreadsheet] Failed to fetch sheet: ${response.status}`)
+      const errorText = await response.text()
+      console.warn(`[Spreadsheet] Failed to fetch sheet: ${response.status} - ${errorText}`)
       return null
     }
     
