@@ -2921,8 +2921,55 @@ app.post('/api/x/evaluate-batch-auto', async (c) => {
             month
           )
           
-          if (evaluation && !evaluation.error) {
-            // キャッシュに保存
+          // ✅ レート制限時も部分的なデータを保存
+          if (evaluation && (evaluation as any).rateLimited && (evaluation as any).partialData) {
+            // レート制限でツイートデータは取得できないが、フォロワー数は取得できている
+            const partialEval = {
+              followersCount: (evaluation as any).partialData.followersCount,
+              followingCount: (evaluation as any).partialData.followingCount,
+              followerGrowthRate: 0,
+              dailyFollows: 0,
+              meetsDailyFollowGoal: false,
+              tweetsInMonth: 0,
+              dailyTweetCount: 0,
+              meetsDailyTweetGoal: false,
+              weeklyPlanningTweets: 0,
+              meetsWeeklyPlanningGoal: false,
+              totalLikes: 0,
+              totalRetweets: 0,
+              totalReplies: 0,
+              totalImpressions: 0,
+              engagementRate: 0,
+              engagementGrowthRate: 0,
+              impressionGrowthRate: 0,
+              recentTweets: [],
+              overallGrade: 'D' as const, // レート制限時は最低評価
+              rateLimited: true, // レート制限フラグ
+            }
+            
+            // 部分的なデータでもキャッシュに保存
+            await saveCachedEvaluation(
+              accessToken,
+              RESULT_SPREADSHEET_ID,
+              student.studentId,
+              student.name,
+              month,
+              'x',
+              partialEval
+            )
+            
+            allResults.push({
+              studentId: student.studentId,
+              studentName: student.name,
+              grade: 'D',
+              success: true,
+              rateLimited: true,
+              note: 'レート制限のため部分的なデータのみ保存'
+            })
+            totalSuccessCount++
+            console.log(`[X Batch Auto] Partial save (rate limited): ${student.studentId} - フォロワー数のみ保存`)
+          } else if (evaluation && !evaluation.error) {
+            // 通常の成功パターン
             await saveCachedEvaluation(
               accessToken,
               RESULT_SPREADSHEET_ID,
@@ -2942,6 +2989,7 @@ app.post('/api/x/evaluate-batch-auto', async (c) => {
             totalSuccessCount++
             console.log(`[X Batch Auto] Success: ${student.studentId} - Grade ${evaluation.overallGrade}`)
           } else {
+            // エラーパターン
             allResults.push({
               studentId: student.studentId,
               studentName: student.name,
@@ -3862,7 +3910,47 @@ app.post('/api/auto-evaluate', async (c) => {
                   previousImpressions
                 )
                 
-                if (evaluation && !evaluation.error) {
+                // ✅ レート制限時も部分的なデータを保存
+                if (evaluation && (evaluation as any).rateLimited && (evaluation as any).partialData) {
+                  // レート制限でツイートデータは取得できないが、フォロワー数は取得できている
+                  const partialEval = {
+                    followersCount: (evaluation as any).partialData.followersCount,
+                    followingCount: (evaluation as any).partialData.followingCount,
+                    followerGrowthRate: previousFollowersCount ? 
+                      (((evaluation as any).partialData.followersCount - previousFollowersCount) / previousFollowersCount) * 100 : 0,
+                    dailyFollows: 0,
+                    meetsDailyFollowGoal: false,
+                    tweetsInMonth: 0,
+                    dailyTweetCount: 0,
+                    meetsDailyTweetGoal: false,
+                    weeklyPlanningTweets: 0,
+                    meetsWeeklyPlanningGoal: false,
+                    totalLikes: 0,
+                    totalRetweets: 0,
+                    totalReplies: 0,
+                    totalImpressions: 0,
+                    engagementRate: 0,
+                    engagementGrowthRate: 0,
+                    impressionGrowthRate: 0,
+                    recentTweets: [],
+                    overallGrade: 'D' as const, // レート制限時は最低評価
+                    rateLimited: true, // レート制限フラグ
+                  }
+                  
+                  result.evaluations.x = partialEval
+                  // 部分的なデータでもキャッシュに保存
+                  await saveCachedEvaluation(
+                    accessToken,
+                    RESULT_SPREADSHEET_ID,
+                    student.studentId,
+                    student.name,
+                    month,
+                    'x',
+                    partialEval
+                  )
+                  console.log(`[Auto Evaluate] X評価（部分保存・レート制限）: ${student.studentId} - フォロワー数のみ`)
+                } else if (evaluation && !evaluation.error) {
+                  // 通常の成功パターン
                   result.evaluations.x = evaluation
                   // 成功時のみキャッシュに保存
                   await saveCachedEvaluation(
@@ -3876,6 +3964,7 @@ app.post('/api/auto-evaluate', async (c) => {
                   )
                   console.log(`[Auto Evaluate] X評価完了（キャッシュ保存）: ${student.studentId}`)
                 } else {
+                  // エラーパターン
                   result.evaluations.x = { error: 'X評価の取得に失敗しました' }
                   console.log(`[Auto Evaluate] X評価失敗（キャッシュなし）: ${student.studentId}`)
                 }
@@ -5136,8 +5225,56 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
           previousImpressions
         )
         
-        if (xEval && !xEval.error) {
-          // キャッシュに保存
+        // ✅ レート制限時も部分的なデータを保存
+        if (xEval && (xEval as any).rateLimited && (xEval as any).partialData) {
+          // レート制限でツイートデータは取得できないが、フォロワー数は取得できている
+          const partialEval = {
+            followersCount: (xEval as any).partialData.followersCount,
+            followingCount: (xEval as any).partialData.followingCount,
+            followerGrowthRate: previousFollowersCount ? 
+              (((xEval as any).partialData.followersCount - previousFollowersCount) / previousFollowersCount) * 100 : 0,
+            dailyFollows: 0,
+            meetsDailyFollowGoal: false,
+            tweetsInMonth: 0,
+            dailyTweetCount: 0,
+            meetsDailyTweetGoal: false,
+            weeklyPlanningTweets: 0,
+            meetsWeeklyPlanningGoal: false,
+            totalLikes: 0,
+            totalRetweets: 0,
+            totalReplies: 0,
+            totalImpressions: 0,
+            engagementRate: 0,
+            engagementGrowthRate: 0,
+            impressionGrowthRate: 0,
+            recentTweets: [],
+            overallGrade: 'D' as const, // レート制限時は最低評価
+            rateLimited: true, // レート制限フラグ
+          }
+          
+          // 部分的なデータでもキャッシュに保存
+          await saveCachedEvaluation(
+            accessToken,
+            RESULT_SPREADSHEET_ID,
+            student.studentId,
+            student.name,
+            evaluationMonth,
+            'x',
+            partialEval
+          )
+          console.log(`[Auto Evaluate X Only] Partial save (rate limited): ${student.studentId} - フォロワー数のみ保存`)
+          
+          results.push({
+            studentId: student.studentId,
+            studentName: student.name,
+            xAccount: student.xAccount,
+            evaluation: partialEval,
+            status: 'partial',
+            rateLimited: true
+          })
+          successCount++
+        } else if (xEval && !xEval.error) {
+          // 通常の成功パターン
           await saveCachedEvaluation(
             accessToken,
             RESULT_SPREADSHEET_ID,
@@ -5158,6 +5295,7 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
           })
           successCount++
         } else {
+          // エラーパターン
           console.error(`[Auto Evaluate X Only] X evaluation failed for ${student.studentId}:`, xEval?.error)
           errors.push(`${student.name}(${student.studentId}): ${xEval?.error || '不明なエラー'}`)
           results.push({
