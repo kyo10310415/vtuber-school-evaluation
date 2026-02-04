@@ -3934,6 +3934,9 @@ app.get('/api/auto-evaluate/status', async (c) => {
       student.youtubeChannelId || student.xAccount
     )
     
+    // YouTube評価対象の生徒数
+    const youtubeStudents = filteredStudents.filter(student => student.youtubeChannelId)
+    
     // 統合評価用のバッチサイズ（ProLevel + YouTube）
     // バッチサイズを5に変更してタイムアウトを回避（5人 ≈ 2分）
     const integratedBatchSize = 5
@@ -3949,10 +3952,18 @@ app.get('/api/auto-evaluate/status', async (c) => {
       totalStudents: allStudents.length,
       activeStudents: filteredStudents.length,
       studentsWithAccounts: studentsWithAccounts.length,
+      studentsWithYouTube: youtubeStudents.length,
+      studentsWithX: xStudents.length,
       integrated: {
         batchSize: integratedBatchSize,
         totalBatches: integratedTotalBatches,
         estimatedTime: `${integratedTotalBatches * 15}分（15分間隔で${integratedTotalBatches}バッチ）`
+      },
+      youtube: {
+        totalStudents: youtubeStudents.length,
+        batchSize: integratedBatchSize,
+        totalBatches: Math.ceil(youtubeStudents.length / integratedBatchSize),
+        estimatedTime: `約${Math.ceil(youtubeStudents.length / integratedBatchSize) * 2}分`
       },
       x: {
         totalStudents: xStudents.length,
