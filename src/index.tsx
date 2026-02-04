@@ -2621,18 +2621,43 @@ app.post('/api/youtube/evaluate-batch', async (c) => {
     console.log(`[YouTube Batch] Target students: ${targetStudents.length}`)
     
     const { evaluateYouTubeChannel } = await import('./lib/youtube-client')
-    const { saveCachedEvaluation } = await import('./lib/evaluation-cache')
+    const { getCachedEvaluation, saveCachedEvaluation } = await import('./lib/evaluation-cache')
     const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
     
     const results = []
     const errors = []
     let successCount = 0
     let errorCount = 0
+    let skippedCount = 0
     
     for (const student of targetStudents) {
       try {
         console.log(`[YouTube Batch] Evaluating ${student.studentId} (${student.name})`)
         
+        // ✅ キャッシュチェックを追加
+        const cachedEval = await getCachedEvaluation(
+          accessToken,
+          RESULT_SPREADSHEET_ID,
+          student.studentId,
+          month,
+          'youtube'
+        )
+        
+        if (cachedEval) {
+          // キャッシュ使用 - YouTube API呼び出しをスキップ
+          results.push({
+            studentId: student.studentId,
+            studentName: student.name,
+            grade: cachedEval.overallGrade,
+            success: true,
+            cached: true
+          })
+          skippedCount++
+          console.log(`[YouTube Batch] Cached: ${student.studentId} - Grade ${cachedEval.overallGrade} (skipped API call)`)
+          continue
+        }
+        
+        // キャッシュがない場合のみYouTube API呼び出し
         const evaluation = await evaluateYouTubeChannel(
           YOUTUBE_API_KEY,
           student.youtubeChannelId!,
@@ -2689,6 +2714,7 @@ app.post('/api/youtube/evaluate-batch', async (c) => {
       totalStudents: targetStudents.length,
       successCount,
       errorCount,
+      skippedCount,
       results,
       errors: errors.length > 0 ? errors : undefined
     })
@@ -2729,18 +2755,43 @@ app.post('/api/x/evaluate-batch', async (c) => {
     console.log(`[X Batch] Target students: ${targetStudents.length}`)
     
     const { evaluateXAccount } = await import('./lib/x-client')
-    const { saveCachedEvaluation } = await import('./lib/evaluation-cache')
+    const { getCachedEvaluation, saveCachedEvaluation } = await import('./lib/evaluation-cache')
     const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
     
     const results = []
     const errors = []
     let successCount = 0
     let errorCount = 0
+    let skippedCount = 0
     
     for (const student of targetStudents) {
       try {
         console.log(`[X Batch] Evaluating ${student.studentId} (${student.name})`)
         
+        // ✅ キャッシュチェックを追加
+        const cachedEval = await getCachedEvaluation(
+          accessToken,
+          RESULT_SPREADSHEET_ID,
+          student.studentId,
+          month,
+          'x'
+        )
+        
+        if (cachedEval) {
+          // キャッシュ使用 - X API呼び出しをスキップ
+          results.push({
+            studentId: student.studentId,
+            studentName: student.name,
+            grade: cachedEval.overallGrade,
+            success: true,
+            cached: true
+          })
+          skippedCount++
+          console.log(`[X Batch] Cached: ${student.studentId} - Grade ${cachedEval.overallGrade} (skipped API call)`)
+          continue
+        }
+        
+        // キャッシュがない場合のみX API呼び出し
         const evaluation = await evaluateXAccount(
           X_BEARER_TOKEN,
           student.xAccount!,
@@ -2797,6 +2848,7 @@ app.post('/api/x/evaluate-batch', async (c) => {
       totalStudents: targetStudents.length,
       successCount,
       errorCount,
+      skippedCount,
       results,
       errors: errors.length > 0 ? errors : undefined
     })
