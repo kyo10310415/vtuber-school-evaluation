@@ -2634,7 +2634,7 @@ app.post('/api/youtube/evaluate-batch', async (c) => {
       try {
         console.log(`[YouTube Batch] Evaluating ${student.studentId} (${student.name})`)
         
-        // ✅ キャッシュチェックを追加
+        // ✅ キャッシュチェック（不完全なデータは再評価対象）
         const cachedEval = await getCachedEvaluation(
           accessToken,
           RESULT_SPREADSHEET_ID,
@@ -2643,8 +2643,15 @@ app.post('/api/youtube/evaluate-batch', async (c) => {
           'youtube'
         )
         
-        if (cachedEval) {
-          // キャッシュ使用 - YouTube API呼び出しをスキップ
+        // 不完全なデータ（動画0件、登録者0など）は再評価する
+        const isIncompleteData = cachedEval && (
+          cachedEval.videosInMonth === 0 || 
+          cachedEval.subscriberCount === 0 ||
+          cachedEval.totalViews === 0
+        )
+        
+        if (cachedEval && !isIncompleteData) {
+          // 完全なキャッシュデータ - スキップ
           results.push({
             studentId: student.studentId,
             studentName: student.name,
@@ -2655,9 +2662,11 @@ app.post('/api/youtube/evaluate-batch', async (c) => {
           skippedCount++
           console.log(`[YouTube Batch] Cached: ${student.studentId} - Grade ${cachedEval.overallGrade} (skipped API call)`)
           continue
+        } else if (isIncompleteData) {
+          console.log(`[YouTube Batch] Found incomplete data for ${student.studentId} - will re-evaluate (videos=${cachedEval.videosInMonth}, subscribers=${cachedEval.subscriberCount})`)
         }
         
-        // キャッシュがない場合のみYouTube API呼び出し
+        // キャッシュがない、または不完全なデータの場合はYouTube API呼び出し
         const evaluation = await evaluateYouTubeChannel(
           YOUTUBE_API_KEY,
           student.youtubeChannelId!,
@@ -3802,7 +3811,7 @@ app.post('/api/auto-evaluate', async (c) => {
           hasAnyAccount = true
           if (YOUTUBE_API_KEY) {
             try {
-              // キャッシュを確認
+              // キャッシュを確認（不完全なデータは再評価対象）
               const { getCachedEvaluation, saveCachedEvaluation } = await import('./lib/evaluation-cache')
               let cachedData = await getCachedEvaluation(
                 accessToken,
@@ -3812,10 +3821,21 @@ app.post('/api/auto-evaluate', async (c) => {
                 'youtube'
               )
               
-              if (cachedData) {
+              // ✅ 不完全なデータ（動画0件、登録者0など）は再評価する
+              const isIncompleteData = cachedData && (
+                cachedData.videosInMonth === 0 || 
+                cachedData.subscriberCount === 0 ||
+                cachedData.totalViews === 0
+              )
+              
+              if (cachedData && !isIncompleteData) {
                 result.evaluations.youtube = { ...cachedData, cached: true }
                 console.log(`[Auto Evaluate] YouTube評価（キャッシュ使用）: ${student.studentId}`)
               } else {
+                if (isIncompleteData) {
+                  console.log(`[Auto Evaluate] Found incomplete YouTube data for ${student.studentId} - will re-evaluate (videos=${cachedData.videosInMonth}, subscribers=${cachedData.subscriberCount})`)
+                }
+                
                 const { evaluateYouTubeChannel } = await import('./lib/youtube-client')
                 
                 // 前月のYouTube評価データをスプレッドシートから取得
