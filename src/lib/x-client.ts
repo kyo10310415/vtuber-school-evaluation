@@ -238,8 +238,8 @@ export async function fetchRecentTweets(
       // URL パラメータを構築
       const params = new URLSearchParams({
         max_results: maxResults.toString(),
-        'tweet.fields': 'created_at,public_metrics',
-        exclude: 'replies' // リプライを除外
+        'tweet.fields': 'created_at,public_metrics,referenced_tweets',
+        exclude: 'retweets,replies' // ✅ リツイートとリプライを除外（オリジナルツイートのみ）
       });
       
       if (startTime) params.append('start_time', startTime);
@@ -289,19 +289,35 @@ export async function fetchRecentTweets(
         break;
       }
 
-      const tweets = data.data.map((tweet: any) => ({
-        tweetId: tweet.id,
-        text: tweet.text,
-        createdAt: tweet.created_at,
-        publicMetrics: {
-          retweetCount: tweet.public_metrics?.retweet_count || 0,
-          replyCount: tweet.public_metrics?.reply_count || 0,
-          likeCount: tweet.public_metrics?.like_count || 0,
-          quoteCount: tweet.public_metrics?.quote_count || 0,
-          bookmarkCount: tweet.public_metrics?.bookmark_count || 0,
-          impressionCount: tweet.public_metrics?.impression_count || 0,
-        },
-      }));
+      const tweets = data.data
+        .filter((tweet: any) => {
+          // referenced_tweets がある場合、リツイートや引用ツイートの可能性
+          if (tweet.referenced_tweets) {
+            const isRetweet = tweet.referenced_tweets.some((ref: any) => ref.type === 'retweeted');
+            const isReply = tweet.referenced_tweets.some((ref: any) => ref.type === 'replied_to');
+            
+            // リツイートとリプライを除外
+            if (isRetweet || isReply) {
+              return false;
+            }
+          }
+          return true;
+        })
+        .map((tweet: any) => ({
+          tweetId: tweet.id,
+          text: tweet.text,
+          createdAt: tweet.created_at,
+          publicMetrics: {
+            retweetCount: tweet.public_metrics?.retweet_count || 0,
+            replyCount: tweet.public_metrics?.reply_count || 0,
+            likeCount: tweet.public_metrics?.like_count || 0,
+            quoteCount: tweet.public_metrics?.quote_count || 0,
+            bookmarkCount: tweet.public_metrics?.bookmark_count || 0,
+            impressionCount: tweet.public_metrics?.impression_count || 0,
+          },
+        }));
+      
+      console.log(`[X API] Page ${pageCount}: Retrieved ${data.data.length} tweets, after filtering: ${tweets.length} original tweets`);
       
       allTweets = allTweets.concat(tweets);
       
