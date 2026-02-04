@@ -229,7 +229,7 @@ export async function fetchRecentTweets(
   let allTweets: XTweet[] = [];
   let nextToken: string | undefined = undefined;
   let pageCount = 0;
-  const maxPages = 10; // 最大10ページ（1000件）まで取得
+  const maxPages = 1; // ✅ 月間クォータ対策: 1ページ（100件）のみ取得に制限
 
   try {
     do {
