@@ -2399,7 +2399,7 @@ app.get('/api/evaluation/complete/:studentId', async (c) => {
     if (student.youtubeChannelId) {
       if (YOUTUBE_API_KEY) {
         try {
-          // キャッシュを確認
+          // キャッシュを確認（不完全なデータは再評価対象）
           let cachedData = null
           if (useCache) {
             const { getCachedEvaluation } = await import('./lib/evaluation-cache')
@@ -2412,10 +2412,21 @@ app.get('/api/evaluation/complete/:studentId', async (c) => {
             )
           }
           
-          if (cachedData) {
+          // ✅ 不完全なデータ（動画0件、登録者0など）は再評価する
+          const isIncompleteData = cachedData && (
+            cachedData.videosInMonth === 0 || 
+            cachedData.subscriberCount === 0 ||
+            cachedData.totalViews === 0
+          )
+          
+          if (cachedData && !isIncompleteData) {
             result.youtube = { ...cachedData, cached: true }
             console.log(`[YouTube評価] キャッシュ使用: ${studentId}`)
           } else {
+            if (isIncompleteData) {
+              console.log(`[YouTube評価] 不完全なキャッシュデータを検出 - 再評価します: ${studentId} (videos=${cachedData.videosInMonth}, subscribers=${cachedData.subscriberCount})`)
+            }
+            
             // APIから取得
             const { evaluateYouTubeChannel } = await import('./lib/youtube-client')
             const evaluation = await evaluateYouTubeChannel(
