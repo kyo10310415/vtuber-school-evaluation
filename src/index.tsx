@@ -2251,8 +2251,11 @@ app.get('/api/monthly-report/:studentId', async (c) => {
       return c.json({ success: false, error: '生徒が見つかりません' }, 404)
     }
     
-    const { evaluateYouTubeChannel } = await import('./lib/youtube-client')
-    const { evaluateXAccount } = await import('./lib/x-client')
+    // アクセストークンを取得（キャッシュで使用）
+    const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
+    const RESULT_SPREADSHEET_ID = getEnv(c, 'RESULT_SPREADSHEET_ID')
+    
+    const { getCachedEvaluation } = await import('./lib/evaluation-cache')
     
     const report = []
     
@@ -2260,31 +2263,135 @@ app.get('/api/monthly-report/:studentId', async (c) => {
     for (const month of months) {
       const monthData: any = { month }
       
-      // YouTube評価
-      if (YOUTUBE_API_KEY && student.youtubeChannelId) {
-        try {
-          const youtubeEval = await evaluateYouTubeChannel(
-            YOUTUBE_API_KEY,
-            student.youtubeChannelId,
-            month
-          )
-          monthData.youtube = youtubeEval
-        } catch (error: any) {
-          monthData.youtube = { error: error.message }
+      // プロレベルセクション評価を取得（最新データを優先）
+      try {
+        const sheetsResponse = await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${RESULT_SPREADSHEET_ID}`,
+          { headers: { Authorization: `Bearer ${accessToken}` } }
+        )
+        
+        if (sheetsResponse.ok) {
+          const sheetsData = await sheetsResponse.json()
+          const resultSheets = sheetsData.sheets
+            ?.map((s: any) => s.properties.title)
+            .filter((title: string) => title.startsWith('評価結果_'))
+            .sort()
+            .reverse() || []
+          
+          for (const sheetName of resultSheets) {
+            const valuesResponse = await fetch(
+              `https://sheets.googleapis.com/v4/spreadsheets/${RESULT_SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}`,
+              { headers: { Authorization: `Bearer ${accessToken}` } }
+            )
+            
+            if (valuesResponse.ok) {
+              const valuesData = await valuesResponse.json()
+              const rows = valuesData.values || []
+              
+              if (rows.length >= 2) {
+                const header = rows[0]
+                const studentIdIndex = header.findIndex((h: string) => h === '学籍番号')
+                const monthIndex = header.findIndex((h: string) => h === '評価月')
+                const dateTimeIndex = header.findIndex((h: string) => h === '評価日時')
+                
+                // ✅ 同じ学籍番号・月の場合、評価日時が最新のものを選択
+                let latestRow: any = null
+                let latestDateTime: Date | null = null
+                
+                for (const row of rows.slice(1)) {
+                  if (row[studentIdIndex] === studentId && row[monthIndex] === month) {
+                    const rowDateTime = row[dateTimeIndex] ? new Date(row[dateTimeIndex]) : null
+                    
+                    if (!latestRow || (rowDateTime && (!latestDateTime || rowDateTime > latestDateTime))) {
+                      latestRow = row
+                      latestDateTime = rowDateTime
+                    }
+                  }
+                }
+                
+                if (latestRow) {
+                  monthData.proLevel = {}
+                  header.forEach((h: string, i: number) => {
+                    monthData.proLevel[h] = latestRow[i] || ''
+                  })
+                  console.log(`[月次レポート] プロレベル取得: ${studentId} ${month} (評価日時: ${latestDateTime?.toISOString()})`)
+                  break
+                }
+              }
+            }
+          }
+        }
+      } catch (error: any) {
+        console.log(`[月次レポート] プロレベル取得エラー: ${month}`, error.message)
+      }
+      
+      // YouTube評価（キャッシュ優先）
+      if (student.youtubeChannelId) {
+        if (YOUTUBE_API_KEY) {
+          try {
+            // ✅ キャッシュから取得（最新データを優先）
+            const cachedData = await getCachedEvaluation(
+              accessToken,
+              RESULT_SPREADSHEET_ID,
+              studentId,
+              month,
+              'youtube'
+            )
+            
+            if (cachedData) {
+              monthData.youtube = { ...cachedData, cached: true }
+              console.log(`[月次レポート] YouTubeキャッシュ使用: ${studentId} ${month}`)
+            } else {
+              // キャッシュがない場合のみAPIから取得
+              const { evaluateYouTubeChannel } = await import('./lib/youtube-client')
+              const youtubeEval = await evaluateYouTubeChannel(
+                YOUTUBE_API_KEY,
+                student.youtubeChannelId,
+                month
+              )
+              monthData.youtube = youtubeEval
+              console.log(`[月次レポート] YouTube API使用: ${studentId} ${month}`)
+            }
+          } catch (error: any) {
+            monthData.youtube = { error: error.message }
+          }
+        } else {
+          monthData.youtube = { error: 'YOUTUBE_API_KEY が設定されていません' }
         }
       }
       
-      // X評価
-      if (X_BEARER_TOKEN && student.xAccount) {
-        try {
-          const xEval = await evaluateXAccount(
-            X_BEARER_TOKEN,
-            student.xAccount,
-            month
-          )
-          monthData.x = xEval
-        } catch (error: any) {
-          monthData.x = { error: error.message }
+      // X評価（キャッシュ優先）
+      if (student.xAccount) {
+        if (X_BEARER_TOKEN) {
+          try {
+            // ✅ キャッシュから取得（最新データを優先）
+            const cachedData = await getCachedEvaluation(
+              accessToken,
+              RESULT_SPREADSHEET_ID,
+              studentId,
+              month,
+              'x'
+            )
+            
+            if (cachedData) {
+              monthData.x = { ...cachedData, cached: true }
+              console.log(`[月次レポート] Xキャッシュ使用: ${studentId} ${month}`)
+            } else {
+              // キャッシュがない場合のみAPIから取得
+              const { evaluateXAccount } = await import('./lib/x-client')
+              const xEval = await evaluateXAccount(
+                X_BEARER_TOKEN,
+                student.xAccount,
+                month
+              )
+              monthData.x = xEval
+              console.log(`[月次レポート] X API使用: ${studentId} ${month}`)
+            }
+          } catch (error: any) {
+            monthData.x = { error: error.message }
+          }
+        } else {
+          monthData.x = { error: 'X_BEARER_TOKEN が設定されていません' }
         }
       }
       
