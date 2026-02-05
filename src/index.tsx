@@ -1150,6 +1150,11 @@ app.get('/monthly-report', (c) => {
             </div>
           </div>
           
+          <!-- プロレベルセクション比較 -->
+          <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
+            <div id="prolevel-comparison-section"></div>
+          </div>
+          
           <!-- YouTube比較 -->
           <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
             <h3 class="text-2xl font-bold text-gray-800 mb-6">
