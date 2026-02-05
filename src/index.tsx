@@ -2412,22 +2412,12 @@ app.get('/api/evaluation/complete/:studentId', async (c) => {
             )
           }
           
-          // ✅ 不完全なデータ（動画0件、登録者0など）は再評価する
-          const isIncompleteData = cachedData && (
-            cachedData.videosInMonth === 0 || 
-            cachedData.subscriberCount === 0 ||
-            cachedData.totalViews === 0
-          )
-          
-          if (cachedData && !isIncompleteData) {
+          // ✅ UI表示では常にキャッシュを優先（APIクォータを消費しない）
+          if (cachedData) {
             result.youtube = { ...cachedData, cached: true }
             console.log(`[YouTube評価] キャッシュ使用: ${studentId}`)
           } else {
-            if (isIncompleteData) {
-              console.log(`[YouTube評価] 不完全なキャッシュデータを検出 - 再評価します: ${studentId} (videos=${cachedData.videosInMonth}, subscribers=${cachedData.subscriberCount})`)
-            }
-            
-            // APIから取得
+            // キャッシュがない場合のみAPIから取得を試みる
             const { evaluateYouTubeChannel } = await import('./lib/youtube-client')
             const evaluation = await evaluateYouTubeChannel(
               YOUTUBE_API_KEY,
@@ -2486,11 +2476,12 @@ app.get('/api/evaluation/complete/:studentId', async (c) => {
             )
           }
           
+          // ✅ UI表示では常にキャッシュを優先（APIクォータ/レート制限を消費しない）
           if (cachedData) {
             result.x = { ...cachedData, cached: true }
             console.log(`[X評価] キャッシュ使用: ${studentId}`)
           } else {
-            // APIから取得
+            // キャッシュがない場合のみAPIから取得を試みる
             const { evaluateXAccount } = await import('./lib/x-client')
             const evaluation = await evaluateXAccount(
               X_BEARER_TOKEN,
