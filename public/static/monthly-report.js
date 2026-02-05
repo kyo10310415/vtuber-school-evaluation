@@ -288,6 +288,9 @@ async function loadMonthlyReport() {
   currentStudentId = document.getElementById('student-id-input').value.trim();
   const monthsInput = document.getElementById('months-input').value.trim();
   
+  console.log('[月次レポート読み込み] studentId:', currentStudentId);
+  console.log('[月次レポート読み込み] monthsInput:', monthsInput);
+  
   if (!currentStudentId) {
     showError('学籍番号を入力してください');
     return;
@@ -315,6 +318,18 @@ async function loadMonthlyReport() {
     
     // デバッグ: レスポンスデータをログ出力
     console.log('[月次レポート] 取得データ:', JSON.stringify(result, null, 2));
+    
+    // デバッグ: 月とYouTubeデータの対応関係を確認
+    result.report.forEach((r, i) => {
+      console.log(`[月次レポート] [${i}] 月: ${r.month}`);
+      if (r.youtube) {
+        console.log(`  - YouTube登録者: ${r.youtube.subscriberCount || 'なし'}`);
+        console.log(`  - YouTube動画数: ${r.youtube.videosInMonth || 'なし'}`);
+        console.log(`  - YouTubeエラー: ${r.youtube.error || 'なし'}`);
+      } else {
+        console.log(`  - YouTubeデータなし`);
+      }
+    });
     
     // 画面を表示
     document.getElementById('loading-section').classList.add('hidden');
