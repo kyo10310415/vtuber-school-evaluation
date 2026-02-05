@@ -70,7 +70,7 @@ export async function getCachedEvaluation(
       return null
     }
     
-    // 該当するキャッシュを検索（複数ある場合は最新=最後の行を使用）
+    // 該当するキャッシュを検索（複数ある場合は最新の完全データを使用）
     let latestCachedData = null
     let latestCachedAt = null
     
@@ -90,29 +90,32 @@ export async function getCachedEvaluation(
           const cachedData = JSON.parse(row[dataIndex])
           const cachedAt = row[header.findIndex((h: string) => h === 'キャッシュ日時')] || ''
           
-          // ✅ 不完全なデータをスキップ（YouTube/X評価の場合）
+          // ✅ 不完全なデータは候補から除外（YouTube/X評価の場合）
+          let isIncomplete = false
+          
           if (evaluationType === 'youtube') {
-            const isIncomplete = cachedData.videosInMonth === 0 || 
-                                cachedData.subscriberCount === 0 || 
-                                cachedData.totalViews === 0;
+            isIncomplete = cachedData.videosInMonth === 0 || 
+                          cachedData.subscriberCount === 0 || 
+                          cachedData.totalViews === 0;
             if (isIncomplete) {
-              console.log(`[Cache] Skipping incomplete YouTube data for ${studentId} ${month} (videos=${cachedData.videosInMonth}, subscribers=${cachedData.subscriberCount}, views=${cachedData.totalViews})`)
-              continue
+              console.log(`[Cache] Skipping incomplete YouTube data for ${studentId} ${month} (cached at: ${cachedAt}, videos=${cachedData.videosInMonth}, subscribers=${cachedData.subscriberCount}, views=${cachedData.totalViews})`)
+              continue  // 不完全データは候補から除外
             }
           }
           
           if (evaluationType === 'x') {
-            const isIncomplete = cachedData.tweetsInMonth === 0 && cachedData.followersCount === 0;
+            isIncomplete = cachedData.tweetsInMonth === 0 && cachedData.followersCount === 0;
             if (isIncomplete) {
-              console.log(`[Cache] Skipping incomplete X data for ${studentId} ${month} (tweets=${cachedData.tweetsInMonth}, followers=${cachedData.followersCount})`)
-              continue
+              console.log(`[Cache] Skipping incomplete X data for ${studentId} ${month} (cached at: ${cachedAt}, tweets=${cachedData.tweetsInMonth}, followers=${cachedData.followersCount})`)
+              continue  // 不完全データは候補から除外
             }
           }
           
-          // 複数行ある場合は最新（キャッシュ日時が最も新しい）を保持
+          // ✅ 完全データの中から最新（キャッシュ日時が最も新しい）を保持
           if (!latestCachedAt || cachedAt > latestCachedAt) {
             latestCachedData = cachedData
             latestCachedAt = cachedAt
+            console.log(`[Cache] Found complete data for ${studentId} ${month} (cached at: ${cachedAt})`)
           }
         } catch (e) {
           console.warn(`[Cache] Failed to parse cached data for ${studentId} ${month}`)
