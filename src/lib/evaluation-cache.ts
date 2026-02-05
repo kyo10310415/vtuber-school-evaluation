@@ -70,7 +70,10 @@ export async function getCachedEvaluation(
       return null
     }
     
-    // 該当するキャッシュを検索
+    // 該当するキャッシュを検索（複数ある場合は最新=最後の行を使用）
+    let latestCachedData = null
+    let latestCachedAt = null
+    
     for (const row of dataRows) {
       if (row[studentIdIndex] === studentId && row[monthIndex] === month) {
         // 有効期限チェック
@@ -85,13 +88,22 @@ export async function getCachedEvaluation(
         // JSON文字列をパース
         try {
           const cachedData = JSON.parse(row[dataIndex])
-          console.log(`[Cache] Cache hit for ${studentId} ${month}`)
-          return cachedData
+          const cachedAt = row[header.findIndex((h: string) => h === 'キャッシュ日時')] || ''
+          
+          // 複数行ある場合は最新（キャッシュ日時が最も新しい）を保持
+          if (!latestCachedAt || cachedAt > latestCachedAt) {
+            latestCachedData = cachedData
+            latestCachedAt = cachedAt
+          }
         } catch (e) {
           console.warn(`[Cache] Failed to parse cached data for ${studentId} ${month}`)
-          return null
         }
       }
+    }
+    
+    if (latestCachedData) {
+      console.log(`[Cache] Cache hit for ${studentId} ${month} (cached at: ${latestCachedAt})`)
+      return latestCachedData
     }
     
     console.log(`[Cache] Cache miss for ${studentId} ${month}`)
