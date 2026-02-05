@@ -54,6 +54,12 @@ function getRecentMonths(n) {
 function renderProLevelComparison() {
   const section = document.getElementById('prolevel-comparison-section');
   
+  // デバッグ: プロレベルデータをログ出力
+  console.log('[プロレベル描画] reportData.report:', reportData.report);
+  reportData.report.forEach((r, i) => {
+    console.log(`[プロレベル描画] [${i}] 月: ${r.month}, proLevel:`, r.proLevel);
+  });
+  
   // データ抽出
   const months = reportData.report.map(r => r.month);
   const totalGrades = reportData.report.map(r => {
@@ -302,6 +308,9 @@ async function loadMonthlyReport() {
     }
     
     reportData = result;
+    
+    // デバッグ: レスポンスデータをログ出力
+    console.log('[月次レポート] 取得データ:', JSON.stringify(result, null, 2));
     
     // 画面を表示
     document.getElementById('loading-section').classList.add('hidden');
