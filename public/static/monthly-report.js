@@ -115,6 +115,10 @@ function renderProLevelComparison() {
                   </tr>
                 `;
                 
+                // 欠席と遅刻を結合して表示
+                const absenceGrade = p['欠席'] || p['遅刻'] || '-';
+                const listeningGrade = p['アクティブリスニング'] || '-';
+                
                 return `
                   <tr class="hover:bg-gray-50">
                     <td class="px-4 py-3 whitespace-nowrap font-semibold text-purple-600">${r.month}</td>
@@ -124,28 +128,28 @@ function renderProLevelComparison() {
                       </span>
                     </td>
                     <td class="px-4 py-3 whitespace-nowrap">
-                      <span class="px-2 py-1 rounded text-sm ${getGradeBadgeClass(p['欠席・遅刻評価'])}">
-                        ${p['欠席・遅刻評価'] || '-'}
+                      <span class="px-2 py-1 rounded text-sm ${getGradeBadgeClass(absenceGrade)}">
+                        欠席:${p['欠席'] || '-'} / 遅刻:${p['遅刻'] || '-'}
                       </span>
                     </td>
                     <td class="px-4 py-3 whitespace-nowrap">
-                      <span class="px-2 py-1 rounded text-sm ${getGradeBadgeClass(p['ミッション評価'])}">
-                        ${p['ミッション評価'] || '-'}
+                      <span class="px-2 py-1 rounded text-sm ${getGradeBadgeClass(p['ミッション'])}">
+                        ${p['ミッション'] || '-'}
                       </span>
                     </td>
                     <td class="px-4 py-3 whitespace-nowrap">
-                      <span class="px-2 py-1 rounded text-sm ${getGradeBadgeClass(p['支払い評価'])}">
-                        ${p['支払い評価'] || '-'}
+                      <span class="px-2 py-1 rounded text-sm ${getGradeBadgeClass(p['支払い'])}">
+                        ${p['支払い'] || '-'}
                       </span>
                     </td>
                     <td class="px-4 py-3 whitespace-nowrap">
-                      <span class="px-2 py-1 rounded text-sm ${getGradeBadgeClass(p['傾聴力評価'])}">
-                        ${p['傾聴力評価'] || '-'}
+                      <span class="px-2 py-1 rounded text-sm ${getGradeBadgeClass(listeningGrade)}">
+                        ${listeningGrade}
                       </span>
                     </td>
                     <td class="px-4 py-3 whitespace-nowrap">
-                      <span class="px-2 py-1 rounded text-sm ${getGradeBadgeClass(p['理解度評価'])}">
-                        ${p['理解度評価'] || '-'}
+                      <span class="px-2 py-1 rounded text-sm ${getGradeBadgeClass(p['理解度'])}">
+                        ${p['理解度'] || '-'}
                       </span>
                     </td>
                   </tr>

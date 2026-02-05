@@ -90,6 +90,25 @@ export async function getCachedEvaluation(
           const cachedData = JSON.parse(row[dataIndex])
           const cachedAt = row[header.findIndex((h: string) => h === 'キャッシュ日時')] || ''
           
+          // ✅ 不完全なデータをスキップ（YouTube/X評価の場合）
+          if (evaluationType === 'youtube') {
+            const isIncomplete = cachedData.videosInMonth === 0 || 
+                                cachedData.subscriberCount === 0 || 
+                                cachedData.totalViews === 0;
+            if (isIncomplete) {
+              console.log(`[Cache] Skipping incomplete YouTube data for ${studentId} ${month} (videos=${cachedData.videosInMonth}, subscribers=${cachedData.subscriberCount}, views=${cachedData.totalViews})`)
+              continue
+            }
+          }
+          
+          if (evaluationType === 'x') {
+            const isIncomplete = cachedData.tweetsInMonth === 0 && cachedData.followersCount === 0;
+            if (isIncomplete) {
+              console.log(`[Cache] Skipping incomplete X data for ${studentId} ${month} (tweets=${cachedData.tweetsInMonth}, followers=${cachedData.followersCount})`)
+              continue
+            }
+          }
+          
           // 複数行ある場合は最新（キャッシュ日時が最も新しい）を保持
           if (!latestCachedAt || cachedAt > latestCachedAt) {
             latestCachedData = cachedData
