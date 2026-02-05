@@ -64,7 +64,7 @@ export async function getCachedEvaluation(
     const studentIdIndex = header.findIndex((h: string) => h === '学籍番号')
     const monthIndex = header.findIndex((h: string) => h === '評価月')
     const dataIndex = header.findIndex((h: string) => h === '評価データ')
-    const expiresAtIndex = header.findIndex((h: string) => h === '有効期限')
+    // 有効期限は月次レポートで過去データを表示するために無視（expiresAtIndexは不要）
     
     if (studentIdIndex === -1 || monthIndex === -1 || dataIndex === -1) {
       return null
@@ -76,14 +76,8 @@ export async function getCachedEvaluation(
     
     for (const row of dataRows) {
       if (row[studentIdIndex] === studentId && row[monthIndex] === month) {
-        // 有効期限チェック
-        if (expiresAtIndex !== -1 && row[expiresAtIndex]) {
-          const expiresAt = new Date(row[expiresAtIndex])
-          if (expiresAt < new Date()) {
-            console.log(`[Cache] Cache expired for ${studentId} ${month}`)
-            continue
-          }
-        }
+        // ✅ 有効期限チェックを削除（月次レポートで過去データを表示するため）
+        // スプレッドシートにデータがある限り、常に利用可能
         
         // JSON文字列をパース
         try {
