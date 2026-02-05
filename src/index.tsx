@@ -2347,15 +2347,9 @@ app.get('/api/monthly-report/:studentId', async (c) => {
               monthData.youtube = { ...cachedData, cached: true }
               console.log(`[月次レポート] YouTubeキャッシュ使用: ${studentId} ${month} (登録者: ${cachedData.subscriberCount}, 動画数: ${cachedData.videosInMonth})`)
             } else {
-              // キャッシュがない場合のみAPIから取得
-              const { evaluateYouTubeChannel } = await import('./lib/youtube-client')
-              const youtubeEval = await evaluateYouTubeChannel(
-                YOUTUBE_API_KEY,
-                student.youtubeChannelId,
-                month
-              )
-              monthData.youtube = youtubeEval
-              console.log(`[月次レポート] YouTube API使用: ${studentId} ${month}`)
+              // ⚠️ キャッシュがない場合はAPIクォータ節約のため取得しない
+              monthData.youtube = { error: 'キャッシュデータがありません。バッチ評価を実行してください。' }
+              console.log(`[月次レポート] YouTubeキャッシュなし（API呼び出しスキップ）: ${studentId} ${month}`)
             }
           } catch (error: any) {
             monthData.youtube = { error: error.message }
@@ -2382,15 +2376,9 @@ app.get('/api/monthly-report/:studentId', async (c) => {
               monthData.x = { ...cachedData, cached: true }
               console.log(`[月次レポート] Xキャッシュ使用: ${studentId} ${month}`)
             } else {
-              // キャッシュがない場合のみAPIから取得
-              const { evaluateXAccount } = await import('./lib/x-client')
-              const xEval = await evaluateXAccount(
-                X_BEARER_TOKEN,
-                student.xAccount,
-                month
-              )
-              monthData.x = xEval
-              console.log(`[月次レポート] X API使用: ${studentId} ${month}`)
+              // ⚠️ キャッシュがない場合はAPIクォータ節約のため取得しない
+              monthData.x = { error: 'キャッシュデータがありません。バッチ評価を実行してください。' }
+              console.log(`[月次レポート] Xキャッシュなし（API呼び出しスキップ）: ${studentId} ${month}`)
             }
           } catch (error: any) {
             monthData.x = { error: error.message }
