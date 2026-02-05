@@ -2345,7 +2345,7 @@ app.get('/api/monthly-report/:studentId', async (c) => {
             
             if (cachedData) {
               monthData.youtube = { ...cachedData, cached: true }
-              console.log(`[月次レポート] YouTubeキャッシュ使用: ${studentId} ${month}`)
+              console.log(`[月次レポート] YouTubeキャッシュ使用: ${studentId} ${month} (登録者: ${cachedData.subscriberCount}, 動画数: ${cachedData.videosInMonth})`)
             } else {
               // キャッシュがない場合のみAPIから取得
               const { evaluateYouTubeChannel } = await import('./lib/youtube-client')

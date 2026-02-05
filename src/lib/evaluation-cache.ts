@@ -90,6 +90,9 @@ export async function getCachedEvaluation(
           const cachedData = JSON.parse(row[dataIndex])
           const cachedAt = row[header.findIndex((h: string) => h === 'キャッシュ日時')] || ''
           
+          // デバッグ: マッチした行の詳細をログ出力
+          console.log(`[Cache] Found row for ${studentId} ${month}: cached_at=${cachedAt}, data_preview=${JSON.stringify(cachedData).substring(0, 100)}...`)
+          
           // ✅ 不完全なデータは候補から除外（YouTube/X評価の場合）
           let isIncomplete = false
           
@@ -125,6 +128,14 @@ export async function getCachedEvaluation(
     
     if (latestCachedData) {
       console.log(`[Cache] Cache hit for ${studentId} ${month} (cached at: ${latestCachedAt})`)
+      
+      // デバッグ: YouTube/X評価の主要データをログ出力
+      if (evaluationType === 'youtube') {
+        console.log(`[Cache] YouTube data: subscribers=${latestCachedData.subscriberCount}, videos=${latestCachedData.videosInMonth}, views=${latestCachedData.totalViews}`)
+      } else if (evaluationType === 'x') {
+        console.log(`[Cache] X data: followers=${latestCachedData.followersCount}, tweets=${latestCachedData.tweetsInMonth}`)
+      }
+      
       return latestCachedData
     }
     
