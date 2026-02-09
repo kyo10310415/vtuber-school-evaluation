@@ -9,7 +9,7 @@ function base64UrlEncode(str: string): string {
 }
 
 // Google JWTを生成してアクセストークンを取得
-async function getAccessToken(serviceAccountJson: string): Promise<string> {
+export async function getAccessToken(serviceAccountJson: string): Promise<string> {
   const credentials = JSON.parse(serviceAccountJson);
   
   const header = {
