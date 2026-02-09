@@ -346,10 +346,11 @@ function buildIndividualDataRows(data: any): Array<{ label: string; value: strin
   
   return [
     // Overall metrics
+    { label: '現在のチャンネル登録者数', value: overall.currentSubscriberCount || 0 },
     { label: '総視聴回数', value: overall.totalViews || 0 },
     { label: '総視聴時間（分）', value: overall.totalWatchTime || 0 },
     { label: '総高評価数', value: overall.totalLikes || 0 },
-    { label: '純登録者数', value: overall.netSubscribers || 0 },
+    { label: '純登録者数（増減）', value: overall.netSubscribers || 0 },
     
     // Shorts metrics
     { label: 'Shorts: 視聴回数', value: shorts.metrics?.views || 0 },

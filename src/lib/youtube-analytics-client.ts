@@ -635,9 +635,31 @@ export async function getVideosByType(
     totalWatchTime: number;
     totalLikes: number;
     netSubscribers: number;
+    currentSubscriberCount: number; // 現在のチャンネル登録者数
   };
 }> {
   console.log(`[VideosByType] Fetching analytics for period: ${startDate} to ${endDate}`);
+
+  // 現在のチャンネル登録者数を取得（YouTube Data API v3）
+  let currentSubscriberCount = 0;
+  try {
+    const channelResponse = await fetch(
+      `https://www.googleapis.com/youtube/v3/channels?part=statistics&id=${channelId}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    
+    if (channelResponse.ok) {
+      const channelData = await channelResponse.json();
+      if (channelData.items && channelData.items[0] && channelData.items[0].statistics) {
+        currentSubscriberCount = parseInt(channelData.items[0].statistics.subscriberCount || '0', 10);
+        console.log(`[VideosByType] Current subscriber count: ${currentSubscriberCount}`);
+      }
+    } else {
+      console.warn(`[VideosByType] Failed to fetch channel statistics: ${channelResponse.status}`);
+    }
+  } catch (error) {
+    console.error('[VideosByType] Error fetching channel statistics:', error);
+  }
 
   const basicParams = new URLSearchParams({
     ids: 'channel==MINE',
@@ -806,7 +828,7 @@ export async function getVideosByType(
       shorts: { count: shortsData.count, views: shortsData.views, likes: shortsData.likes },
       regular: { count: regularData.count, views: regularData.views, likes: regularData.likes },
       live: { count: liveData.count, views: liveData.views, likes: liveData.likes },
-      overall: { totalViews, totalWatchTime, totalLikes, netSubscribers },
+      overall: { totalViews, totalWatchTime, totalLikes, netSubscribers, currentSubscriberCount },
     });
 
     const formatData = (data: any) => ({
@@ -832,6 +854,7 @@ export async function getVideosByType(
         totalWatchTime,
         totalLikes,
         netSubscribers,
+        currentSubscriberCount, // 現在のチャンネル登録者数
       },
     };
 
