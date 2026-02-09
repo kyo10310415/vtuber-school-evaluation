@@ -5200,21 +5200,34 @@ app.post('/api/analytics/auto-fetch', async (c) => {
       try {
         const weeklySpreadsheetId = getEnv(c, 'WEEKLY_ANALYTICS_SPREADSHEET_ID');
         if (weeklySpreadsheetId) {
-          const { getAccessToken } = await import('./lib/google-client');
-          const accessToken = await getAccessToken(serviceAccountStr);
+          console.log('[Auto Fetch] Starting spreadsheet update...');
+          console.log('[Auto Fetch] Spreadsheet ID:', weeklySpreadsheetId);
+          console.log('[Auto Fetch] Students to update:', successfulStudents.length);
           
+          console.log('[Auto Fetch] Importing google-client...');
+          const { getAccessToken } = await import('./lib/google-client');
+          console.log('[Auto Fetch] Getting access token...');
+          const accessToken = await getAccessToken(serviceAccountStr);
+          console.log('[Auto Fetch] Access token obtained');
+          
+          console.log('[Auto Fetch] Importing weekly-analytics-spreadsheet...');
           const { updateStudentListSheet, updateIndividualSheet } = await import('./lib/weekly-analytics-spreadsheet');
+          console.log('[Auto Fetch] Functions imported successfully');
           
           // 所属生一覧シートを更新
+          console.log('[Auto Fetch] Updating student list sheet...');
           await updateStudentListSheet(
             accessToken,
             weeklySpreadsheetId,
             successfulStudents,
             weekLabel
           );
+          console.log('[Auto Fetch] Student list sheet updated');
           
           // 各生徒の個人シートを更新
+          console.log('[Auto Fetch] Updating individual sheets...');
           for (const student of successfulStudents) {
+            console.log(`[Auto Fetch] Updating sheet for: ${student.name}`);
             await updateIndividualSheet(
               accessToken,
               weeklySpreadsheetId,
@@ -5231,6 +5244,7 @@ app.post('/api/analytics/auto-fetch', async (c) => {
         }
       } catch (error: any) {
         console.error('[Auto Fetch] Failed to update spreadsheet:', error.message);
+        console.error('[Auto Fetch] Error stack:', error.stack);
         // スプレッドシート書き込みエラーは処理を中断しない
       }
     }
