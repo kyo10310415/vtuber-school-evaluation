@@ -5226,13 +5226,35 @@ app.post('/api/analytics/auto-fetch', async (c) => {
           
           // 各生徒の個人シートを更新
           console.log('[Auto Fetch] Updating individual sheets...');
+          
+          // C列のキャラクター名を取得
+          const characterNamesResponse = await fetch(
+            `https://sheets.googleapis.com/v4/spreadsheets/${weeklySpreadsheetId}/values/${encodeURIComponent('所属生一覧')}!A3:C1000`,
+            { headers: { Authorization: `Bearer ${accessToken}` } }
+          );
+          
+          let characterNamesMap = new Map<string, string>(); // studentId -> characterName
+          if (characterNamesResponse.ok) {
+            const data = await characterNamesResponse.json();
+            if (data.values) {
+              for (const row of data.values) {
+                const studentId = row[1] || '';
+                const characterName = row[2] || '';
+                if (studentId && characterName) {
+                  characterNamesMap.set(studentId, characterName);
+                }
+              }
+            }
+          }
+          
           for (const student of successfulStudents) {
-            console.log(`[Auto Fetch] Updating sheet for: ${student.name}`);
+            const characterName = characterNamesMap.get(student.studentId) || student.channelName || student.name;
+            console.log(`[Auto Fetch] Updating sheet for: ${student.name} (${characterName})`);
             await updateIndividualSheet(
               accessToken,
               weeklySpreadsheetId,
               student.name,
-              student.channelName,
+              characterName, // C列のキャラクター名を使用
               student.data,
               weekLabel
             );

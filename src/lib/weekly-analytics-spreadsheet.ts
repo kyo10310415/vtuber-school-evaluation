@@ -38,7 +38,7 @@ export async function updateStudentListSheet(
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
     
-    let headers: string[] = ['名前', '学籍番号'];
+    let headers: string[] = ['名前', '学籍番号', 'キャラクター名'];
     let weekStartColumn = -1;
     
     if (headerResponse.ok) {
@@ -71,7 +71,7 @@ export async function updateStudentListSheet(
         }
       );
       
-      // 2行目のヘッダー行を更新（名前・学籍番号 + データ項目）
+      // 2行目のヘッダー行を更新（名前・学籍番号・キャラクター名 + データ項目）
       await fetch(
         `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A2:${getColumnLetter(headers.length)}2?valueInputOption=RAW`,
         {
@@ -87,9 +87,9 @@ export async function updateStudentListSheet(
       );
     }
     
-    // 既存データを取得（3行目以降）
+    // 既存データを取得（3行目以降、A列〜C列：名前・学籍番号・キャラクター名）
     const dataResponse = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A3:B1000`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A3:C1000`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
     
@@ -112,7 +112,7 @@ export async function updateStudentListSheet(
         const startColumn = getColumnLetter(weekStartColumn + 1);
         const endColumn = getColumnLetter(weekStartColumn + dataValues.length);
         
-        // 名前と学籍番号を追加
+        // 名前と学籍番号を追加（C列のキャラクター名は手入力のためスキップ）
         await fetch(
           `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A${newRowIndex}:B${newRowIndex}?valueInputOption=RAW`,
           {
@@ -142,7 +142,7 @@ export async function updateStudentListSheet(
           }
         );
         
-        existingData.push([student.name, student.studentId]);
+        existingData.push([student.name, student.studentId, '']); // キャラクター名は空で追加
       } else {
         // 既存の行を更新
         const actualRowIndex = rowIndex + 3; // +3 because of 2 header rows and 0-based to 1-based
