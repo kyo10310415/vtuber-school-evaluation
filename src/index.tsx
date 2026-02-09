@@ -4984,6 +4984,44 @@ app.get('/api/analytics/auto-fetch/test', async (c) => {
   }
 });
 
+// 自動アナリティクス取得 - テスト用エンドポイント（認証なしで動作確認）
+app.get('/api/analytics/auto-fetch/test', async (c) => {
+  try {
+    console.log('[Auto Fetch Test] Checking configuration...');
+    
+    const { listAllTokens } = await import('./lib/oauth-token-manager');
+    const tokens = await listAllTokens(getEnv(c, 'DATABASE_URL'));
+    
+    const serviceAccountStr = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT');
+    const weeklySpreadsheetId = getEnv(c, 'WEEKLY_ANALYTICS_SPREADSHEET_ID');
+    const analyticsTargetSpreadsheetId = getEnv(c, 'ANALYTICS_TARGET_SPREADSHEET_ID');
+    
+    return c.json({
+      success: true,
+      message: 'Configuration check complete',
+      config: {
+        hasServiceAccount: !!serviceAccountStr,
+        serviceAccountLength: serviceAccountStr?.length || 0,
+        hasWeeklySpreadsheetId: !!weeklySpreadsheetId,
+        weeklySpreadsheetId: weeklySpreadsheetId || 'NOT SET',
+        hasAnalyticsTargetSpreadsheetId: !!analyticsTargetSpreadsheetId,
+        oauthTokensCount: tokens.length,
+        students: tokens.map(t => ({
+          studentId: t.studentId,
+          hasValidToken: !!t.accessToken,
+        })),
+      },
+      note: 'To run actual data fetch, use POST /api/analytics/auto-fetch',
+    });
+  } catch (error: any) {
+    console.error('[Auto Fetch Test] Error:', error);
+    return c.json({
+      success: false,
+      error: error.message,
+    }, 500);
+  }
+});
+
 // 自動アナリティクス取得（週次Cron用）
 app.post('/api/analytics/auto-fetch', async (c) => {
   try {
