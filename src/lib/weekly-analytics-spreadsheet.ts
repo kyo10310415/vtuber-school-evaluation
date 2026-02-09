@@ -4,6 +4,7 @@
 
 /**
  * 所属生一覧シートを更新
+ * 新しい構造: 1行目に週ラベル、2行目にデータ項目名、3行目以降にデータ
  */
 export async function updateStudentListSheet(
   accessToken: string,
@@ -27,31 +28,52 @@ export async function updateStudentListSheet(
     // シートが存在するか確認、なければ作成
     await ensureSheetExists(accessToken, spreadsheetId, sheetName);
     
-    // 既存のヘッダーを取得
+    // データ項目のリストを取得（個人シートと同じ項目）
+    const dataItems = buildIndividualDataRows({ shorts: {}, regular: {}, live: {}, overall: {} });
+    const dataItemLabels = dataItems.map(item => item.label);
+    
+    // 2行目のヘッダー（データ項目名）を取得
     const headerResponse = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A1:ZZ1`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A2:ZZZ2`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
     
     let headers: string[] = ['名前', '学籍番号'];
-    let weekColumnIndex = -1;
+    let weekStartColumn = -1;
     
     if (headerResponse.ok) {
       const headerData = await headerResponse.json();
       if (headerData.values && headerData.values[0]) {
         headers = headerData.values[0];
-        weekColumnIndex = headers.indexOf(weekLabel);
+        // 既存の週データがあるかチェック（最初のデータ項目で判定）
+        weekStartColumn = headers.indexOf(dataItemLabels[0]);
       }
     }
     
-    // 週のラベルがヘッダーになければ追加
-    if (weekColumnIndex === -1) {
-      weekColumnIndex = headers.length;
-      headers.push(weekLabel);
+    // 新しい週のデータを追加
+    if (weekStartColumn === -1) {
+      weekStartColumn = headers.length;
+      headers.push(...dataItemLabels);
       
-      // ヘッダー行を更新
+      // 1行目に週ラベルを追加（週の開始列にのみ）
+      const weekLabelColumn = getColumnLetter(weekStartColumn + 1);
       await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A1:${getColumnLetter(headers.length)}1?valueInputOption=RAW`,
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!${weekLabelColumn}1?valueInputOption=RAW`,
+        {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            values: [[weekLabel]],
+          }),
+        }
+      );
+      
+      // 2行目のヘッダー行を更新（名前・学籍番号 + データ項目）
+      await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A2:${getColumnLetter(headers.length)}2?valueInputOption=RAW`,
         {
           method: 'PUT',
           headers: {
@@ -65,9 +87,9 @@ export async function updateStudentListSheet(
       );
     }
     
-    // 既存のデータを取得
+    // 既存データを取得（3行目以降）
     const dataResponse = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A2:B1000`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A3:B1000`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
     
@@ -82,15 +104,17 @@ export async function updateStudentListSheet(
     // 各生徒のデータを更新
     for (const student of students) {
       const rowIndex = existingData.findIndex(row => row[1] === student.studentId);
-      const dataValue = formatStudentDataForList(student.data);
+      const dataValues = buildIndividualDataRows(student.data).map(item => item.value);
       
       if (rowIndex === -1) {
-        // 新しい行を追加
-        const newRowIndex = existingData.length + 2; // +2 because of header and 1-based index
-        const columnLetter = getColumnLetter(weekColumnIndex + 1);
+        // 新しい行を追加（3行目以降）
+        const newRowIndex = existingData.length + 3; // +3 because of 2 header rows and 1-based index
+        const startColumn = getColumnLetter(weekStartColumn + 1);
+        const endColumn = getColumnLetter(weekStartColumn + dataValues.length);
         
+        // 名前と学籍番号を追加
         await fetch(
-          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A${newRowIndex}:${columnLetter}${newRowIndex}?valueInputOption=RAW`,
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A${newRowIndex}:B${newRowIndex}?valueInputOption=RAW`,
           {
             method: 'PUT',
             headers: {
@@ -98,7 +122,22 @@ export async function updateStudentListSheet(
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              values: [[student.name, student.studentId, ...Array(weekColumnIndex - 2).fill(''), dataValue]],
+              values: [[student.name, student.studentId]],
+            }),
+          }
+        );
+        
+        // データ項目を追加
+        await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!${startColumn}${newRowIndex}:${endColumn}${newRowIndex}?valueInputOption=RAW`,
+          {
+            method: 'PUT',
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              values: [dataValues],
             }),
           }
         );
@@ -106,11 +145,12 @@ export async function updateStudentListSheet(
         existingData.push([student.name, student.studentId]);
       } else {
         // 既存の行を更新
-        const actualRowIndex = rowIndex + 2;
-        const columnLetter = getColumnLetter(weekColumnIndex + 1);
+        const actualRowIndex = rowIndex + 3; // +3 because of 2 header rows and 0-based to 1-based
+        const startColumn = getColumnLetter(weekStartColumn + 1);
+        const endColumn = getColumnLetter(weekStartColumn + dataValues.length);
         
         await fetch(
-          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!${columnLetter}${actualRowIndex}?valueInputOption=RAW`,
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!${startColumn}${actualRowIndex}:${endColumn}${actualRowIndex}?valueInputOption=RAW`,
           {
             method: 'PUT',
             headers: {
@@ -118,14 +158,14 @@ export async function updateStudentListSheet(
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              values: [[dataValue]],
+              values: [dataValues],
             }),
           }
         );
       }
     }
     
-    console.log(`[WeeklySpreadsheet] Updated ${sheetName} with ${students.length} students`);
+    console.log(`[WeeklySpreadsheet] Updated ${sheetName} with ${students.length} students, ${dataItems.length} data items`);
   } catch (error: any) {
     console.error('[WeeklySpreadsheet] Failed to update student list:', error.message);
     throw error;
