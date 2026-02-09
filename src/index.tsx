@@ -5041,8 +5041,18 @@ app.post('/api/analytics/auto-fetch', async (c) => {
     console.log(`[Auto Fetch] Period: ${startDate} ~ ${endDate}`);
     
     const results = [];
+    const successfulStudents: Array<{
+      name: string;
+      studentId: string;
+      channelId: string;
+      channelName: string;
+      data: any;
+    }> = [];
     let successCount = 0;
     let errorCount = 0;
+    
+    // 週のラベル (例: "2026-02-03~2026-02-09")
+    const weekLabel = `${startDate}~${endDate}`;
     
     for (const token of tokens) {
       try {
@@ -5097,6 +5107,15 @@ app.post('/api/analytics/auto-fetch', async (c) => {
           data.live
         );
         
+        // 成功したデータを収集（スプレッドシート書き込み用）
+        successfulStudents.push({
+          name: student.name,
+          studentId: token.studentId,
+          channelId: student.youtubeChannelId,
+          channelName: student.channelName || student.name, // チャンネル名がない場合は名前を使用
+          data,
+        });
+        
         successCount++;
         results.push({
           studentId: token.studentId,
@@ -5117,6 +5136,46 @@ app.post('/api/analytics/auto-fetch', async (c) => {
     }
     
     console.log(`[Auto Fetch] Complete: ${successCount} success, ${errorCount} errors`);
+    
+    // スプレッドシートに書き込み（成功したデータのみ）
+    if (successfulStudents.length > 0) {
+      try {
+        const weeklySpreadsheetId = getEnv(c, 'WEEKLY_ANALYTICS_SPREADSHEET_ID');
+        if (weeklySpreadsheetId) {
+          const { getAccessToken } = await import('./lib/google-client');
+          const accessToken = await getAccessToken(serviceAccountStr);
+          
+          const { updateStudentListSheet, updateIndividualSheet } = await import('./lib/weekly-analytics-spreadsheet');
+          
+          // 所属生一覧シートを更新
+          await updateStudentListSheet(
+            accessToken,
+            weeklySpreadsheetId,
+            successfulStudents,
+            weekLabel
+          );
+          
+          // 各生徒の個人シートを更新
+          for (const student of successfulStudents) {
+            await updateIndividualSheet(
+              accessToken,
+              weeklySpreadsheetId,
+              student.name,
+              student.channelName,
+              student.data,
+              weekLabel
+            );
+          }
+          
+          console.log(`[Auto Fetch] Spreadsheet updated: ${successfulStudents.length} students`);
+        } else {
+          console.log('[Auto Fetch] WEEKLY_ANALYTICS_SPREADSHEET_ID not set, skipping spreadsheet update');
+        }
+      } catch (error: any) {
+        console.error('[Auto Fetch] Failed to update spreadsheet:', error.message);
+        // スプレッドシート書き込みエラーは処理を中断しない
+      }
+    }
     
     return c.json({
       success: true,
