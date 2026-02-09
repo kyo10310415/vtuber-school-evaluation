@@ -5022,6 +5022,26 @@ app.get('/api/analytics/auto-fetch/test', async (c) => {
   }
 });
 
+// 環境変数確認エンドポイント（デバッグ用）
+app.get('/api/analytics/check-env', async (c) => {
+  const weeklySpreadsheetId = getEnv(c, 'WEEKLY_ANALYTICS_SPREADSHEET_ID');
+  const serviceAccountStr = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT');
+  const analyticsTargetSpreadsheetId = getEnv(c, 'ANALYTICS_TARGET_SPREADSHEET_ID');
+  
+  return c.json({
+    success: true,
+    env: {
+      WEEKLY_ANALYTICS_SPREADSHEET_ID: weeklySpreadsheetId || 'NOT SET',
+      hasServiceAccount: !!serviceAccountStr,
+      serviceAccountLength: serviceAccountStr?.length || 0,
+      ANALYTICS_TARGET_SPREADSHEET_ID: analyticsTargetSpreadsheetId || 'NOT SET',
+    },
+    message: weeklySpreadsheetId 
+      ? 'WEEKLY_ANALYTICS_SPREADSHEET_ID is configured' 
+      : '⚠️ WEEKLY_ANALYTICS_SPREADSHEET_ID is NOT SET - spreadsheet updates will be skipped',
+  });
+});
+
 // 自動アナリティクス取得（週次Cron用）
 app.post('/api/analytics/auto-fetch', async (c) => {
   try {
