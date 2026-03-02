@@ -3881,6 +3881,16 @@ app.post('/api/auto-evaluate', async (c) => {
       const endIndex = Math.min(startIndex + batchSize, filteredStudents.length)
       students = filteredStudents.slice(startIndex, endIndex)
       console.log(`[Auto Evaluate] Processing batch ${batchIndex}: students ${startIndex + 1}-${endIndex} (${students.length} students)`)
+      
+      // 重複チェック：生徒リスト内の重複を検出
+      const studentIds = students.map(s => s.studentId)
+      const uniqueIds = new Set(studentIds)
+      if (studentIds.length !== uniqueIds.size) {
+        console.log(`[Auto Evaluate] ⚠️ Warning: Duplicate students detected in batch!`)
+        console.log(`[Auto Evaluate] Total: ${studentIds.length}, Unique: ${uniqueIds.size}`)
+        const duplicates = studentIds.filter((id, index) => studentIds.indexOf(id) !== index)
+        console.log(`[Auto Evaluate] Duplicate IDs: ${duplicates.join(', ')}`)
+      }
     }
     
     const results = []
@@ -3907,8 +3917,19 @@ app.post('/api/auto-evaluate', async (c) => {
       console.log(`[Auto Evaluate] Fetched payment data for ${paymentDataList.length} students`)
     }
     
+    // 重複防止：処理済み生徒IDを記録
+    const processedStudentIds = new Set<string>()
+    
     // 各生徒の評価を実行
     for (const student of students) {
+      // 重複チェック
+      if (processedStudentIds.has(student.studentId)) {
+        console.log(`[Auto Evaluate] ⚠️ Duplicate student detected: ${student.studentId} - Skipping`)
+        skippedCount++
+        continue
+      }
+      processedStudentIds.add(student.studentId)
+      
       try {
         // アクセストークンを30分ごとに更新（トークンの有効期限は1時間）
         const now = Date.now()
