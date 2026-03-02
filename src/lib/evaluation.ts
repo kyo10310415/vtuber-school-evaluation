@@ -62,16 +62,16 @@ export function evaluateStudent(
   student: Student,
   absenceData: AbsenceData | undefined,
   paymentData: PaymentData | undefined,
-  geminiAnalysis: GeminiAnalysisResult,
+  geminiAnalysis: GeminiAnalysisResult | null, // nullを許容
   month: string
 ): EvaluationResult {
   const scores: ProLevelScores = {
     absence: evaluateAbsence(absenceData?.absenceCount || 0),
-    lateness: geminiAnalysis.lateness.grade,
-    mission: geminiAnalysis.mission.grade,
+    lateness: geminiAnalysis?.lateness.grade || 'C', // デフォルトC
+    mission: geminiAnalysis?.mission.grade || 'C', // デフォルトC
     payment: paymentData ? evaluatePayment(paymentData.paymentStatus) : 'S', // 支払いデータなし（未払いリストに含まれていない）= S評価
-    activeListening: geminiAnalysis.activeListening.grade,
-    comprehension: geminiAnalysis.comprehension.grade,
+    activeListening: geminiAnalysis?.activeListening.grade || 'C', // デフォルトC
+    comprehension: geminiAnalysis?.comprehension.grade || 'C', // デフォルトC
   };
 
   const overallGrade = calculateOverallGrade(scores);
@@ -88,7 +88,7 @@ export function evaluateStudent(
 }
 
 // コメントを生成
-function generateComments(scores: ProLevelScores, analysis: GeminiAnalysisResult): string {
+function generateComments(scores: ProLevelScores, analysis: GeminiAnalysisResult | null): string {
   const comments: string[] = [];
 
   // 優れている点
@@ -115,10 +115,14 @@ function generateComments(scores: ProLevelScores, analysis: GeminiAnalysisResult
     comments.push(`【改善点】${improvements.join('、')}`);
   }
 
-  // AI分析からの具体的なフィードバック
-  comments.push(`【ミッション】${analysis.mission.reason}`);
-  comments.push(`【傾聴力】${analysis.activeListening.reason}`);
-  comments.push(`【理解度】${analysis.comprehension.reason}`);
+  // AI分析からの具体的なフィードバック（トークメモがある場合のみ）
+  if (analysis) {
+    comments.push(`【ミッション】${analysis.mission.reason}`);
+    comments.push(`【傾聴力】${analysis.activeListening.reason}`);
+    comments.push(`【理解度】${analysis.comprehension.reason}`);
+  } else {
+    comments.push(`【トークメモ】トークメモが見つかりません。詳細な評価にはトークメモが必要です。`);
+  }
 
   return comments.join(' / ');
 }

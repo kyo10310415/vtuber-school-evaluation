@@ -3853,59 +3853,64 @@ app.post('/api/auto-evaluate', async (c) => {
         let proLevelEvaluated = false
         
         // プロレベル評価（スキップされていない場合のみ）
-        if (!skipProLevel && student.talkMemoFolderUrl) {
+        if (!skipProLevel) {
           try {
-            console.log(`[Auto Evaluate] Fetching talk memo for ${student.studentId}`)
-            const documentIds = await fetchDocumentsInFolder(GOOGLE_SERVICE_ACCOUNT, student.talkMemoFolderUrl)
+            let geminiAnalysis = null
             
-            if (documentIds.length > 0) {
-              // 最新のドキュメントを取得
-              const talkMemo = await fetchDocumentContent(GOOGLE_SERVICE_ACCOUNT, documentIds[0])
-              console.log(`[Auto Evaluate] Analyzing talk memo with Gemini for ${student.studentId}`)
+            // トークメモがある場合はGemini分析を実施
+            if (student.talkMemoFolderUrl) {
+              console.log(`[Auto Evaluate] Fetching talk memo for ${student.studentId}`)
+              const documentIds = await fetchDocumentsInFolder(GOOGLE_SERVICE_ACCOUNT, student.talkMemoFolderUrl)
               
-              // Geminiで分析（geminiがnullでないことを確認）
-              if (!gemini) {
-                throw new Error('Gemini analyzer not initialized')
+              if (documentIds.length > 0) {
+                // 最新のドキュメントを取得
+                const talkMemo = await fetchDocumentContent(GOOGLE_SERVICE_ACCOUNT, documentIds[0])
+                console.log(`[Auto Evaluate] Analyzing talk memo with Gemini for ${student.studentId}`)
+                
+                // Geminiで分析（geminiがnullでないことを確認）
+                if (!gemini) {
+                  throw new Error('Gemini analyzer not initialized')
+                }
+                geminiAnalysis = await gemini.analyzeTrainingSession(talkMemo)
+              } else {
+                console.log(`[Auto Evaluate] No talk memo document found for ${student.studentId}`)
               }
-              const geminiAnalysis = await gemini.analyzeTrainingSession(talkMemo)
-              
-              // 欠席データを取得
-              const absenceData = absenceDataList.find(a => a.studentId === student.studentId)
-              
-              // 支払いデータを取得
-              const paymentData = paymentDataList.find(p => p.studentId === student.studentId)
-              
-              // プロレベル評価を実施
-              const proLevelResult = evaluateStudent(
-                student,
-                absenceData,
-                paymentData, // 支払いデータを渡す
-                geminiAnalysis,
-                month
-              )
-              
-              proLevelResults.push(proLevelResult)
-              result.evaluations.proLevel = {
-                overallGrade: proLevelResult.overallGrade,
-                attendanceGrade: proLevelResult.attendanceGrade,
-                punctualityGrade: proLevelResult.punctualityGrade,
-                missionGrade: proLevelResult.missionGrade
-              }
-              proLevelEvaluated = true
-              console.log(`[Auto Evaluate] Pro-level evaluation completed for ${student.studentId}`)
             } else {
-              console.log(`[Auto Evaluate] No talk memo found for ${student.studentId}`)
-              result.evaluations.proLevel = { info: 'トークメモが見つかりません' }
+              console.log(`[Auto Evaluate] No talk memo folder URL for ${student.studentId}`)
             }
+            
+            // 欠席データを取得
+            const absenceData = absenceDataList.find(a => a.studentId === student.studentId)
+            
+            // 支払いデータを取得
+            const paymentData = paymentDataList.find(p => p.studentId === student.studentId)
+            
+            // プロレベル評価を実施（トークメモがなくても、欠席・支払いデータで評価）
+            const proLevelResult = evaluateStudent(
+              student,
+              absenceData,
+              paymentData,
+              geminiAnalysis, // nullの場合もあり得る
+              month
+            )
+            
+            proLevelResults.push(proLevelResult)
+            result.evaluations.proLevel = {
+              overallGrade: proLevelResult.overallGrade,
+              attendanceGrade: proLevelResult.attendanceGrade,
+              punctualityGrade: proLevelResult.punctualityGrade,
+              missionGrade: proLevelResult.missionGrade,
+              hasGeminiAnalysis: !!geminiAnalysis
+            }
+            proLevelEvaluated = true
+            console.log(`[Auto Evaluate] Pro-level evaluation completed for ${student.studentId} (Gemini: ${!!geminiAnalysis})`)
           } catch (error: any) {
             console.error(`[Auto Evaluate] Pro-level evaluation error for ${student.studentId}:`, error.message)
             result.evaluations.proLevel = { error: error.message }
             errors.push(`${student.name}(${student.studentId}): プロレベル評価エラー - ${error.message}`)
           }
-        } else if (skipProLevel) {
-          result.evaluations.proLevel = { info: 'プロレベル評価スキップ（skipProLevel=true）' }
         } else {
-          result.evaluations.proLevel = { info: 'トークメモフォルダURLなし' }
+          result.evaluations.proLevel = { info: 'プロレベル評価スキップ（skipProLevel=true）' }
         }
         
         // YouTube評価
