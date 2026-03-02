@@ -3994,6 +3994,22 @@ app.post('/api/auto-evaluate', async (c) => {
             }
             proLevelEvaluated = true
             console.log(`[Auto Evaluate] Pro-level evaluation completed for ${student.studentId} (Gemini: ${!!geminiAnalysis}, Grade: ${proLevelResult.overallGrade})`)
+            
+            // ✅ 逐次書き込み: 評価完了後すぐにスプレッドシートに書き込む
+            try {
+              console.log(`[Auto Evaluate] Writing result to sheet for ${student.studentId}...`)
+              const resultArray = convertResultToArray(proLevelResult)
+              await writeResultsToSheet(
+                GOOGLE_SERVICE_ACCOUNT,
+                RESULT_SPREADSHEET_ID,
+                `評価結果_${month}`,
+                [resultArray]
+              )
+              console.log(`[Auto Evaluate] ✅ Result written to sheet for ${student.studentId}`)
+            } catch (writeError: any) {
+              console.error(`[Auto Evaluate] ❌ Failed to write result for ${student.studentId}:`, writeError.message)
+              errors.push(`${student.name}(${student.studentId}): スプレッドシート書き込みエラー - ${writeError.message}`)
+            }
           } catch (error: any) {
             console.error(`[Auto Evaluate] Pro-level evaluation error for ${student.studentId}:`, error.message)
             console.error(`[Auto Evaluate] Error stack:`, error.stack)
@@ -4230,24 +4246,7 @@ app.post('/api/auto-evaluate', async (c) => {
     }
     
     console.log(`[Auto Evaluate] バッチ完了 - 成功: ${successCount}, エラー: ${errorCount}, スキップ: ${skippedCount}`)
-    
-    // プロレベル評価結果をスプレッドシートに書き込み
-    if (proLevelResults.length > 0) {
-      try {
-        console.log(`[Auto Evaluate] Writing ${proLevelResults.length} pro-level results to sheet`)
-        const resultArrays = proLevelResults.map(convertResultToArray)
-        await writeResultsToSheet(
-          GOOGLE_SERVICE_ACCOUNT,
-          RESULT_SPREADSHEET_ID,
-          `評価結果_${month}`,
-          resultArrays
-        )
-        console.log(`[Auto Evaluate] Pro-level results written to sheet: 評価結果_${month}`)
-      } catch (error: any) {
-        console.error(`[Auto Evaluate] Failed to write pro-level results to sheet:`, error.message)
-        errors.push(`スプレッドシート書き込みエラー: ${error.message}`)
-      }
-    }
+    console.log(`[Auto Evaluate] ✅ 逐次書き込みモード: 各生徒の評価完了時にスプレッドシートに書き込み済み (${proLevelResults.length}件)`)
     
     // 次のバッチがあるか確認
     const hasNextBatch = endIndex < filteredStudents.length
