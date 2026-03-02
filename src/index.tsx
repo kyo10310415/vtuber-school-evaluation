@@ -3864,6 +3864,9 @@ app.post('/api/auto-evaluate', async (c) => {
     
     // 特定の生徒のみを対象にする場合（デバッグ用）
     let students: typeof filteredStudents
+    let startIndex = 0
+    let endIndex = 0
+    
     if (targetStudentId) {
       students = filteredStudents.filter(s => s.studentId === targetStudentId)
       if (students.length === 0) {
@@ -3875,10 +3878,12 @@ app.post('/api/auto-evaluate', async (c) => {
       }
       console.log(`[Auto Evaluate] Target student found: ${students[0].name} (${students[0].studentId})`)
       console.log(`[Auto Evaluate] Talk memo folder URL: ${students[0].talkMemoFolderUrl || 'NOT SET'}`)
+      startIndex = 0
+      endIndex = 1
     } else {
       // バッチ処理: 指定されたバッチのみ処理
-      const startIndex = batchIndex * batchSize
-      const endIndex = Math.min(startIndex + batchSize, filteredStudents.length)
+      startIndex = batchIndex * batchSize
+      endIndex = Math.min(startIndex + batchSize, filteredStudents.length)
       students = filteredStudents.slice(startIndex, endIndex)
       console.log(`[Auto Evaluate] Processing batch ${batchIndex}: students ${startIndex + 1}-${endIndex} (${students.length} students)`)
       
