@@ -3855,16 +3855,22 @@ app.post('/api/auto-evaluate', async (c) => {
         // プロレベル評価（スキップされていない場合のみ）
         if (!skipProLevel) {
           try {
+            console.log(`[Auto Evaluate] Starting pro-level evaluation for ${student.studentId}`)
             let geminiAnalysis = null
             
             // トークメモがある場合はGemini分析を実施
             if (student.talkMemoFolderUrl) {
-              console.log(`[Auto Evaluate] Fetching talk memo for ${student.studentId}`)
+              console.log(`[Auto Evaluate] Talk memo folder URL found: ${student.talkMemoFolderUrl}`)
+              console.log(`[Auto Evaluate] Fetching talk memo documents for ${student.studentId}...`)
+              
               const documentIds = await fetchDocumentsInFolder(GOOGLE_SERVICE_ACCOUNT, student.talkMemoFolderUrl)
+              console.log(`[Auto Evaluate] Found ${documentIds.length} documents for ${student.studentId}`)
               
               if (documentIds.length > 0) {
+                console.log(`[Auto Evaluate] Fetching document content: ${documentIds[0]}`)
                 // 最新のドキュメントを取得
                 const talkMemo = await fetchDocumentContent(GOOGLE_SERVICE_ACCOUNT, documentIds[0])
+                console.log(`[Auto Evaluate] Document fetched. Content length: ${talkMemo.content.length} chars`)
                 console.log(`[Auto Evaluate] Analyzing talk memo with Gemini for ${student.studentId}`)
                 
                 // Geminiで分析（geminiがnullでないことを確認）
@@ -3872,6 +3878,7 @@ app.post('/api/auto-evaluate', async (c) => {
                   throw new Error('Gemini analyzer not initialized')
                 }
                 geminiAnalysis = await gemini.analyzeTrainingSession(talkMemo)
+                console.log(`[Auto Evaluate] Gemini analysis completed for ${student.studentId}`)
               } else {
                 console.log(`[Auto Evaluate] No talk memo document found for ${student.studentId}`)
               }
@@ -3881,10 +3888,13 @@ app.post('/api/auto-evaluate', async (c) => {
             
             // 欠席データを取得
             const absenceData = absenceDataList.find(a => a.studentId === student.studentId)
+            console.log(`[Auto Evaluate] Absence data for ${student.studentId}: ${absenceData ? `${absenceData.absenceCount} absences` : 'none'}`)
             
             // 支払いデータを取得
             const paymentData = paymentDataList.find(p => p.studentId === student.studentId)
+            console.log(`[Auto Evaluate] Payment data for ${student.studentId}: ${paymentData ? paymentData.paymentStatus : 'none (S grade)'}`)
             
+            console.log(`[Auto Evaluate] Calculating evaluation for ${student.studentId}...`)
             // プロレベル評価を実施（トークメモがなくても、欠席・支払いデータで評価）
             const proLevelResult = evaluateStudent(
               student,
@@ -3894,6 +3904,7 @@ app.post('/api/auto-evaluate', async (c) => {
               month
             )
             
+            console.log(`[Auto Evaluate] Evaluation result for ${student.studentId}: ${proLevelResult.overallGrade}`)
             proLevelResults.push(proLevelResult)
             result.evaluations.proLevel = {
               overallGrade: proLevelResult.overallGrade,
@@ -3903,9 +3914,10 @@ app.post('/api/auto-evaluate', async (c) => {
               hasGeminiAnalysis: !!geminiAnalysis
             }
             proLevelEvaluated = true
-            console.log(`[Auto Evaluate] Pro-level evaluation completed for ${student.studentId} (Gemini: ${!!geminiAnalysis})`)
+            console.log(`[Auto Evaluate] Pro-level evaluation completed for ${student.studentId} (Gemini: ${!!geminiAnalysis}, Grade: ${proLevelResult.overallGrade})`)
           } catch (error: any) {
             console.error(`[Auto Evaluate] Pro-level evaluation error for ${student.studentId}:`, error.message)
+            console.error(`[Auto Evaluate] Error stack:`, error.stack)
             result.evaluations.proLevel = { error: error.message }
             errors.push(`${student.name}(${student.studentId}): プロレベル評価エラー - ${error.message}`)
           }
