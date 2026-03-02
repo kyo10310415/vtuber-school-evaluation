@@ -3777,9 +3777,21 @@ app.post('/api/auto-evaluate', async (c) => {
     const skipProLevel = c.req.query('skipProLevel') === 'true' // プロレベル評価をスキップするか
     const skipX = c.req.query('skipX') === 'true' // X評価をスキップするか（レート制限対策）
     const skipYouTube = c.req.query('skipYouTube') === 'true' // YouTube評価をスキップするか（クォータ対策）
+    const targetStudentId = c.req.query('studentId') // 特定の生徒のみ評価（デバッグ用）
+    const onlyWithTalkMemo = c.req.query('onlyWithTalkMemo') === 'true' // トークメモがある生徒のみ対象（再実行時用）
+    const skipEvaluated = c.req.query('skipEvaluated') === 'true' // 既に評価済みの生徒をスキップ
     
     console.log(`[Auto Evaluate] Starting evaluation for ${month}`)
     console.log(`[Auto Evaluate] Batch size: ${batchSize}, Batch index: ${batchIndex}, Skip pro-level: ${skipProLevel}, Skip X: ${skipX}, Skip YouTube: ${skipYouTube}`)
+    if (targetStudentId) {
+      console.log(`[Auto Evaluate] Target student ID: ${targetStudentId}`)
+    }
+    if (onlyWithTalkMemo) {
+      console.log(`[Auto Evaluate] Only evaluating students with talk memo (onlyWithTalkMemo=true)`)
+    }
+    if (skipEvaluated) {
+      console.log(`[Auto Evaluate] Skipping already evaluated students (skipEvaluated=true)`)
+    }
     
     // Gemini初期化（プロレベル評価が必要な場合のみ）
     const gemini = skipProLevel ? null : new GeminiAnalyzer(GEMINI_API_KEY)
@@ -3789,7 +3801,7 @@ app.post('/api/auto-evaluate', async (c) => {
     console.log(`[Auto Evaluate] Found ${allStudents.length} total students`)
     
     // フィルタリング: アクティブのみ、永久会員を除外
-    const filteredStudents = allStudents.filter(student => {
+    let filteredStudents = allStudents.filter(student => {
       const status = student.status || ''
       const isActive = status === 'アクティブ'
       const isPermanent = status === '永久会員'
@@ -3797,12 +3809,79 @@ app.post('/api/auto-evaluate', async (c) => {
     })
     console.log(`[Auto Evaluate] Filtered to ${filteredStudents.length} active students (excluding 永久会員)`)
     
-    // バッチ処理: 指定されたバッチのみ処理
-    const startIndex = batchIndex * batchSize
-    const endIndex = Math.min(startIndex + batchSize, filteredStudents.length)
-    const students = filteredStudents.slice(startIndex, endIndex)
+    // トークメモがある生徒のみに絞り込み（onlyWithTalkMemo=true）
+    if (onlyWithTalkMemo) {
+      filteredStudents = filteredStudents.filter(student => !!student.talkMemoFolderUrl)
+      console.log(`[Auto Evaluate] Filtered to ${filteredStudents.length} students with talk memo`)
+    }
     
-    console.log(`[Auto Evaluate] Processing batch ${batchIndex}: students ${startIndex + 1}-${endIndex} (${students.length} students)`)
+    // 既に評価済みの生徒をスキップ（skipEvaluated=true）
+    if (skipEvaluated) {
+      console.log(`[Auto Evaluate] Checking for already evaluated students in spreadsheet...`)
+      try {
+        // スプレッドシートから既存の評価結果を取得
+        const sheetName = `評価結果_${month}`
+        const accessTokenForCheck = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
+        const response = await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${RESULT_SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}`,
+          {
+            headers: {
+              'Authorization': `Bearer ${accessTokenForCheck}`,
+              'Content-Type': 'application/json'
+            }
+          }
+        )
+        
+        if (response.ok) {
+          const data: any = await response.json()
+          const rows = data.values || []
+          
+          // 既に評価済みの学籍番号を抽出（2列目が学籍番号）
+          const evaluatedStudentIds = new Set<string>()
+          if (rows.length > 1) { // ヘッダー行を除く
+            for (let i = 1; i < rows.length; i++) {
+              const studentId = rows[i][1] // B列（学籍番号）
+              if (studentId) {
+                evaluatedStudentIds.add(studentId)
+              }
+            }
+          }
+          
+          console.log(`[Auto Evaluate] Found ${evaluatedStudentIds.size} already evaluated students`)
+          
+          // 既に評価済みの生徒を除外
+          const beforeCount = filteredStudents.length
+          filteredStudents = filteredStudents.filter(student => !evaluatedStudentIds.has(student.studentId))
+          console.log(`[Auto Evaluate] Filtered out ${beforeCount - filteredStudents.length} evaluated students, ${filteredStudents.length} remaining`)
+        } else {
+          console.log(`[Auto Evaluate] Sheet not found or empty, treating all students as unevaluated`)
+        }
+      } catch (error: any) {
+        console.error(`[Auto Evaluate] Error checking evaluated students:`, error.message)
+        console.log(`[Auto Evaluate] Continuing without skipping evaluated students`)
+      }
+    }
+    
+    // 特定の生徒のみを対象にする場合（デバッグ用）
+    let students: typeof filteredStudents
+    if (targetStudentId) {
+      students = filteredStudents.filter(s => s.studentId === targetStudentId)
+      if (students.length === 0) {
+        return c.json({
+          success: false,
+          error: `Student not found: ${targetStudentId}`,
+          message: `学籍番号 ${targetStudentId} の生徒が見つかりません（アクティブな生徒のみが対象です）`
+        }, 404)
+      }
+      console.log(`[Auto Evaluate] Target student found: ${students[0].name} (${students[0].studentId})`)
+      console.log(`[Auto Evaluate] Talk memo folder URL: ${students[0].talkMemoFolderUrl || 'NOT SET'}`)
+    } else {
+      // バッチ処理: 指定されたバッチのみ処理
+      const startIndex = batchIndex * batchSize
+      const endIndex = Math.min(startIndex + batchSize, filteredStudents.length)
+      students = filteredStudents.slice(startIndex, endIndex)
+      console.log(`[Auto Evaluate] Processing batch ${batchIndex}: students ${startIndex + 1}-${endIndex} (${students.length} students)`)
+    }
     
     const results = []
     const proLevelResults: EvaluationResult[] = []
