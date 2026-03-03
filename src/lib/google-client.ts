@@ -820,20 +820,26 @@ export async function fetchWanamiUsageCount(
   const data = await response.json();
   const rows = data.values || [];
   
-  // 評価対象月の範囲を計算（評価月と同じ月のデータをカウント）
+  // 前月の範囲を計算（評価月の前月のデータをカウント）
   const [year, monthNum] = month.split('-').map(Number);
-  const targetMonthStart = new Date(year, monthNum - 1, 1); // 評価対象月の1日
-  const targetMonthEnd = new Date(year, monthNum, 0); // 評価対象月の最終日
+  const targetDate = new Date(year, monthNum - 1, 1); // 評価対象月の1日
+  const previousMonthStart = new Date(targetDate);
+  previousMonthStart.setMonth(previousMonthStart.getMonth() - 1); // 前月の1日
+  const previousMonthEnd = new Date(targetDate);
+  previousMonthEnd.setDate(0); // 前月の最終日
   
   console.log('[fetchWanamiUsageCount] Date range:', {
     month,
-    targetMonthStart: targetMonthStart.toISOString(),
-    targetMonthEnd: targetMonthEnd.toISOString(),
+    previousMonthStart: previousMonthStart.toISOString(),
+    previousMonthEnd: previousMonthEnd.toISOString(),
     totalRecords: rows.length,
   });
 
   // 学籍番号ごとに使用回数を集計
   const usageCountMap = new Map<string, number>();
+  
+  // デバッグ用: OLTS240246-QQのレコードを追跡
+  let debugRecords: any[] = [];
   
   for (const row of rows) {
     const timestamp = row[0] || ''; // A列: タイムスタンプ
@@ -841,14 +847,34 @@ export async function fetchWanamiUsageCount(
     
     if (!studentId || !timestamp) continue;
     
+    // デバッグ: OLTS240246-QQのレコードを記録
+    if (studentId === 'OLTS240246-QQ') {
+      debugRecords.push({
+        timestamp,
+        studentId,
+        parsedDate: new Date(timestamp).toISOString(),
+        isInRange: false
+      });
+    }
+    
     // タイムスタンプをパース（例: "2024/12/15 14:30:00"）
     const recordDate = new Date(timestamp);
     
-    // 評価対象月の範囲内かチェック
-    if (recordDate >= targetMonthStart && recordDate <= targetMonthEnd) {
+    // 前月の範囲内かチェック
+    if (recordDate >= previousMonthStart && recordDate <= previousMonthEnd) {
       const currentCount = usageCountMap.get(studentId) || 0;
       usageCountMap.set(studentId, currentCount + 1);
+      
+      // デバッグ: 範囲内フラグを更新
+      if (studentId === 'OLTS240246-QQ' && debugRecords.length > 0) {
+        debugRecords[debugRecords.length - 1].isInRange = true;
+      }
     }
+  }
+  
+  // デバッグログ出力
+  if (debugRecords.length > 0) {
+    console.log('[fetchWanamiUsageCount] Debug records for OLTS240246-QQ:', debugRecords);
   }
   
   console.log('[fetchWanamiUsageCount] Usage count:', {
