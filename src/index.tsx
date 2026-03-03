@@ -3777,12 +3777,13 @@ app.post('/api/auto-evaluate', async (c) => {
     const skipProLevel = c.req.query('skipProLevel') === 'true' // プロレベル評価をスキップするか
     const skipX = c.req.query('skipX') === 'true' // X評価をスキップするか（レート制限対策）
     const skipYouTube = c.req.query('skipYouTube') === 'true' // YouTube評価をスキップするか（クォータ対策）
+    const skipWanamiUsage = c.req.query('skipWanamiUsage') === 'true' // わなみさん使用回数の取得をスキップ（高速化）
     const targetStudentId = c.req.query('studentId') // 特定の生徒のみ評価（デバッグ用）
     const onlyWithTalkMemo = c.req.query('onlyWithTalkMemo') === 'true' // トークメモがある生徒のみ対象（再実行時用）
     const skipEvaluated = c.req.query('skipEvaluated') === 'true' // 既に評価済みの生徒をスキップ
     
     console.log(`[Auto Evaluate] Starting evaluation for ${month}`)
-    console.log(`[Auto Evaluate] Batch size: ${batchSize}, Batch index: ${batchIndex}, Skip pro-level: ${skipProLevel}, Skip X: ${skipX}, Skip YouTube: ${skipYouTube}`)
+    console.log(`[Auto Evaluate] Batch size: ${batchSize}, Batch index: ${batchIndex}, Skip pro-level: ${skipProLevel}, Skip X: ${skipX}, Skip YouTube: ${skipYouTube}, Skip Wanami: ${skipWanamiUsage}`)
     if (targetStudentId) {
       console.log(`[Auto Evaluate] Target student ID: ${targetStudentId}`)
     }
@@ -3922,10 +3923,12 @@ app.post('/api/auto-evaluate', async (c) => {
       console.log(`[Auto Evaluate] Fetched payment data for ${paymentDataList.length} students`)
     }
     
-    // わなみさん使用回数を取得（プロレベル評価が必要な場合のみ）
-    const wanamiUsageMap = skipProLevel ? new Map<string, number>() : await fetchWanamiUsageCount(GOOGLE_SERVICE_ACCOUNT, month)
-    if (!skipProLevel) {
+    // わなみさん使用回数を取得（プロレベル評価が必要かつスキップされていない場合のみ）
+    const wanamiUsageMap = (skipProLevel || skipWanamiUsage) ? new Map<string, number>() : await fetchWanamiUsageCount(GOOGLE_SERVICE_ACCOUNT, month)
+    if (!skipProLevel && !skipWanamiUsage) {
       console.log(`[Auto Evaluate] Fetched Wanami usage count for ${wanamiUsageMap.size} students`)
+    } else if (skipWanamiUsage) {
+      console.log(`[Auto Evaluate] Skipping Wanami usage count (skipWanamiUsage=true)`)
     }
     
     // 重複防止：処理済み生徒IDを記録
@@ -4311,6 +4314,116 @@ app.post('/api/auto-evaluate', async (c) => {
     })
   } catch (error: any) {
     console.error('[/api/auto-evaluate] Error:', error.message, error.stack)
+    return c.json({ success: false, error: error.message, stack: error.stack }, 500)
+  }
+})
+
+// わなみさん使用回数を単独で更新
+app.post('/api/update-wanami-usage', async (c) => {
+  try {
+    const GOOGLE_SERVICE_ACCOUNT = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT')
+    const RESULT_SPREADSHEET_ID = getEnv(c, 'RESULT_SPREADSHEET_ID')
+    
+    // 評価月（クエリパラメータまたは前月）
+    const month = c.req.query('month') || getPreviousMonth()
+    
+    console.log(`[Update Wanami Usage] Starting for ${month}`)
+    
+    // わなみさん使用回数を取得
+    const { fetchWanamiUsageCount, getAccessToken } = await import('./lib/google-client')
+    const wanamiUsageMap = await fetchWanamiUsageCount(GOOGLE_SERVICE_ACCOUNT, month)
+    console.log(`[Update Wanami Usage] Fetched usage count for ${wanamiUsageMap.size} students`)
+    
+    // スプレッドシートから既存の評価結果を読み取る
+    const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
+    const sheetName = `評価結果_${month}`
+    
+    const response = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${RESULT_SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    )
+    
+    if (!response.ok) {
+      throw new Error(`Failed to read spreadsheet: ${response.statusText}`)
+    }
+    
+    const data: any = await response.json()
+    const rows = data.values || []
+    
+    if (rows.length < 2) {
+      return c.json({
+        success: false,
+        error: 'No evaluation results found',
+        message: `シート「${sheetName}」に評価結果が見つかりません`
+      }, 404)
+    }
+    
+    console.log(`[Update Wanami Usage] Found ${rows.length - 1} evaluation records`)
+    
+    // ヘッダー行を確認（K列が「わなみさん使用回数」であることを確認）
+    const headers = rows[0]
+    const wanamiColumnIndex = 10 // K列（0-indexed）
+    
+    // 各行を更新
+    let updateCount = 0
+    const updates: any[] = []
+    
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i]
+      const studentId = row[1] // B列: 学籍番号
+      
+      if (!studentId) continue
+      
+      const usageCount = wanamiUsageMap.get(studentId) || 0
+      const rowNumber = i + 1 // 1-indexed（ヘッダー行を含む）
+      
+      // K列のみを更新
+      updates.push({
+        range: `${sheetName}!K${rowNumber}`,
+        values: [[usageCount]]
+      })
+      
+      updateCount++
+    }
+    
+    // バッチ更新
+    if (updates.length > 0) {
+      const batchUpdateResponse = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${RESULT_SPREADSHEET_ID}/values:batchUpdate`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            valueInputOption: 'RAW',
+            data: updates
+          })
+        }
+      )
+      
+      if (!batchUpdateResponse.ok) {
+        throw new Error(`Failed to update spreadsheet: ${batchUpdateResponse.statusText}`)
+      }
+      
+      console.log(`[Update Wanami Usage] Successfully updated ${updateCount} records`)
+    }
+    
+    return c.json({
+      success: true,
+      month,
+      updatedCount: updateCount,
+      totalStudentsWithUsage: wanamiUsageMap.size,
+      message: `わなみさん使用回数を ${updateCount} 件更新しました`
+    })
+  } catch (error: any) {
+    console.error('[/api/update-wanami-usage] Error:', error.message, error.stack)
     return c.json({ success: false, error: error.message, stack: error.stack }, 500)
   }
 })
