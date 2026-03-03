@@ -835,24 +835,11 @@ export async function fetchWanamiUsageCount(
   // 学籍番号ごとに使用回数を集計
   const usageCountMap = new Map<string, number>();
   
-  // デバッグ用: OLTS240246-QQのレコードを追跡
-  let debugRecords: any[] = [];
-  
   for (const row of rows) {
     const timestamp = row[0] || ''; // A列: タイムスタンプ
     const studentId = row[14] || ''; // O列: 学籍番号（0-indexed で14）
     
     if (!studentId || !timestamp) continue;
-    
-    // デバッグ: OLTS240246-QQのレコードを記録
-    if (studentId === 'OLTS240246-QQ') {
-      debugRecords.push({
-        timestamp,
-        studentId,
-        parsedDate: new Date(timestamp).toISOString(),
-        isInRange: false
-      });
-    }
     
     // タイムスタンプをパース（例: "2024/12/15 14:30:00"）
     const recordDate = new Date(timestamp);
@@ -861,17 +848,7 @@ export async function fetchWanamiUsageCount(
     if (recordDate >= targetMonthStart && recordDate <= targetMonthEnd) {
       const currentCount = usageCountMap.get(studentId) || 0;
       usageCountMap.set(studentId, currentCount + 1);
-      
-      // デバッグ: 範囲内フラグを更新
-      if (studentId === 'OLTS240246-QQ' && debugRecords.length > 0) {
-        debugRecords[debugRecords.length - 1].isInRange = true;
-      }
     }
-  }
-  
-  // デバッグログ出力
-  if (debugRecords.length > 0) {
-    console.log('[fetchWanamiUsageCount] Debug records for OLTS240246-QQ:', debugRecords);
   }
   
   console.log('[fetchWanamiUsageCount] Usage count:', {
