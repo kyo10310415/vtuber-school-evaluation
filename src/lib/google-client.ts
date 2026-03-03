@@ -795,3 +795,69 @@ export async function writeResultsToSheet(
     throw error;
   }
 }
+
+// わなみさん使用回数を取得
+export async function fetchWanamiUsageCount(
+  serviceAccountJson: string,
+  month: string
+): Promise<Map<string, number>> {
+  const accessToken = await getAccessToken(serviceAccountJson);
+  
+  // Q&A記録スプレッドシート
+  // https://docs.google.com/spreadsheets/d/1vKrYCzaw-miJOY52oskNoMfn-uEHIolBMhC7uMxxN_M/edit
+  const spreadsheetId = '1vKrYCzaw-miJOY52oskNoMfn-uEHIolBMhC7uMxxN_M';
+  
+  // 「Q&A記録」シートのO列（学籍番号）とA列（タイムスタンプ）を取得
+  const response = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Q%26A記録!A2:O`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    }
+  );
+
+  const data = await response.json();
+  const rows = data.values || [];
+  
+  // 前月の範囲を計算
+  const [year, monthNum] = month.split('-').map(Number);
+  const targetDate = new Date(year, monthNum - 1, 1); // 評価対象月の1日
+  const previousMonthStart = new Date(targetDate);
+  previousMonthStart.setMonth(previousMonthStart.getMonth() - 1); // 前月の1日
+  const previousMonthEnd = new Date(targetDate);
+  previousMonthEnd.setDate(0); // 前月の最終日
+  
+  console.log('[fetchWanamiUsageCount] Date range:', {
+    month,
+    previousMonthStart: previousMonthStart.toISOString(),
+    previousMonthEnd: previousMonthEnd.toISOString(),
+    totalRecords: rows.length,
+  });
+
+  // 学籍番号ごとに使用回数を集計
+  const usageCountMap = new Map<string, number>();
+  
+  for (const row of rows) {
+    const timestamp = row[0] || ''; // A列: タイムスタンプ
+    const studentId = row[14] || ''; // O列: 学籍番号（0-indexed で14）
+    
+    if (!studentId || !timestamp) continue;
+    
+    // タイムスタンプをパース（例: "2024/12/15 14:30:00"）
+    const recordDate = new Date(timestamp);
+    
+    // 前月の範囲内かチェック
+    if (recordDate >= previousMonthStart && recordDate <= previousMonthEnd) {
+      const currentCount = usageCountMap.get(studentId) || 0;
+      usageCountMap.set(studentId, currentCount + 1);
+    }
+  }
+  
+  console.log('[fetchWanamiUsageCount] Usage count:', {
+    studentsWithUsage: usageCountMap.size,
+    details: Array.from(usageCountMap.entries()).slice(0, 5), // 最初の5件を表示
+  });
+
+  return usageCountMap;
+}

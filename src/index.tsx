@@ -3916,10 +3916,16 @@ app.post('/api/auto-evaluate', async (c) => {
     }
     
     // 支払いデータを取得（プロレベル評価が必要な場合のみ）
-    const { fetchPaymentStatusFromUnpaidSheet } = await import('./lib/google-client')
+    const { fetchPaymentStatusFromUnpaidSheet, fetchWanamiUsageCount } = await import('./lib/google-client')
     const paymentDataList = skipProLevel ? [] : await fetchPaymentStatusFromUnpaidSheet(GOOGLE_SERVICE_ACCOUNT, month)
     if (!skipProLevel) {
       console.log(`[Auto Evaluate] Fetched payment data for ${paymentDataList.length} students`)
+    }
+    
+    // わなみさん使用回数を取得（プロレベル評価が必要な場合のみ）
+    const wanamiUsageMap = skipProLevel ? new Map<string, number>() : await fetchWanamiUsageCount(GOOGLE_SERVICE_ACCOUNT, month)
+    if (!skipProLevel) {
+      console.log(`[Auto Evaluate] Fetched Wanami usage count for ${wanamiUsageMap.size} students`)
     }
     
     // 重複防止：処理済み生徒IDを記録
@@ -4008,6 +4014,11 @@ app.post('/api/auto-evaluate', async (c) => {
               geminiAnalysis, // nullの場合もあり得る
               month
             )
+            
+            // わなみさん使用回数を追加
+            const wanamiUsageCount = wanamiUsageMap.get(student.studentId) || 0
+            proLevelResult.wanamiUsageCount = wanamiUsageCount
+            console.log(`[Auto Evaluate] Wanami usage count for ${student.studentId}: ${wanamiUsageCount}`)
             
             console.log(`[Auto Evaluate] Evaluation result for ${student.studentId}: ${proLevelResult.overallGrade}`)
             proLevelResults.push(proLevelResult)

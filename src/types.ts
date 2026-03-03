@@ -29,6 +29,7 @@ export interface EvaluationResult {
   studentName: string;         // 氏名
   scores: ProLevelScores;      // プロレベルセクションのスコア
   overallGrade: Grade;         // 総合評価
+  wanamiUsageCount?: number;   // わなみさん使用回数（前月）
   comments?: string;           // コメント
   evaluatedAt: string;         // 評価日時
 }
