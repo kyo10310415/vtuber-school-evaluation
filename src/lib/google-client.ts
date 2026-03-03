@@ -820,18 +820,15 @@ export async function fetchWanamiUsageCount(
   const data = await response.json();
   const rows = data.values || [];
   
-  // 前月の範囲を計算（評価月の前月のデータをカウント）
+  // 評価対象月の範囲を計算（評価月と同じ月のデータをカウント）
   const [year, monthNum] = month.split('-').map(Number);
-  const targetDate = new Date(year, monthNum - 1, 1); // 評価対象月の1日
-  const previousMonthStart = new Date(targetDate);
-  previousMonthStart.setMonth(previousMonthStart.getMonth() - 1); // 前月の1日
-  const previousMonthEnd = new Date(targetDate);
-  previousMonthEnd.setDate(0); // 前月の最終日
+  const targetMonthStart = new Date(year, monthNum - 1, 1); // 評価対象月の1日
+  const targetMonthEnd = new Date(year, monthNum, 0); // 評価対象月の最終日
   
   console.log('[fetchWanamiUsageCount] Date range:', {
     month,
-    previousMonthStart: previousMonthStart.toISOString(),
-    previousMonthEnd: previousMonthEnd.toISOString(),
+    targetMonthStart: targetMonthStart.toISOString(),
+    targetMonthEnd: targetMonthEnd.toISOString(),
     totalRecords: rows.length,
   });
 
@@ -860,8 +857,8 @@ export async function fetchWanamiUsageCount(
     // タイムスタンプをパース（例: "2024/12/15 14:30:00"）
     const recordDate = new Date(timestamp);
     
-    // 前月の範囲内かチェック
-    if (recordDate >= previousMonthStart && recordDate <= previousMonthEnd) {
+    // 評価対象月の範囲内かチェック
+    if (recordDate >= targetMonthStart && recordDate <= targetMonthEnd) {
       const currentCount = usageCountMap.get(studentId) || 0;
       usageCountMap.set(studentId, currentCount + 1);
       

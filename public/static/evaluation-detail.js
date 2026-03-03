@@ -286,7 +286,7 @@ function renderProLevelEvaluation(proLevel) {
             <i class="fas fa-comments text-pink-600 text-2xl mr-3"></i>
             <div>
               <p class="text-sm text-pink-700 font-semibold">わなみさん使用回数</p>
-              <p class="text-xs text-gray-600">前月のQ&A利用回数</p>
+              <p class="text-xs text-gray-600">評価対象月のQ&A利用回数</p>
             </div>
           </div>
           <div class="text-right">
