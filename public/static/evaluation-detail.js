@@ -105,6 +105,22 @@ async function loadEvaluationData() {
     const response = await fetch(`/api/evaluation/complete/${currentStudentId}?month=${currentMonth}&cache=${useCache}`);
     const result = await response.json();
     
+    // わなみさん使用回数を取得
+    try {
+      const wanamiResponse = await fetch(`/api/wanami-usage?month=${currentMonth}&studentId=${currentStudentId}`);
+      const wanamiData = await wanamiResponse.json();
+      if (wanamiData.success) {
+        // プロレベル評価にわなみさん使用回数を追加
+        if (!result.proLevel) {
+          result.proLevel = {};
+        }
+        result.proLevel['わなみさん使用回数'] = wanamiData.usageCount || 0;
+      }
+    } catch (error) {
+      console.warn('わなみさん使用回数の取得に失敗しました:', error);
+      // エラーでも続行
+    }
+    
     hideLoading();
     
     if (!result.success) {
@@ -261,6 +277,25 @@ function renderProLevelEvaluation(proLevel) {
         `).join('')}
       </div>
     </div>
+    
+    <!-- わなみさん使用回数 -->
+    ${proLevel['わなみさん使用回数'] !== undefined ? `
+      <div class="bg-gradient-to-br from-pink-50 to-pink-100 rounded-lg p-4 mb-6 border-2 border-pink-200">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center">
+            <i class="fas fa-comments text-pink-600 text-2xl mr-3"></i>
+            <div>
+              <p class="text-sm text-pink-700 font-semibold">わなみさん使用回数</p>
+              <p class="text-xs text-gray-600">前月のQ&A利用回数</p>
+            </div>
+          </div>
+          <div class="text-right">
+            <div class="text-4xl font-bold text-pink-900">${proLevel['わなみさん使用回数']}</div>
+            <p class="text-xs text-gray-600">回</p>
+          </div>
+        </div>
+      </div>
+    ` : ''}
     
     ${proLevel['コメント'] ? `
       <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">

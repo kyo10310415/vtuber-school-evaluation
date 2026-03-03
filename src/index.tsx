@@ -77,6 +77,7 @@ const publicApiRoutes = [
   '/api/analytics/auto-fetch/test',
   '/api/health',  // 修正: /health → /api/health
   '/api/debug/env',
+  '/api/wanami-usage',  // わなみさん使用回数取得
 ];
 
 app.use('*', async (c, next) => {
