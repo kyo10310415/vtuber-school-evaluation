@@ -4,6 +4,7 @@
  */
 
 import { calculateXGrade } from './grade-calculator'
+import { canMakeRequest, recordRequest, getWaitTime } from './x-rate-limiter'
 
 export interface XUserMetrics {
   userId: string;
@@ -86,9 +87,18 @@ export async function fetchXUserByUsername(
   const cleanUsername = username.replace('@', '');
   console.log(`[X API] Fetching user: ${cleanUsername}`);
 
+  // レート制限チェック
+  if (!canMakeRequest('user_lookup')) {
+    const waitTime = getWaitTime('user_lookup');
+    const waitMin = Math.ceil(waitTime / 1000 / 60);
+    console.warn(`[X API] Rate limit approaching. Waiting ${waitMin} minutes...`);
+    await new Promise(resolve => setTimeout(resolve, waitTime));
+  }
+
   const url = `https://api.twitter.com/2/users/by/username/${cleanUsername}?user.fields=public_metrics`;
 
   try {
+    recordRequest('user_lookup');
     const response = await fetch(url, {
       headers: {
         'Authorization': `Bearer ${bearerToken}`,
@@ -250,6 +260,15 @@ export async function fetchRecentTweets(
 
       console.log(`[X API] Fetching tweets page ${pageCount} for user: ${userId}, maxResults: ${maxResults}`);
       
+      // レート制限チェック
+      if (!canMakeRequest('user_tweets')) {
+        const waitTime = getWaitTime('user_tweets');
+        const waitMin = Math.ceil(waitTime / 1000 / 60);
+        console.warn(`[X API] Rate limit approaching for tweets. Waiting ${waitMin} minutes...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
+      
+      recordRequest('user_tweets');
       const response = await fetch(url, {
         headers: {
           'Authorization': `Bearer ${bearerToken}`,
