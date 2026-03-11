@@ -73,6 +73,7 @@ const publicApiRoutes = [
   '/api/auto-evaluate',  // 月次評価エンドポイントも追加
   '/api/auto-evaluate/status',  // バッチ情報取得
   '/api/auto-evaluate-x-only',  // X評価専用バッチエンドポイント
+  '/api/x/evaluate-batch-auto',  // X評価自動分割実行
   '/api/admin/run-migrations',
   '/api/analytics/auto-fetch/test',
   '/api/health',  // 修正: /health → /api/health
