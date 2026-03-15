@@ -70,6 +70,7 @@ app.use('/api/*', cors())
 // 自動化エンドポイント（Cron等）はSSO認証を除外
 const publicApiRoutes = [
   '/api/analytics/auto-fetch',
+  '/api/analytics/by-type',  // UI「データ読み込み」ボタン用
   '/api/auto-evaluate',  // 月次評価エンドポイントも追加
   '/api/auto-evaluate/status',  // バッチ情報取得
   '/api/auto-evaluate-x-only',  // X評価専用バッチエンドポイント
