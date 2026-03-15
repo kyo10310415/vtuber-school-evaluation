@@ -50,6 +50,182 @@ function getRecentMonths(n) {
   return months.reverse(); // 古い順に並び替え
 }
 
+// プロレベルセクション比較を描画
+function renderProLevelComparison() {
+  const section = document.getElementById('prolevel-comparison-section');
+  
+  // デバッグ: プロレベルデータをログ出力
+  console.log('[プロレベル描画] reportData.report:', reportData.report);
+  reportData.report.forEach((r, i) => {
+    console.log(`[プロレベル描画] [${i}] 月: ${r.month}, proLevel:`, r.proLevel);
+  });
+  
+  // データ抽出
+  const months = reportData.report.map(r => r.month);
+  const totalGrades = reportData.report.map(r => {
+    const proLevel = r.proLevel;
+    if (!proLevel) return null;
+    
+    // 総合評価をポイント化（S=5, A=4, B=3, C=2, D=1）
+    const gradeMap = { 'S': 5, 'A': 4, 'B': 3, 'C': 2, 'D': 1 };
+    return gradeMap[proLevel['総合評価']] || 0;
+  });
+  
+  const hasProLevelData = reportData.report.some(r => r.proLevel);
+  
+  if (!hasProLevelData) {
+    section.innerHTML = '<p class="text-gray-500 text-center py-8">プロレベルセクションのデータがありません</p>';
+    return;
+  }
+  
+  const chartsHtml = `
+    <div class="mb-8">
+      <h3 class="text-2xl font-bold mb-4 text-gray-800">
+        <i class="fas fa-graduation-cap mr-2 text-purple-600"></i>
+        プロレベルセクション 評価推移
+      </h3>
+      
+      <div class="bg-white rounded-lg shadow p-6 mb-6">
+        <h4 class="text-lg font-bold mb-4">総合評価の推移</h4>
+        <canvas id="prolevel-grade-chart"></canvas>
+      </div>
+      
+      <div class="bg-white rounded-lg shadow p-6">
+        <h4 class="text-lg font-bold mb-4">詳細評価</h4>
+        <div class="overflow-x-auto">
+          <table class="min-w-full">
+            <thead class="bg-gray-100">
+              <tr>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">評価月</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">総合評価</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">欠席・遅刻</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">ミッション</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">支払い</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">傾聴力</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">理解度</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-200">
+              ${reportData.report.map(r => {
+                const p = r.proLevel;
+                if (!p) return `
+                  <tr class="hover:bg-gray-50">
+                    <td class="px-4 py-3 whitespace-nowrap font-semibold text-purple-600">${r.month}</td>
+                    <td colspan="6" class="px-4 py-3 text-gray-400 text-center">データなし</td>
+                  </tr>
+                `;
+                
+                // 欠席と遅刻を結合して表示
+                const absenceGrade = p['欠席'] || p['遅刻'] || '-';
+                const listeningGrade = p['アクティブリスニング'] || '-';
+                
+                return `
+                  <tr class="hover:bg-gray-50">
+                    <td class="px-4 py-3 whitespace-nowrap font-semibold text-purple-600">${r.month}</td>
+                    <td class="px-4 py-3 whitespace-nowrap">
+                      <span class="px-3 py-1 rounded-full text-sm font-bold ${getGradeBadgeClass(p['総合評価'])}">
+                        ${p['総合評価'] || '-'}
+                      </span>
+                    </td>
+                    <td class="px-4 py-3 whitespace-nowrap">
+                      <span class="px-2 py-1 rounded text-sm ${getGradeBadgeClass(absenceGrade)}">
+                        欠席:${p['欠席'] || '-'} / 遅刻:${p['遅刻'] || '-'}
+                      </span>
+                    </td>
+                    <td class="px-4 py-3 whitespace-nowrap">
+                      <span class="px-2 py-1 rounded text-sm ${getGradeBadgeClass(p['ミッション'])}">
+                        ${p['ミッション'] || '-'}
+                      </span>
+                    </td>
+                    <td class="px-4 py-3 whitespace-nowrap">
+                      <span class="px-2 py-1 rounded text-sm ${getGradeBadgeClass(p['支払い'])}">
+                        ${p['支払い'] || '-'}
+                      </span>
+                    </td>
+                    <td class="px-4 py-3 whitespace-nowrap">
+                      <span class="px-2 py-1 rounded text-sm ${getGradeBadgeClass(listeningGrade)}">
+                        ${listeningGrade}
+                      </span>
+                    </td>
+                    <td class="px-4 py-3 whitespace-nowrap">
+                      <span class="px-2 py-1 rounded text-sm ${getGradeBadgeClass(p['理解度'])}">
+                        ${p['理解度'] || '-'}
+                      </span>
+                    </td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  section.innerHTML = chartsHtml;
+  
+  // 総合評価チャート
+  new Chart(document.getElementById('prolevel-grade-chart'), {
+    type: 'line',
+    data: {
+      labels: months,
+      datasets: [{
+        label: '総合評価',
+        data: totalGrades,
+        borderColor: '#8B5CF6',
+        backgroundColor: 'rgba(139, 92, 246, 0.1)',
+        fill: true,
+        tension: 0.4,
+        pointRadius: 6,
+        pointHoverRadius: 8
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      scales: {
+        y: {
+          beginAtZero: false,
+          min: 0,
+          max: 5,
+          ticks: {
+            stepSize: 1,
+            callback: function(value) {
+              const gradeLabels = ['', 'D', 'C', 'B', 'A', 'S'];
+              return gradeLabels[value];
+            }
+          }
+        }
+      },
+      plugins: {
+        legend: {
+          display: false
+        },
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              const gradeLabels = ['', 'D', 'C', 'B', 'A', 'S'];
+              return '総合評価: ' + gradeLabels[context.parsed.y];
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
+// 評価グレードのバッジクラスを取得
+function getGradeBadgeClass(grade) {
+  const gradeColors = {
+    'S': 'bg-purple-600 text-white',
+    'A': 'bg-blue-500 text-white',
+    'B': 'bg-green-500 text-white',
+    'C': 'bg-yellow-500 text-white',
+    'D': 'bg-red-500 text-white'
+  };
+  return gradeColors[grade] || 'bg-gray-300 text-gray-700';
+}
+
 // イベントリスナー設定
 function setupEventListeners() {
   document.getElementById('load-btn').addEventListener('click', loadMonthlyReport);
@@ -112,6 +288,9 @@ async function loadMonthlyReport() {
   currentStudentId = document.getElementById('student-id-input').value.trim();
   const monthsInput = document.getElementById('months-input').value.trim();
   
+  console.log('[月次レポート読み込み] studentId:', currentStudentId);
+  console.log('[月次レポート読み込み] monthsInput:', monthsInput);
+  
   if (!currentStudentId) {
     showError('学籍番号を入力してください');
     return;
@@ -137,6 +316,21 @@ async function loadMonthlyReport() {
     
     reportData = result;
     
+    // デバッグ: レスポンスデータをログ出力
+    console.log('[月次レポート] 取得データ:', JSON.stringify(result, null, 2));
+    
+    // デバッグ: 月とYouTubeデータの対応関係を確認
+    result.report.forEach((r, i) => {
+      console.log(`[月次レポート] [${i}] 月: ${r.month}`);
+      if (r.youtube) {
+        console.log(`  - YouTube登録者: ${r.youtube.subscriberCount || 'なし'}`);
+        console.log(`  - YouTube動画数: ${r.youtube.videosInMonth || 'なし'}`);
+        console.log(`  - YouTubeエラー: ${r.youtube.error || 'なし'}`);
+      } else {
+        console.log(`  - YouTubeデータなし`);
+      }
+    });
+    
     // 画面を表示
     document.getElementById('loading-section').classList.add('hidden');
     document.getElementById('report-section').classList.remove('hidden');
@@ -155,6 +349,9 @@ function renderMonthlyReport() {
   // ヘッダー情報を表示
   document.getElementById('student-name').textContent = reportData.studentName;
   document.getElementById('display-student-id').textContent = reportData.studentId;
+  
+  // プロレベルセクション比較
+  renderProLevelComparison();
   
   // YouTube比較チャート
   renderYouTubeComparisonCharts();
