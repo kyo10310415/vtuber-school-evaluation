@@ -25,6 +25,8 @@ export async function updateStudentListSheet(
   const sheetName = '所属生一覧';
   
   try {
+    console.log(`[WeeklySpreadsheet] Updating student list sheet for ${students.length} students`);
+    
     // シートが存在するか確認、なければ作成
     await ensureSheetExists(accessToken, spreadsheetId, sheetName);
     
@@ -128,7 +130,7 @@ export async function updateStudentListSheet(
         const actualRowIndex = rowIndex + 3; // +3 because of 2 header rows and 0-based to 1-based
         
         await fetch(
-          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!D${actualRowIndex}:${getColumnLetter(weekStartColumn + dataValues.length)}${actualRowIndex}?valueInputOption=RAW`,
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!D${actualRowIndex}:${getColumnLetter(3 + dataValues.length)}${actualRowIndex}?valueInputOption=RAW`,
           {
             method: 'PUT',
             headers: {
@@ -172,6 +174,8 @@ export async function updateIndividualSheet(
   try {
     // シートが存在するか確認、なければ作成
     await ensureSheetExists(accessToken, spreadsheetId, sheetName);
+    
+    console.log(`[WeeklySpreadsheet] Processing individual sheet: ${sheetName}`);
     
     // 既存のヘッダーを取得（B1以降）
     const headerResponse = await fetch(
