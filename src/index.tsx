@@ -71,6 +71,7 @@ app.use('/api/*', cors())
 const publicApiRoutes = [
   '/api/analytics/auto-fetch',
   '/api/analytics/by-type',  // UI「データ読み込み」ボタン用
+  '/api/analytics/check-env',  // 環境変数確認
   '/api/auto-evaluate',  // 月次評価エンドポイントも追加
   '/api/auto-evaluate/status',  // バッチ情報取得
   '/api/auto-evaluate-x-only',  // X評価専用バッチエンドポイント
