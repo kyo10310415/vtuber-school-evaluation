@@ -39,53 +39,49 @@ export async function updateStudentListSheet(
     );
     
     let headers: string[] = ['名前', '学籍番号', 'キャラクター名'];
-    let weekStartColumn = -1;
     
     if (headerResponse.ok) {
       const headerData = await headerResponse.json();
       if (headerData.values && headerData.values[0]) {
         headers = headerData.values[0];
-        // 既存の週データがあるかチェック（最初のデータ項目で判定）
-        weekStartColumn = headers.indexOf(dataItemLabels[0]);
       }
     }
     
-    // 新しい週のデータを追加
-    if (weekStartColumn === -1) {
-      weekStartColumn = headers.length;
-      headers.push(...dataItemLabels);
-      
-      // 1行目に週ラベルを追加（週の開始列にのみ）
-      const weekLabelColumn = getColumnLetter(weekStartColumn + 1);
-      await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!${weekLabelColumn}1?valueInputOption=RAW`,
-        {
-          method: 'PUT',
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            values: [[weekLabel]],
-          }),
-        }
-      );
-      
-      // 2行目のヘッダー行を更新（名前・学籍番号・キャラクター名 + データ項目）
-      await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A2:${getColumnLetter(headers.length)}2?valueInputOption=RAW`,
-        {
-          method: 'PUT',
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            values: [headers],
-          }),
-        }
-      );
-    }
+    // 所属生一覧シートは常に最新の値のみ表示するため、既存データをクリア
+    const weekStartColumn = 3; // D列から開始（A:名前, B:学籍番号, C:キャラクター名）
+    
+    // ヘッダーを更新（既存のA-C列は保持、D列以降をデータ項目で上書き）
+    const newHeaders = ['名前', '学籍番号', 'キャラクター名', ...dataItemLabels];
+    
+    // 1行目に週ラベルを追加（D列）
+    await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!D1?valueInputOption=RAW`,
+      {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          values: [[weekLabel]],
+        }),
+      }
+    );
+    
+    // 2行目のヘッダー行を更新
+    await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A2:${getColumnLetter(newHeaders.length)}2?valueInputOption=RAW`,
+      {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          values: [newHeaders],
+        }),
+      }
+    );
     
     // 既存データを取得（3行目以降、A列〜C列：名前・学籍番号・キャラクター名）
     const dataResponse = await fetch(
@@ -101,7 +97,7 @@ export async function updateStudentListSheet(
       }
     }
     
-    // 各生徒のデータを更新
+    // 各生徒のデータを更新（D列以降に最新データのみ書き込み）
     for (const student of students) {
       const rowIndex = existingData.findIndex(row => row[1] === student.studentId);
       const dataValues = buildIndividualDataRows(student.data).map(item => item.value);
@@ -109,12 +105,11 @@ export async function updateStudentListSheet(
       if (rowIndex === -1) {
         // 新しい行を追加（3行目以降）
         const newRowIndex = existingData.length + 3; // +3 because of 2 header rows and 1-based index
-        const startColumn = getColumnLetter(weekStartColumn + 1);
-        const endColumn = getColumnLetter(weekStartColumn + dataValues.length);
         
-        // 名前と学籍番号を追加（C列のキャラクター名は手入力のためスキップ）
+        // 名前、学籍番号、キャラクター名（空）、データ項目を追加
+        const fullRow = [student.name, student.studentId, '', ...dataValues];
         await fetch(
-          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A${newRowIndex}:B${newRowIndex}?valueInputOption=RAW`,
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A${newRowIndex}:${getColumnLetter(fullRow.length)}${newRowIndex}?valueInputOption=RAW`,
           {
             method: 'PUT',
             headers: {
@@ -122,35 +117,18 @@ export async function updateStudentListSheet(
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              values: [[student.name, student.studentId]],
-            }),
-          }
-        );
-        
-        // データ項目を追加
-        await fetch(
-          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!${startColumn}${newRowIndex}:${endColumn}${newRowIndex}?valueInputOption=RAW`,
-          {
-            method: 'PUT',
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              values: [dataValues],
+              values: [fullRow],
             }),
           }
         );
         
         existingData.push([student.name, student.studentId, '']); // キャラクター名は空で追加
       } else {
-        // 既存の行を更新
+        // 既存の行を更新（D列以降のみ）
         const actualRowIndex = rowIndex + 3; // +3 because of 2 header rows and 0-based to 1-based
-        const startColumn = getColumnLetter(weekStartColumn + 1);
-        const endColumn = getColumnLetter(weekStartColumn + dataValues.length);
         
         await fetch(
-          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!${startColumn}${actualRowIndex}:${endColumn}${actualRowIndex}?valueInputOption=RAW`,
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!D${actualRowIndex}:${getColumnLetter(weekStartColumn + dataValues.length)}${actualRowIndex}?valueInputOption=RAW`,
           {
             method: 'PUT',
             headers: {
@@ -228,12 +206,41 @@ export async function updateIndividualSheet(
       }
     );
     
-    // データ項目とデータをA列と新しい列に書き込み
+    // 既存のデータ項目ラベル（A列）を取得
     const dataItems = buildIndividualDataRows(data);
-    const rows = dataItems.map(item => [item.label, ...Array(weekHeaders.length - 1).fill(''), item.value]);
+    const existingLabelsResponse = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A2:A${dataItems.length + 1}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
     
+    let hasExistingLabels = false;
+    if (existingLabelsResponse.ok) {
+      const labelsData = await existingLabelsResponse.json();
+      hasExistingLabels = labelsData.values && labelsData.values.length > 0;
+    }
+    
+    // A列のラベルが無い場合のみ書き込み
+    if (!hasExistingLabels) {
+      const labelRows = dataItems.map(item => [item.label]);
+      await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A2:A${dataItems.length + 1}?valueInputOption=RAW`,
+        {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            values: labelRows,
+          }),
+        }
+      );
+    }
+    
+    // 新しい列（newColumnIndex列）にのみデータを書き込み
+    const valueRows = dataItems.map(item => [item.value]);
     await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A2:${getColumnLetter(newColumnIndex)}${dataItems.length + 1}?valueInputOption=RAW`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!${getColumnLetter(newColumnIndex)}2:${getColumnLetter(newColumnIndex)}${dataItems.length + 1}?valueInputOption=RAW`,
       {
         method: 'PUT',
         headers: {
@@ -241,7 +248,7 @@ export async function updateIndividualSheet(
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          values: rows,
+          values: valueRows,
         }),
       }
     );
