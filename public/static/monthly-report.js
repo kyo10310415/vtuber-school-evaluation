@@ -347,7 +347,7 @@ async function loadMonthlyReport() {
 // 月次レポートを表示
 function renderMonthlyReport() {
   // ヘッダー情報を表示
-  document.getElementById('student-name').textContent = reportData.studentName;
+  document.getElementById('student-name').textContent = reportData.studentId;
   document.getElementById('display-student-id').textContent = reportData.studentId;
   
   // プロレベルセクション比較

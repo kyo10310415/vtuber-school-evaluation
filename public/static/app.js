@@ -49,8 +49,9 @@ function renderStudentList(studentList, statusFilter = '全て') {
       <div class="flex items-center justify-between">
         <div>
           <h3 class="font-bold text-lg text-blue-600 hover:text-blue-800 student-name">
-            ${student.studentId}
+            ${student.name}
           </h3>
+          <p class="text-gray-600 text-sm">学籍番号: ${student.studentId}</p>
         </div>
         <div class="text-right">
           <span class="inline-block px-3 py-1 ${getStatusColor(student.status)} rounded-full text-sm">
@@ -391,7 +392,8 @@ function renderBatchResults(results, type) {
         <div class="bg-white rounded-lg shadow-lg p-4 hover:shadow-xl transition">
           <div class="flex items-center justify-between">
             <div>
-              <h3 class="font-bold text-lg">${result.studentId}</h3>
+              <h3 class="font-bold text-lg">${result.studentName}</h3>
+              <p class="text-gray-600 text-sm">学籍番号: ${result.studentId}</p>
             </div>
             <div class="text-center">
               <div class="text-xs text-gray-600 mb-1">${type}評価</div>
@@ -407,7 +409,8 @@ function renderBatchResults(results, type) {
         <div class="bg-white rounded-lg shadow-lg p-4 hover:shadow-xl transition border-l-4 border-red-500">
           <div class="flex items-center justify-between">
             <div>
-              <h3 class="font-bold text-lg">${result.studentId}</h3>
+              <h3 class="font-bold text-lg">${result.studentName}</h3>
+              <p class="text-gray-600 text-sm">学籍番号: ${result.studentId}</p>
             </div>
             <div>
               <span class="inline-block px-3 py-1 bg-red-100 text-red-800 rounded-lg text-sm">
@@ -447,7 +450,8 @@ function renderResults(results) {
       <div class="bg-white rounded-lg shadow-lg p-6 hover:shadow-xl transition">
         <div class="flex items-center justify-between mb-4">
           <div>
-            <h3 class="font-bold text-xl">${result.studentId}</h3>
+            <h3 class="font-bold text-xl">${result.studentName}</h3>
+            <p class="text-gray-600">学籍番号: ${result.studentId}</p>
           </div>
           <div class="text-center">
             <div class="text-sm text-gray-600 mb-1">総合評価</div>
@@ -537,7 +541,9 @@ function renderSearchResults(results, studentId) {
   const titleElement = document.getElementById('search-results-title');
   const container = document.getElementById('search-results-list');
   
-  titleElement.textContent = `${studentId} の評価履歴`;
+  // 生徒名を取得（最初の結果から）
+  const studentName = results[0]['氏名'] || '';
+  titleElement.textContent = `${studentName}（${studentId}）の評価履歴`;
   
   const gradeColor = {
     'S': 'bg-purple-100 text-purple-800',

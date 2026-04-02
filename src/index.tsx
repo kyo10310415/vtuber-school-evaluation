@@ -1148,8 +1148,8 @@ app.get('/monthly-report', (c) => {
           <div class="bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg shadow-lg p-6 mb-6 border border-purple-200">
             <div class="flex items-center justify-between">
               <div>
-                <h2 class="text-2xl font-bold text-gray-800" id="student-name">生徒名</h2>
-                <p class="text-gray-600">学籍番号: <span id="display-student-id">-</span></p>
+                <h2 class="text-2xl font-bold text-gray-800" id="student-name">-</h2>
+                <span id="display-student-id" class="hidden"></span>
               </div>
             </div>
           </div>
