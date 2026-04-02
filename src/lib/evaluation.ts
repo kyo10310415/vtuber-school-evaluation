@@ -140,7 +140,6 @@ export function convertResultToArray(result: EvaluationResult): any[] {
     result.scores.activeListening,  // アクティブリスニング
     result.scores.comprehension,    // 理解度
     result.overallGrade,       // 総合評価
-    result.wanamiUsageCount ?? 0,   // わなみさん使用回数（前月）
     result.comments,           // コメント
     result.evaluatedAt,        // 評価日時
   ];
