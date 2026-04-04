@@ -106,6 +106,9 @@ async function showStudentHistory(studentId) {
 
 // イベントリスナー設定
 function setupEventListeners() {
+  // プロレベル一括実行ボタン
+  document.getElementById('run-prolevel-batch-btn').addEventListener('click', runProLevelBatch);
+
   // 採点実行ボタン
   document.getElementById('run-evaluation-btn').addEventListener('click', runEvaluation);
   
@@ -149,6 +152,99 @@ function setupEventListeners() {
 }
 
 // 採点を実行
+// プロレベル評価 全生徒一括実行（評価済みスキップ）
+async function runProLevelBatch() {
+  const month = document.getElementById('prolevel-batch-month').value;
+  if (!month) {
+    showError('評価対象月を選択してください');
+    return;
+  }
+
+  if (!confirm(`${month} のプロレベル評価を全生徒に対して実行します。\n\nすでに評価済みの生徒はスキップします。\n\nよろしいですか？`)) {
+    return;
+  }
+
+  const progressDiv   = document.getElementById('prolevel-batch-progress');
+  const statusEl      = document.getElementById('prolevel-batch-status');
+  const countEl       = document.getElementById('prolevel-batch-count');
+  const barEl         = document.getElementById('prolevel-batch-bar');
+  const detailEl      = document.getElementById('prolevel-batch-detail');
+  const btn           = document.getElementById('run-prolevel-batch-btn');
+
+  progressDiv.classList.remove('hidden');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>実行中...';
+
+  let batchIndex   = 0;
+  const batchSize  = 5;
+  let totalStudents = 0;
+  let processedTotal = 0;
+  let successTotal  = 0;
+  let errorTotal    = 0;
+  let skippedTotal  = 0;
+  let hasNextBatch  = true;
+
+  try {
+    while (hasNextBatch) {
+      statusEl.textContent  = `バッチ ${batchIndex + 1} を実行中...`;
+      detailEl.textContent  = `batchIndex=${batchIndex}, batchSize=${batchSize}, skipEvaluated=true`;
+
+      const res = await fetch(
+        `/api/auto-evaluate?month=${month}&batchIndex=${batchIndex}&batchSize=${batchSize}&skipX=true&skipYouTube=true&skipEvaluated=true`,
+        { method: 'POST' }
+      );
+
+      if (!res.ok) {
+        throw new Error(`バッチ ${batchIndex} が失敗しました (HTTP ${res.status})`);
+      }
+
+      const data = await res.json();
+
+      if (!data.success) {
+        throw new Error(data.error || `バッチ ${batchIndex} でエラーが発生しました`);
+      }
+
+      // 総生徒数を初回に確定
+      if (totalStudents === 0 && data.batchInfo) {
+        totalStudents = data.batchInfo.totalActiveStudents || 0;
+      }
+
+      successTotal  += data.successCount  || 0;
+      errorTotal    += data.errorCount    || 0;
+      skippedTotal  += data.skippedCount  || 0;
+      processedTotal = successTotal + errorTotal + skippedTotal;
+
+      hasNextBatch  = data.batchInfo?.hasNextBatch ?? false;
+
+      // プログレスバー更新
+      const pct = totalStudents > 0 ? Math.min(100, Math.round(processedTotal / totalStudents * 100)) : 0;
+      barEl.style.width  = pct + '%';
+      countEl.textContent = `${processedTotal} / ${totalStudents}`;
+      detailEl.textContent = `成功: ${successTotal}件 / エラー: ${errorTotal}件 / スキップ: ${skippedTotal}件`;
+
+      if (!hasNextBatch) break;
+      batchIndex++;
+
+      // 次のバッチまで少し待機
+      await new Promise(r => setTimeout(r, 1000));
+    }
+
+    statusEl.textContent  = '✅ 完了';
+    barEl.style.width     = '100%';
+    countEl.textContent   = `${processedTotal} / ${totalStudents}`;
+    detailEl.textContent  = `全バッチ完了 — 成功: ${successTotal}件 / エラー: ${errorTotal}件 / スキップ（評価済み）: ${skippedTotal}件`;
+    showSuccess(`プロレベル評価が完了しました！\n成功: ${successTotal}件、エラー: ${errorTotal}件、スキップ: ${skippedTotal}件`);
+
+  } catch (err) {
+    statusEl.textContent  = '❌ エラー';
+    detailEl.textContent  = err.message;
+    showError('プロレベル一括実行でエラーが発生しました: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-rocket mr-2"></i>全生徒を一括実行';
+  }
+}
+
 async function runEvaluation() {
   const month = document.getElementById('evaluation-month').value;
   const studentIdsInput = document.getElementById('student-ids-input').value.trim();
