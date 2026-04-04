@@ -77,164 +77,94 @@ jobs:
         id: batch_range
         run: |
           DAY="${{ steps.check_date.outputs.day }}"
-
-          # プロレベル: 1日あたり40バッチ（200人）
-          PROLEVEL_BATCHES_PER_DAY=40
-
-          # YouTube: 1日あたり16バッチ（80人）※クォータ制限対策
-          YOUTUBE_BATCHES_PER_DAY=16
-
-          # プロレベルのバッチ範囲
-          PROLEVEL_START=$(( (DAY - 1) * PROLEVEL_BATCHES_PER_DAY ))
-          PROLEVEL_END=$(( PROLEVEL_START + PROLEVEL_BATCHES_PER_DAY - 1 ))
-
-          # YouTubeのバッチ範囲
-          YOUTUBE_START=$(( (DAY - 1) * YOUTUBE_BATCHES_PER_DAY ))
-          YOUTUBE_END=$(( YOUTUBE_START + YOUTUBE_BATCHES_PER_DAY - 1 ))
-
+          BATCHES_PER_DAY=16  # 1日あたり16バッチ（80人）
+          
+          # YouTube評価は2日で完了（154人 ÷ 80 = 2日）
+          # Day 1: batch 0-15 (80人)
+          # Day 2: batch 16-30 (75人) - YouTube完了
+          # Day 3-9: プロレベルのみ
+          
+          START_BATCH=$(( (DAY - 1) * BATCHES_PER_DAY ))
+          END_BATCH=$(( START_BATCH + BATCHES_PER_DAY - 1 ))
+          
           # YouTubeは31バッチで完了（154人）
           YOUTUBE_TOTAL_BATCHES=31
-
-          if [ $YOUTUBE_END -ge $YOUTUBE_TOTAL_BATCHES ]; then
-            YOUTUBE_END=$(( YOUTUBE_TOTAL_BATCHES - 1 ))
+          
+          if [ $END_BATCH -ge $YOUTUBE_TOTAL_BATCHES ]; then
+            END_BATCH=$(( YOUTUBE_TOTAL_BATCHES - 1 ))
             echo "youtube_completed=true" >> $GITHUB_OUTPUT
-            echo "🎉 YouTube evaluation will be completed today (batch $YOUTUBE_START-$YOUTUBE_END)"
+            echo "🎉 YouTube evaluation will be completed today (batch $START_BATCH-$END_BATCH)"
           else
             echo "youtube_completed=false" >> $GITHUB_OUTPUT
           fi
-
-          echo "prolevel_start=$PROLEVEL_START" >> $GITHUB_OUTPUT
-          echo "prolevel_end=$PROLEVEL_END" >> $GITHUB_OUTPUT
-          echo "youtube_start=$YOUTUBE_START" >> $GITHUB_OUTPUT
-          echo "youtube_end=$YOUTUBE_END" >> $GITHUB_OUTPUT
-          echo "📊 Day $DAY: ProLevel batch $PROLEVEL_START-$PROLEVEL_END (200人), YouTube batch $YOUTUBE_START-$YOUTUBE_END (80人)"
-
+          
+          echo "start_batch=$START_BATCH" >> $GITHUB_OUTPUT
+          echo "end_batch=$END_BATCH" >> $GITHUB_OUTPUT
+          echo "📊 Day $DAY: Processing batches $START_BATCH to $END_BATCH"
+      
       # ============================================
-      # プロレベル評価のみ（200人/日、X・YouTube をスキップ）
+      # プロレベル + YouTube 評価（X評価をスキップ）
       # ============================================
-
-      - name: Process ProLevel evaluation batches (200/day)
+      
+      - name: Process ProLevel + YouTube evaluation batches
         if: steps.check_date.outputs.should_run == 'true'
         run: |
           MONTH="${{ steps.get_month.outputs.month }}"
-          START_BATCH=${{ steps.batch_range.outputs.prolevel_start }}
-          END_BATCH=${{ steps.batch_range.outputs.prolevel_end }}
-
-          echo "🚀 Starting ProLevel evaluation for $MONTH"
-          echo "Processing batches $START_BATCH to $END_BATCH (40 batches, 200 students)"
-
+          START_BATCH=${{ steps.batch_range.outputs.start_batch }}
+          END_BATCH=${{ steps.batch_range.outputs.end_batch }}
+          
+          echo "🚀 Starting ProLevel + YouTube evaluation for $MONTH"
+          echo "Processing batches $START_BATCH to $END_BATCH (16 batches, 83 students)"
+          
           for ((i=START_BATCH; i<=END_BATCH; i++)); do
             echo "============================================"
-            echo "📦 Processing ProLevel Batch $i (Day ${{ steps.check_date.outputs.day }})"
+            echo "📦 Processing Batch $i (Day ${{ steps.check_date.outputs.day }})"
             echo "============================================"
-
+            
             MAX_RETRIES=3
             RETRY_COUNT=0
             SUCCESS=false
-
+            
             while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$SUCCESS" = "false" ]; do
               if [ $RETRY_COUNT -gt 0 ]; then
                 echo "⏳ Retry $RETRY_COUNT/$MAX_RETRIES after 30 seconds..."
                 sleep 30
               fi
-
-              # skipX=true, skipYouTube=true でプロレベルのみ評価（バッチサイズ5）
+              
+              # skipX=true でX評価をスキップ（バッチサイズ5）
               RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" \
                 -X POST \
-                "https://vtuber-school-evaluation.onrender.com/api/auto-evaluate?month=$MONTH&batchIndex=$i&batchSize=5&skipX=true&skipYouTube=true")
-
+                "https://vtuber-school-evaluation.onrender.com/api/auto-evaluate?month=$MONTH&batchIndex=$i&batchSize=5&skipX=true")
+              
               HTTP_STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS" | cut -d: -f2)
               BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS/d')
-
+              
               echo "Response Status: $HTTP_STATUS"
-
+              
               if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 400 ]; then
                 SUCCESS=true
                 SUCCESS_COUNT=$(echo "$BODY" | jq -r '.successCount')
                 ERROR_COUNT=$(echo "$BODY" | jq -r '.errorCount')
                 SKIPPED_COUNT=$(echo "$BODY" | jq -r '.skippedCount')
-                echo "✅ ProLevel Batch $i: Success=$SUCCESS_COUNT, Error=$ERROR_COUNT, Skipped=$SKIPPED_COUNT"
+                echo "✅ Batch $i completed: Success=$SUCCESS_COUNT, Error=$ERROR_COUNT, Skipped=$SKIPPED_COUNT"
               else
                 RETRY_COUNT=$((RETRY_COUNT+1))
-                echo "::warning::ProLevel Batch $i failed with status $HTTP_STATUS (Attempt $RETRY_COUNT/$MAX_RETRIES)"
+                echo "::warning::Batch $i failed with status $HTTP_STATUS (Attempt $RETRY_COUNT/$MAX_RETRIES)"
               fi
             done
-
+            
             if [ "$SUCCESS" = "false" ]; then
-              echo "::error::ProLevel Batch $i failed after $MAX_RETRIES attempts"
+              echo "::error::Batch $i failed after $MAX_RETRIES attempts"
             fi
-
-            if [ $i -lt $END_BATCH ]; then
-              echo "⏳ Waiting 5 seconds before next batch..."
-              sleep 5
-            fi
-          done
-
-          echo "✅ ProLevel evaluation completed for Day ${{ steps.check_date.outputs.day }}!"
-
-      # ============================================
-      # YouTube 評価のみ（80人/日、クォータ制限対策）
-      # ============================================
-
-      - name: Process YouTube evaluation batches (80/day)
-        if: steps.check_date.outputs.should_run == 'true'
-        run: |
-          MONTH="${{ steps.get_month.outputs.month }}"
-          START_BATCH=${{ steps.batch_range.outputs.youtube_start }}
-          END_BATCH=${{ steps.batch_range.outputs.youtube_end }}
-
-          echo "🚀 Starting YouTube evaluation for $MONTH"
-          echo "Processing batches $START_BATCH to $END_BATCH (16 batches, 80 students)"
-
-          for ((i=START_BATCH; i<=END_BATCH; i++)); do
-            echo "============================================"
-            echo "📦 Processing YouTube Batch $i (Day ${{ steps.check_date.outputs.day }})"
-            echo "============================================"
-
-            MAX_RETRIES=3
-            RETRY_COUNT=0
-            SUCCESS=false
-
-            while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$SUCCESS" = "false" ]; do
-              if [ $RETRY_COUNT -gt 0 ]; then
-                echo "⏳ Retry $RETRY_COUNT/$MAX_RETRIES after 30 seconds..."
-                sleep 30
-              fi
-
-              # skipX=true, skipProLevel=true でYouTubeのみ評価（バッチサイズ5）
-              RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" \
-                -X POST \
-                "https://vtuber-school-evaluation.onrender.com/api/auto-evaluate?month=$MONTH&batchIndex=$i&batchSize=5&skipX=true&skipProLevel=true")
-
-              HTTP_STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS" | cut -d: -f2)
-              BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS/d')
-
-              echo "Response Status: $HTTP_STATUS"
-
-              if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 400 ]; then
-                SUCCESS=true
-                SUCCESS_COUNT=$(echo "$BODY" | jq -r '.successCount')
-                ERROR_COUNT=$(echo "$BODY" | jq -r '.errorCount')
-                SKIPPED_COUNT=$(echo "$BODY" | jq -r '.skippedCount')
-                echo "✅ YouTube Batch $i: Success=$SUCCESS_COUNT, Error=$ERROR_COUNT, Skipped=$SKIPPED_COUNT"
-              else
-                RETRY_COUNT=$((RETRY_COUNT+1))
-                echo "::warning::YouTube Batch $i failed with status $HTTP_STATUS (Attempt $RETRY_COUNT/$MAX_RETRIES)"
-              fi
-            done
-
-            if [ "$SUCCESS" = "false" ]; then
-              echo "::error::YouTube Batch $i failed after $MAX_RETRIES attempts"
-            fi
-
-            # 次のバッチの前に待機（YouTube APIレート制限対策）
+            
+            # 次のバッチの前に少し待機（YouTube APIレート制限対策）
             if [ $i -lt $END_BATCH ]; then
               echo "⏳ Waiting 10 seconds before next batch..."
               sleep 10
             fi
           done
-
-          echo "✅ YouTube evaluation completed for Day ${{ steps.check_date.outputs.day }}!"
+          
+          echo "✅ ProLevel + YouTube evaluation completed for Day ${{ steps.check_date.outputs.day }}!"
       
       # ============================================
       # X評価（Day 1のみ実行）
@@ -300,7 +230,6 @@ jobs:
           echo "Date: $(date)"
           echo "Day: ${{ steps.check_date.outputs.day }}"
           echo "Month: ${{ steps.get_month.outputs.month }}"
-          echo "ProLevel Batches: ${{ steps.batch_range.outputs.prolevel_start }} - ${{ steps.batch_range.outputs.prolevel_end }} (200人/日)"
-          echo "YouTube Batches: ${{ steps.batch_range.outputs.youtube_start }} - ${{ steps.batch_range.outputs.youtube_end }} (80人/日)"
+          echo "Batches: ${{ steps.batch_range.outputs.start_batch }} - ${{ steps.batch_range.outputs.end_batch }}"
           echo "Status: Completed"
           echo "============================================"
