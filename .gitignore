@@ -31,3 +31,8 @@ lerna-debug.log*
 
 # misc
 .DS_Store
+
+# Testing files
+check_*.mjs
+test-*.js
+.env.local

@@ -8,6 +8,7 @@ import { fetchStudents, fetchAbsenceData, fetchDocumentsInFolder, fetchDocumentC
 import { GeminiAnalyzer } from './lib/gemini-client'
 import { evaluateStudent, convertResultToArray } from './lib/evaluation'
 import { ssoAuthMiddleware } from './middleware/sso-auth.js'
+import { fetchAbsenceDataFromPostgres } from './lib/absence-manager'
 
 type Bindings = {
   GOOGLE_SERVICE_ACCOUNT: string;
@@ -3536,8 +3537,9 @@ app.post('/api/evaluate', async (c) => {
 
     console.log(`[/api/evaluate] Evaluating ${students.length} students`)
 
-    // 欠席データを取得（直近3ヶ月以内から集計）
-    const absenceDataList = await fetchAbsenceData(GOOGLE_SERVICE_ACCOUNT, ABSENCE_SPREADSHEET_ID, request.month)
+    // 欠席データを取得（PostgreSQL「レッスン報告」から直近3ヶ月以内を集計）
+    const DATABASE_URL = getEnv(c, 'DATABASE_URL')
+    const absenceDataList = await fetchAbsenceDataFromPostgres(DATABASE_URL, request.month)
     
     // 支払いデータを取得（新仕様: 支払い漏れ数確認シート）
     const { fetchPaymentStatusFromUnpaidSheet } = await import('./lib/google-client')
@@ -3955,8 +3957,9 @@ app.post('/api/auto-evaluate', async (c) => {
     let accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
     let tokenRefreshedAt = Date.now()
     
-    // 欠席データを取得（プロレベル評価が必要な場合のみ）
-    const absenceDataList = skipProLevel ? [] : await fetchAbsenceData(GOOGLE_SERVICE_ACCOUNT, ABSENCE_SPREADSHEET_ID, month)
+    // 欠席データを取得（PostgreSQL「レッスン報告」から取得、プロレベル評価が必要な場合のみ）
+    const DATABASE_URL = getEnv(c, 'DATABASE_URL')
+    const absenceDataList = skipProLevel ? [] : await fetchAbsenceDataFromPostgres(DATABASE_URL, month)
     if (!skipProLevel) {
       console.log(`[Auto Evaluate] Fetched absence data for ${absenceDataList.length} students`)
     }
