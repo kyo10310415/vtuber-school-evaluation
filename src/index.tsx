@@ -25,7 +25,8 @@ type Bindings = {
   YOUTUBE_ANALYTICS_CLIENT_SECRET: string;
   YOUTUBE_ANALYTICS_REDIRECT_URI: string;
   ANALYTICS_TARGET_SPREADSHEET_ID: string;
-  DATABASE_URL: string; // PostgreSQL connection string
+  DATABASE_URL: string; // PostgreSQL connection string (SSO/token管理用)
+  STUDENT_MANAGEMENT_DATABASE_URL: string; // wannav-student-management DB（レッスン報告・欠席データ用）
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -3537,9 +3538,9 @@ app.post('/api/evaluate', async (c) => {
 
     console.log(`[/api/evaluate] Evaluating ${students.length} students`)
 
-    // 欠席データを取得（PostgreSQL「レッスン報告」から直近3ヶ月以内を集計）
-    const DATABASE_URL = getEnv(c, 'DATABASE_URL')
-    const absenceDataList = await fetchAbsenceDataFromPostgres(DATABASE_URL, request.month)
+    // 欠席データを取得（wannav-student-management PostgreSQL「レッスン報告」から直近3ヶ月以内を集計）
+    const STUDENT_MANAGEMENT_DATABASE_URL = getEnv(c, 'STUDENT_MANAGEMENT_DATABASE_URL')
+    const absenceDataList = await fetchAbsenceDataFromPostgres(STUDENT_MANAGEMENT_DATABASE_URL, request.month)
     
     // 支払いデータを取得（新仕様: 支払い漏れ数確認シート）
     const { fetchPaymentStatusFromUnpaidSheet } = await import('./lib/google-client')
@@ -3957,9 +3958,9 @@ app.post('/api/auto-evaluate', async (c) => {
     let accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
     let tokenRefreshedAt = Date.now()
     
-    // 欠席データを取得（PostgreSQL「レッスン報告」から取得、プロレベル評価が必要な場合のみ）
-    const DATABASE_URL = getEnv(c, 'DATABASE_URL')
-    const absenceDataList = skipProLevel ? [] : await fetchAbsenceDataFromPostgres(DATABASE_URL, month)
+    // 欠席データを取得（wannav-student-management PostgreSQL「レッスン報告」から取得、プロレベル評価が必要な場合のみ）
+    const STUDENT_MANAGEMENT_DATABASE_URL = getEnv(c, 'STUDENT_MANAGEMENT_DATABASE_URL')
+    const absenceDataList = skipProLevel ? [] : await fetchAbsenceDataFromPostgres(STUDENT_MANAGEMENT_DATABASE_URL, month)
     if (!skipProLevel) {
       console.log(`[Auto Evaluate] Fetched absence data for ${absenceDataList.length} students`)
     }

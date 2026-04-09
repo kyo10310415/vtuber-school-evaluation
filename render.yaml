@@ -12,6 +12,8 @@ services:
         value: 10000
       - key: DATABASE_URL
         sync: false
+      - key: STUDENT_MANAGEMENT_DATABASE_URL
+        sync: false
       - key: GOOGLE_SERVICE_ACCOUNT
         sync: false
       - key: GEMINI_API_KEY

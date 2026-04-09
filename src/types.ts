@@ -52,7 +52,8 @@ export interface TalkMemoDocument {
 // 欠席データ
 export interface AbsenceData {
   studentId: string;
-  absenceCount: number;
+  absenceCount: number;     // 無断キャンセル回数
+  rescheduleCount: number;  // 生徒様都合でリスケ回数
   month: string;
 }
 
