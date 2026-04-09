@@ -9,42 +9,13 @@ import type {
   GeminiAnalysisResult,
 } from '../types';
 
-// 欠席回数から評価を算出（無断キャンセル回数）
+// 欠席回数から評価を算出（無断キャンセル回数のみ）
 export function evaluateAbsence(absenceCount: number): Grade {
   if (absenceCount === 0) return 'S';
   if (absenceCount === 1) return 'A';
   if (absenceCount === 2) return 'B';
   if (absenceCount === 3) return 'C';
   return 'D'; // 4回以上
-}
-
-// リスケ回数から遅刻評価を算出（生徒様都合でリスケ回数）
-// トークメモからのGemini評価と組み合わせ、リスケがある場合は厳しくする
-export function evaluateLateness(
-  rescheduleCount: number,
-  geminiGrade: Grade | undefined
-): Grade {
-  // リスケ0件かつGemini評価あり → Gemini評価を採用
-  if (rescheduleCount === 0 && geminiGrade) return geminiGrade;
-
-  // リスケ0件かつGemini評価なし → S（デフォルト）
-  if (rescheduleCount === 0) return 'S';
-
-  // リスケがある場合: リスケ回数とGemini評価を組み合わせて算出
-  const rescheduleGrade: Grade =
-    rescheduleCount === 1 ? 'A' :
-    rescheduleCount === 2 ? 'B' :
-    rescheduleCount === 3 ? 'C' :
-    'D'; // 4回以上
-
-  // Gemini評価がない場合はリスケ回数のみで判定
-  if (!geminiGrade) return rescheduleGrade;
-
-  // Gemini評価とリスケ評価の悪い方を採用（厳格評価）
-  const gradePoints: Record<Grade, number> = { S: 5, A: 4, B: 3, C: 2, D: 1 };
-  const pointsToGrade: Record<number, Grade> = { 5: 'S', 4: 'A', 3: 'B', 2: 'C', 1: 'D' };
-  const minPoints = Math.min(gradePoints[geminiGrade], gradePoints[rescheduleGrade]);
-  return pointsToGrade[minPoints];
 }
 
 // 支払い状況から評価を算出（新仕様: S or D のみ）
@@ -94,12 +65,9 @@ export function evaluateStudent(
   geminiAnalysis: GeminiAnalysisResult | null, // nullを許容
   month: string
 ): EvaluationResult {
-  const rescheduleCount = absenceData?.rescheduleCount || 0;
-
   const scores: ProLevelScores = {
     absence: evaluateAbsence(absenceData?.absenceCount || 0),
-    // 遅刻: リスケ回数 + Gemini評価（遅刻・話し方など）を組み合わせ
-    lateness: evaluateLateness(rescheduleCount, geminiAnalysis?.lateness.grade),
+    lateness: geminiAnalysis?.lateness.grade || 'C', // Gemini評価のみ、デフォルトC
     mission: geminiAnalysis?.mission.grade || 'C', // デフォルトC
     payment: paymentData ? evaluatePayment(paymentData.paymentStatus) : 'S', // 支払いデータなし（未払いリストに含まれていない）= S評価
     activeListening: geminiAnalysis?.activeListening.grade || 'C', // デフォルトC
@@ -114,7 +82,7 @@ export function evaluateStudent(
     studentName: student.name,
     scores,
     overallGrade,
-    comments: generateComments(scores, geminiAnalysis, absenceData?.absenceCount || 0, rescheduleCount),
+    comments: generateComments(scores, geminiAnalysis, absenceData?.absenceCount || 0),
     evaluatedAt: new Date().toISOString(),
   };
 }
@@ -124,14 +92,13 @@ function generateComments(
   scores: ProLevelScores,
   analysis: GeminiAnalysisResult | null,
   absenceCount: number,
-  rescheduleCount: number,
 ): string {
   const comments: string[] = [];
 
   // 優れている点
   const strengths: string[] = [];
   if (scores.absence === 'S') strengths.push('皆勤');
-  if (scores.lateness === 'S' && rescheduleCount === 0) strengths.push('リスケなし');
+  if (scores.lateness === 'S') strengths.push('遅刻なし');
   if (scores.mission === 'S' || scores.mission === 'A') strengths.push('ミッション達成');
   // 支払い評価は一旦コメントから除外
 
@@ -142,9 +109,8 @@ function generateComments(
   // 改善点
   const improvements: string[] = [];
   if (absenceCount > 0) improvements.push(`無断キャンセル${absenceCount}回`);
-  if (rescheduleCount > 0) improvements.push(`リスケ${rescheduleCount}回`);
   if (scores.absence === 'C' || scores.absence === 'D') improvements.push('出席率の改善');
-  if (scores.lateness === 'D') improvements.push('リスケ・時間厳守');
+  if (scores.lateness === 'D') improvements.push('時間厳守');
   if (scores.mission === 'C' || scores.mission === 'D') improvements.push('ミッション取り組み');
   // 支払い評価は一旦コメントから除外
   if (scores.activeListening === 'C' || scores.activeListening === 'D') improvements.push('傾聴姿勢');
