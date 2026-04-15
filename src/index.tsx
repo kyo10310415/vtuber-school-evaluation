@@ -3,7 +3,7 @@ import { cors } from 'hono/cors'
 import { serveStatic } from 'hono/cloudflare-workers'
 import { renderer } from './renderer'
 import type { EvaluationRequest, EvaluationResponse, EvaluationResult } from './types'
-import { fetchStudents, fetchAbsenceData, fetchDocumentsInFolder, fetchDocumentContent, writeResultsToSheet } from './lib/google-client'
+import { fetchStudents, fetchAbsenceData, fetchDocumentsInFolder, fetchDocumentsInFolderByMonth, fetchDocumentContent, writeResultsToSheet } from './lib/google-client'
 // fetchPaymentData は一旦使用しない
 import { GeminiAnalyzer } from './lib/gemini-client'
 import { evaluateStudent, convertResultToArray } from './lib/evaluation'
@@ -3561,16 +3561,16 @@ app.post('/api/evaluate', async (c) => {
       try {
         console.log(`[/api/evaluate] Processing student: ${student.studentId} (${student.name})`)
         
-        // トークメモフォルダからドキュメントを取得
-        const documentIds = await fetchDocumentsInFolder(GOOGLE_SERVICE_ACCOUNT, student.talkMemoFolderUrl)
+        // トークメモフォルダから評価月に一致するドキュメントのみ取得
+        const monthDocs = await fetchDocumentsInFolderByMonth(GOOGLE_SERVICE_ACCOUNT, student.talkMemoFolderUrl, request.month)
         
-        if (documentIds.length === 0) {
-          errors.push(`${student.name}(${student.studentId}): トークメモが見つかりません`)
+        if (monthDocs.length === 0) {
+          errors.push(`${student.name}(${student.studentId}): ${request.month}のトークメモが見つかりません`)
           continue
         }
 
-        // 最新のドキュメントを取得（複数ある場合は統合も検討）
-        const talkMemo = await fetchDocumentContent(GOOGLE_SERVICE_ACCOUNT, documentIds[0])
+        // 評価月の最新ドキュメントを取得
+        const talkMemo = await fetchDocumentContent(GOOGLE_SERVICE_ACCOUNT, monthDocs[0].id)
 
         // Geminiで分析
         const geminiAnalysis = await gemini.analyzeTrainingSession(talkMemo)
@@ -4021,18 +4021,19 @@ app.post('/api/auto-evaluate', async (c) => {
             console.log(`[Auto Evaluate] Starting pro-level evaluation for ${student.studentId}`)
             let geminiAnalysis = null
             
-            // トークメモがある場合はGemini分析を実施
+            // トークメモがある場合はGemini分析を実施（評価月のファイルのみ対象）
             if (student.talkMemoFolderUrl) {
               console.log(`[Auto Evaluate] Talk memo folder URL found: ${student.talkMemoFolderUrl}`)
-              console.log(`[Auto Evaluate] Fetching talk memo documents for ${student.studentId}...`)
+              console.log(`[Auto Evaluate] Fetching talk memo documents for ${student.studentId} (month=${month})...`)
               
-              const documentIds = await fetchDocumentsInFolder(GOOGLE_SERVICE_ACCOUNT, student.talkMemoFolderUrl)
-              console.log(`[Auto Evaluate] Found ${documentIds.length} documents for ${student.studentId}`)
+              // 評価月に一致するファイルのみ取得
+              const monthDocs = await fetchDocumentsInFolderByMonth(GOOGLE_SERVICE_ACCOUNT, student.talkMemoFolderUrl, month)
+              console.log(`[Auto Evaluate] Found ${monthDocs.length} documents matching month ${month} for ${student.studentId}`)
               
-              if (documentIds.length > 0) {
-                console.log(`[Auto Evaluate] Fetching document content: ${documentIds[0]}`)
-                // 最新のドキュメントを取得
-                const talkMemo = await fetchDocumentContent(GOOGLE_SERVICE_ACCOUNT, documentIds[0])
+              if (monthDocs.length > 0) {
+                console.log(`[Auto Evaluate] Fetching document content: ${monthDocs[0].name}`)
+                // 評価月の最新ドキュメントを取得（複数ある場合は先頭＝最新）
+                const talkMemo = await fetchDocumentContent(GOOGLE_SERVICE_ACCOUNT, monthDocs[0].id)
                 console.log(`[Auto Evaluate] Document fetched. Content length: ${talkMemo.content.length} chars`)
                 console.log(`[Auto Evaluate] Analyzing talk memo with Gemini for ${student.studentId}`)
                 
@@ -4043,7 +4044,7 @@ app.post('/api/auto-evaluate', async (c) => {
                 geminiAnalysis = await gemini.analyzeTrainingSession(talkMemo)
                 console.log(`[Auto Evaluate] Gemini analysis completed for ${student.studentId}`)
               } else {
-                console.log(`[Auto Evaluate] No talk memo document found for ${student.studentId}`)
+                console.log(`[Auto Evaluate] No talk memo document found for month ${month} (${student.studentId}) - evaluating without Gemini analysis`)
               }
             } else {
               console.log(`[Auto Evaluate] No talk memo folder URL for ${student.studentId}`)

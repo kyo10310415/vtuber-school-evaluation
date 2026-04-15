@@ -454,6 +454,62 @@ export async function fetchDocumentsInFolder(
   return (data.files || []).map((file: any) => file.id || '');
 }
 
+/**
+ * フォルダ内のドキュメントを評価月でフィルタして取得
+ * ファイル名の命名規則: 「〇〇 - YYYY/MM/DD HH:MM JST - Gemini によるメモ」
+ * 「-」以降の日付部分で評価月（YYYY/MM）と一致するファイルのみ返す
+ * @param month 評価対象月（YYYY-MM形式）
+ * @returns 評価月に一致するドキュメントIDの配列（作成日時降順）
+ */
+export async function fetchDocumentsInFolderByMonth(
+  serviceAccountJson: string,
+  folderUrl: string,
+  month: string  // "YYYY-MM" 形式
+): Promise<{ id: string; name: string }[]> {
+  const accessToken = await getAccessToken(serviceAccountJson);
+  const folderId = extractFolderId(folderUrl);
+
+  if (!folderId) {
+    throw new Error(`Invalid folder URL: ${folderUrl}`);
+  }
+
+  const query = `'${folderId}' in parents and mimeType='application/vnd.google-apps.document' and trashed=false`;
+  const response = await fetch(
+    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,createdTime)&orderBy=createdTime desc`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    }
+  );
+
+  const data = await response.json();
+  const allFiles: { id: string; name: string }[] = (data.files || []).map((file: any) => ({
+    id: file.id || '',
+    name: file.name || '',
+  }));
+
+  // 評価月を "YYYY/MM" 形式に変換（例: "2026-03" → "2026/03"）
+  const monthSlash = month.replace('-', '/');
+
+  // ファイル名の「-」以降に評価月（YYYY/MM）が含まれるものだけ残す
+  // 例: "WannaVレッスン予約 (澤井稀冴) - 2026/03/15 21:59 JST - Gemini によるメモ"
+  //     → 最初の「 - 」以降を取り出して "2026/03" で始まるか確認
+  const filtered = allFiles.filter(file => {
+    const dashIdx = file.name.indexOf(' - ');
+    if (dashIdx === -1) return false;
+    const afterDash = file.name.slice(dashIdx + 3); // " - " の後ろ
+    return afterDash.startsWith(monthSlash);
+  });
+
+  console.log(`[fetchDocumentsInFolderByMonth] month=${month}, all=${allFiles.length}, matched=${filtered.length}`);
+  if (allFiles.length > 0) {
+    console.log(`[fetchDocumentsInFolderByMonth] All files:`, allFiles.map(f => f.name));
+  }
+
+  return filtered;
+}
+
 // Googleドキュメントの内容を取得（「文字起こし」タブを優先）
 export async function fetchDocumentContent(
   serviceAccountJson: string,
