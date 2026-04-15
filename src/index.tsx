@@ -3857,6 +3857,8 @@ app.post('/api/auto-evaluate', async (c) => {
       return isActive && !isPermanent
     })
     console.log(`[Auto Evaluate] Filtered to ${filteredStudents.length} active students (excluding 永久会員)`)
+    // 評価済みスキップ前の全体数を保持（プログレスバー用）
+    const totalActiveStudents = filteredStudents.length
     
     // トークメモがある生徒のみに絞り込み（onlyWithTalkMemo=true）
     if (onlyWithTalkMemo) {
@@ -3930,11 +3932,18 @@ app.post('/api/auto-evaluate', async (c) => {
       startIndex = 0
       endIndex = 1
     } else {
-      // バッチ処理: 指定されたバッチのみ処理
-      startIndex = batchIndex * batchSize
-      endIndex = Math.min(startIndex + batchSize, filteredStudents.length)
+      // バッチ処理
+      // skipEvaluated=true の場合：毎回「未評価の先頭N件」を取るので batchIndex は使わず常に先頭から
+      // skipEvaluated=false の場合：batchIndex * batchSize のオフセットで切り出す
+      if (skipEvaluated) {
+        startIndex = 0
+        endIndex = Math.min(batchSize, filteredStudents.length)
+      } else {
+        startIndex = batchIndex * batchSize
+        endIndex = Math.min(startIndex + batchSize, filteredStudents.length)
+      }
       students = filteredStudents.slice(startIndex, endIndex)
-      console.log(`[Auto Evaluate] Processing batch ${batchIndex}: students ${startIndex + 1}-${endIndex} (${students.length} students)`)
+      console.log(`[Auto Evaluate] Processing batch ${batchIndex}: students ${startIndex + 1}-${endIndex} of ${filteredStudents.length} remaining (${students.length} students, skipEvaluated=${skipEvaluated})`)
       
       // 重複チェック：生徒リスト内の重複を検出
       const studentIds = students.map(s => s.studentId)
@@ -4340,7 +4349,12 @@ app.post('/api/auto-evaluate', async (c) => {
     console.log(`[Auto Evaluate] ✅ 逐次書き込みモード: 各生徒の評価完了時にスプレッドシートに書き込み済み (${proLevelResults.length}件)`)
     
     // 次のバッチがあるか確認
-    const hasNextBatch = endIndex < filteredStudents.length
+    // skipEvaluated=true の場合: 今回処理した件数分が次回スプレッドシートから除外されるので
+    //   「今回の処理件数(successCount) < filteredStudents.length」なら次がある
+    // skipEvaluated=false の場合: 通常の endIndex による判定
+    const hasNextBatch = skipEvaluated
+      ? filteredStudents.length > successCount  // 未評価がまだ残っているか
+      : endIndex < filteredStudents.length
     const nextBatchIndex = hasNextBatch ? batchIndex + 1 : null
     const totalBatches = Math.ceil(filteredStudents.length / batchSize)
     
@@ -4352,7 +4366,8 @@ app.post('/api/auto-evaluate', async (c) => {
         batchSize,
         totalBatches,
         processedStudents: students.length,
-        totalActiveStudents: filteredStudents.length,
+        totalActiveStudents,  // 評価済みスキップ前の全体数（プログレスバー用）
+        remainingStudents: filteredStudents.length,  // 未評価の残件数
         hasNextBatch,
         nextBatchIndex
       },
