@@ -4349,11 +4349,16 @@ app.post('/api/auto-evaluate', async (c) => {
     console.log(`[Auto Evaluate] ✅ 逐次書き込みモード: 各生徒の評価完了時にスプレッドシートに書き込み済み (${proLevelResults.length}件)`)
     
     // 次のバッチがあるか確認
-    // skipEvaluated=true の場合: 今回処理した件数分が次回スプレッドシートから除外されるので
-    //   「今回の処理件数(successCount) < filteredStudents.length」なら次がある
+    // skipEvaluated=true の場合:
+    //   毎回スプレッドシートを読み直して除外するため filteredStudents が動的に変わる
+    //   「未評価残件数(filteredStudents.length) > 今回取り出した件数(students.length)」
+    //   なら次の未評価生徒がまだいる。students.length=0 なら終了。
+    //   ※ successCount ではなく students.length で判定することで
+    //     全員エラーでも students.length 分はスプレッドシート未記録→次回も同じ生徒に当たり
+    //     無限ループになる恐れがある。そのため「今回 students が空でなく、かつ残件数が batchSize より多い」で判定
     // skipEvaluated=false の場合: 通常の endIndex による判定
     const hasNextBatch = skipEvaluated
-      ? filteredStudents.length > successCount  // 未評価がまだ残っているか
+      ? students.length > 0 && filteredStudents.length > batchSize  // 残件数がbatchSizeより多ければ次がある
       : endIndex < filteredStudents.length
     const nextBatchIndex = hasNextBatch ? batchIndex + 1 : null
     const totalBatches = Math.ceil(filteredStudents.length / batchSize)
