@@ -26,3 +26,9 @@ services:
         sync: false
       - key: RESULT_SPREADSHEET_ID
         sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: EVALUATION_JOB_TOKEN
+        sync: false
+      - key: APP_ORIGIN
+        sync: false

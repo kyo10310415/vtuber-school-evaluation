@@ -10,9 +10,11 @@
  */
 
 import jwt from 'jsonwebtoken';
+import { readSecurityConfig } from './security-config.js';
 
 // WannaV Dashboardと同じJWT_SECRETを使用
-const JWT_SECRET = process.env.JWT_SECRET || 'wannav-secret-key-change-in-production';
+const config = readSecurityConfig();
+const JWT_SECRET = config.jwtSecret;
 const DASHBOARD_URL = process.env.DASHBOARD_URL || 'https://wannav-main.onrender.com';
 
 function ssoAuthMiddleware(req, res, next) {
@@ -30,15 +32,15 @@ function ssoAuthMiddleware(req, res, next) {
 
   try {
     // トークンを検証
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'], maxAge: '1h' });
     
     // SSOトークンかチェック
-    if (decoded.type !== 'sso') {
+    if (decoded.type !== 'sso' || !['admin', 'leader'].includes(decoded.role) || new URL(decoded.targetUrl).origin !== config.origin) {
       console.log('❌ 無効なトークンタイプ');
       return res.redirect(DASHBOARD_URL);
     }
 
-    console.log(`✅ SSO 認証成功: ${decoded.username} (${decoded.role})`);
+    console.log('SSO authentication succeeded');
 
     // ユーザー情報をrequestに追加
     req.user = {

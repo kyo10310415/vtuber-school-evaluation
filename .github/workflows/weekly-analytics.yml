@@ -7,12 +7,23 @@ on:
   workflow_dispatch:
     # 手動実行も可能
 
+permissions:
+  contents: read
+
+env:
+  EVALUATION_JOB_TOKEN: ${{ secrets.EVALUATION_JOB_TOKEN }}
+  EVALUATION_BASE_URL: ${{ vars.EVALUATION_BASE_URL || 'https://vtuber-school-evaluation.onrender.com' }}
+
 jobs:
   weekly-analytics:
     runs-on: ubuntu-latest
     timeout-minutes: 60  # 1時間タイムアウト
     
     steps:
+      - name: Checkout request helper
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
       - name: Wake up Render service
         run: |
           echo "🔥 Waking up Render service..."
@@ -38,11 +49,7 @@ jobs:
           echo "Date: $(date)"
           
           # 週次アナリティクス取得を実行（タイムアウト30分）
-          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" \
-            -X POST \
-            "https://vtuber-school-evaluation.onrender.com/api/analytics/auto-fetch" \
-            -H "Content-Type: application/json" \
-            --max-time 1800)
+          RESPONSE=$(node .github/scripts/evaluation-request.mjs "/api/analytics/auto-fetch")
           
           HTTP_STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS" | cut -d: -f2)
           BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS/d')

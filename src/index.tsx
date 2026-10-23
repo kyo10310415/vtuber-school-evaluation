@@ -1,5 +1,4 @@
 import { Hono } from 'hono'
-import { cors } from 'hono/cors'
 import { serveStatic } from 'hono/cloudflare-workers'
 import { renderer } from './renderer'
 import type { EvaluationRequest, EvaluationResponse, EvaluationResult } from './types'
@@ -65,37 +64,8 @@ function getEnv(c: any, key: keyof Bindings): string {
   return '';
 }
 
-// CORS設定
-app.use('/api/*', cors())
-
-// SSO Authentication (protects UI routes, but excludes API routes for automation)
-// 自動化エンドポイント（Cron等）はSSO認証を除外
-const publicApiRoutes = [
-  '/api/analytics/auto-fetch',
-  '/api/analytics/by-type',  // UI「データ読み込み」ボタン用
-  '/api/analytics/check-env',  // 環境変数確認
-  '/api/auto-evaluate',  // 月次評価エンドポイントも追加
-  '/api/auto-evaluate/status',  // バッチ情報取得
-  '/api/auto-evaluate-x-only',  // X評価専用バッチエンドポイント
-  '/api/x/evaluate-batch-auto',  // X評価自動分割実行
-  '/api/admin/run-migrations',
-  '/api/analytics/auto-fetch/test',
-  '/api/health',  // 修正: /health → /api/health
-  '/api/debug/env',
-  '/api/wanami-usage',  // わなみさん使用回数取得
-];
-
-app.use('*', async (c, next) => {
-  const path = new URL(c.req.url).pathname;
-  
-  // 公開APIルートはSSO認証をスキップ
-  if (publicApiRoutes.some(route => path === route)) {
-    return next();
-  }
-  
-  // その他のルートはSSO認証を適用
-  return ssoAuthMiddleware(c, next);
-});
+// All business APIs and pages use the same role/scope checks.
+app.use('*', ssoAuthMiddleware)
 
 // 静的ファイルの配信
 app.use('/static/*', serveStatic({ root: './public' }))
@@ -5552,26 +5522,7 @@ app.post('/api/analytics/auto-fetch', async (c) => {
   }
 });
 
-// データベースマイグレーション実行エンドポイント
-app.post('/api/admin/run-migrations', async (c) => {
-  try {
-    console.log('[Admin] Running database migrations...');
-    
-    const { runMigrations } = await import('./lib/migrations');
-    await runMigrations(getEnv(c, 'DATABASE_URL'));
-    
-    return c.json({
-      success: true,
-      message: 'Migrations completed successfully',
-    });
-  } catch (error: any) {
-    console.error('[Admin] Migration error:', error);
-    return c.json({
-      success: false,
-      error: error.message,
-    }, 500);
-  }
-});
+// Database migrations are deliberately unavailable over public HTTP.
 
 // X評価専用バッチエンドポイント（レート制限対策: 1日100人ずつ処理、進捗管理付き）
 app.post('/api/auto-evaluate-x-only', async (c) => {
