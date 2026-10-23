@@ -55,7 +55,7 @@ test('SSO requires valid signature, type, role, expiry and matching target', asy
     sso({ targetUrl: 'https://other.example' }), sso({}, config.jwtSecret, { expiresIn: -1 }),
     sso({}, config.jwtSecret, { expiresIn: '2h' })];
   for (const token of bad) assert.equal((await f.app.request('/api/students', { headers: { Cookie: 'wannav_sso=' + token } })).status, 401);
-  for (const role of ['crew', 'unknown']) assert.equal((await f.app.request('/api/students', { headers: { Cookie: 'wannav_sso=' + sso({ role }) } })).status, 403);
+  for (const role of ['unknown']) assert.equal((await f.app.request('/api/students', { headers: { Cookie: 'wannav_sso=' + sso({ role }) } })).status, 403);
   assert.equal(f.effects(), 0);
 });
 

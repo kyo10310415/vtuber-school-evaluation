@@ -6,6 +6,16 @@ export const JOB_PATHS = new Set([
   '/api/auto-evaluate-x-only', '/api/x/evaluate-batch-auto',
 ]);
 
+// Explicit read routes only: several legacy GET endpoints run evaluations or
+// refresh OAuth tokens, so HTTP method alone cannot establish read-only access.
+export function canCrewRead(method, path) {
+  if (!['GET', 'HEAD'].includes(method)) return false;
+  return ['/', '/monthly-report', '/evaluation-detail', '/api/students',
+    '/api/analytics/students', '/api/wanami-usage', '/api/auto-evaluate/status', '/api/x/quota'].includes(path) ||
+    /^\/static\//.test(path) || /^\/analytics-history\/[^/]+$/.test(path) ||
+    /^\/api\/(results|prolevel|monthly-report|evaluation\/complete|analytics\/history)\/[^/]+$/.test(path);
+}
+
 export function createAccessMiddleware(config, clock = () => Date.now()) {
   const usedJobs = new Map();
   return async (c, next) => {
@@ -43,8 +53,9 @@ export function createAccessMiddleware(config, clock = () => Date.now()) {
           claims.iat > Math.floor(clock() / 1000) + 5 || claims.exp <= claims.iat ||
           claims.exp - claims.iat > 3600 || !claims.userId || typeof claims.username !== 'string' ||
           new URL(claims.targetUrl).origin !== config.origin) throw new Error();
-      if (!['admin', 'leader'].includes(claims.role)) return c.json({ error: 'Forbidden' }, 403);
+      if (!['admin', 'leader', 'crew'].includes(claims.role)) return c.json({ error: 'Forbidden' }, 403);
       c.set('user', { id: claims.userId, username: claims.username, role: claims.role });
+      if (claims.role === 'crew' && !canCrewRead(c.req.method, path)) return c.json({ error: 'Read-only access' }, 403);
       if (tokenFromQuery) {
         setCookie(c, 'wannav_sso', token, { httpOnly: true, secure: config.origin.startsWith('https:'), sameSite: 'Lax', maxAge: 3600, path: '/' });
         const url = new URL(c.req.url); url.searchParams.delete('auth_token');

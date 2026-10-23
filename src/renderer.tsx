@@ -1,6 +1,6 @@
 import { jsxRenderer } from 'hono/jsx-renderer'
 
-export const renderer = jsxRenderer(({ children }) => {
+export const renderer = jsxRenderer(({ children }, c) => {
   return (
     <html lang="ja">
       <head>
@@ -11,7 +11,7 @@ export const renderer = jsxRenderer(({ children }) => {
         <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet" />
         <link href="/static/style.css" rel="stylesheet" />
       </head>
-      <body class="bg-gray-100">
+      <body class="bg-gray-100" data-read-only={c.get('user')?.role === 'crew' ? 'true' : 'false'}>
         <div class="min-h-screen">
           <header class="bg-gradient-to-r from-purple-600 to-pink-600 text-white py-6 shadow-lg">
             <div class="container mx-auto px-4">
@@ -45,6 +45,7 @@ export const renderer = jsxRenderer(({ children }) => {
         </div>
 
         <script src="/static/app.js"></script>
+        <script src="/static/read-only.js" defer></script>
       </body>
     </html>
   )

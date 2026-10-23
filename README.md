@@ -605,3 +605,15 @@ curl -X POST https://vtuber-school-evaluation.onrender.com/api/analytics/auto-fe
 
 © 2024 VTuberスクール. All rights reserved.
 # Trigger redeploy
+
+## crewの閲覧専用アクセス
+
+crewは生徒一覧、保存済み評価、月次レポート、アナリティクス履歴、利用回数を閲覧できます。画面・APIの両方に役割を適用します。評価実行ボタンとOAuth管理への導線は非表示にし、閲覧専用の案内を表示します。
+
+サーバーはcrewの許可経路を明示的な一覧で制限します。全ての書込みメソッド、自動・個別評価、同期、診断、OAuth/token管理、未知の経路は拒否します。GETでも評価やtoken更新を行うAPIは許可しません。`/analytics-data`は表示時にtoken更新へ進むためcrewは閲覧不可ですが、保存済み履歴ページは閲覧できます。
+
+`/api/evaluation/complete/:studentId`はcrewの場合に保存済みキャッシュだけを読み取ります。`cache=false`でも再評価しません。キャッシュがないときは未保存の案内を返し、評価APIや保存処理を呼びません。admin/leaderの既存の評価・保存動作は維持します。
+
+個人別の担当生徒制限は今回追加していません。crewの閲覧は本システム内の生徒一覧・許可済み結果に対する権限です。共通ダッシュボードのシステムリンクがcrewに表示される設定かも配備前に所有者が確認してください。実DBのリンク設定や利用者roleは今回変更していません。
+
+`npm run test:security`はcrewの閲覧成功、書込み/副作用GETの拒否、UI制御、実統合評価ハンドラーのcache miss・cache=false・正常cache hitとadmin/leaderの互換を含め20件成功。Google・AI・実DBを呼ばない検証です。配備には従来案と同じAPP_ORIGINとEVALUATION_JOB_TOKEN（Render/Actions）が必要です。

@@ -28,7 +28,12 @@ type Bindings = {
   STUDENT_MANAGEMENT_DATABASE_URL: string; // wannav-student-management DB（レッスン報告・欠席データ用）
 }
 
-const app = new Hono<{ Bindings: Bindings }>()
+type Variables = {
+  user?: { id: string | number; username: string; role: 'admin' | 'leader' | 'crew' };
+  job?: { scope: string };
+}
+
+const app = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
 // 環境変数ヘルパー（Cloudflare WorkersとNode.js両対応）
 function getEnv(c: any, key: keyof Bindings): string {
@@ -87,7 +92,8 @@ app.get('/analytics-history/:studentId', (c) => {
       <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
       <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     </head>
-    <body class="bg-gray-100">
+    <body data-read-only="${c.get('user')?.role === 'crew' ? 'true' : 'false'}" class="bg-gray-100">
+      <script src="/static/read-only.js" defer></script>
       <div class="container mx-auto px-4 py-8">
         <!-- ヘッダー -->
         <div class="mb-6 flex items-center justify-between">
@@ -498,7 +504,8 @@ app.get('/analytics-data', (c) => {
       <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
       <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     </head>
-    <body class="bg-gray-100">
+    <body data-read-only="${c.get('user')?.role === 'crew' ? 'true' : 'false'}" class="bg-gray-100">
+      <script src="/static/read-only.js" defer></script>
       <div class="container mx-auto px-4 py-8">
         <div class="mb-6 flex items-center justify-between">
           <div>
@@ -1021,7 +1028,8 @@ app.get('/monthly-report', (c) => {
       <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
       <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     </head>
-    <body class="bg-gray-100">
+    <body data-read-only="${c.get('user')?.role === 'crew' ? 'true' : 'false'}" class="bg-gray-100">
+      <script src="/static/read-only.js" defer></script>
       <!-- ローディングオーバーレイ -->
       <div id="loading-overlay" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
         <div class="bg-white rounded-lg p-8 max-w-sm w-full mx-4">
@@ -1179,7 +1187,8 @@ app.get('/evaluation-detail', (c) => {
       <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
       <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     </head>
-    <body class="bg-gray-100">
+    <body data-read-only="${c.get('user')?.role === 'crew' ? 'true' : 'false'}" class="bg-gray-100">
+      <script src="/static/read-only.js" defer></script>
       <!-- ローディングオーバーレイ -->
       <div id="loading-overlay" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
         <div class="bg-white rounded-lg p-8 max-w-sm w-full mx-4">
@@ -2430,7 +2439,8 @@ app.get('/api/evaluation/complete/:studentId', async (c) => {
     const X_BEARER_TOKEN = getEnv(c, 'X_BEARER_TOKEN')
     const studentId = c.req.param('studentId')
     const month = c.req.query('month') || getPreviousMonth()
-    const useCache = c.req.query('cache') !== 'false' // デフォルトでキャッシュを使用
+    const readOnly = c.get('user')?.role === 'crew'
+    const useCache = readOnly || c.req.query('cache') !== 'false' // crew cannot bypass saved results
     
     // 生徒情報を取得
     const students = await fetchStudents(GOOGLE_SERVICE_ACCOUNT, STUDENT_MASTER_SPREADSHEET_ID)
@@ -2514,7 +2524,7 @@ app.get('/api/evaluation/complete/:studentId', async (c) => {
     
     // YouTube評価（キャッシュ対応）
     if (student.youtubeChannelId) {
-      if (YOUTUBE_API_KEY) {
+      if (YOUTUBE_API_KEY || readOnly) {
         try {
           // キャッシュを確認（不完全なデータは再評価対象）
           let cachedData = null
@@ -2533,6 +2543,8 @@ app.get('/api/evaluation/complete/:studentId', async (c) => {
           if (cachedData) {
             result.youtube = { ...cachedData, cached: true }
             console.log(`[YouTube評価] キャッシュ使用: ${studentId}`)
+          } else if (readOnly) {
+            result.youtube = { error: '保存済みの評価がありません。管理者に評価を依頼してください。', cached: false }
           } else {
             // キャッシュがない場合のみAPIから取得を試みる
             const { evaluateYouTubeChannel } = await import('./lib/youtube-client')
@@ -2578,7 +2590,7 @@ app.get('/api/evaluation/complete/:studentId', async (c) => {
     
     // X評価（キャッシュ対応）
     if (student.xAccount) {
-      if (X_BEARER_TOKEN) {
+      if (X_BEARER_TOKEN || readOnly) {
         try {
           // キャッシュを確認
           let cachedData = null
@@ -2597,6 +2609,8 @@ app.get('/api/evaluation/complete/:studentId', async (c) => {
           if (cachedData) {
             result.x = { ...cachedData, cached: true }
             console.log(`[X評価] キャッシュ使用: ${studentId}`)
+          } else if (readOnly) {
+            result.x = { error: '保存済みの評価がありません。管理者に評価を依頼してください。', cached: false }
           } else {
             // キャッシュがない場合のみAPIから取得を試みる
             const { evaluateXAccount } = await import('./lib/x-client')
@@ -4760,7 +4774,8 @@ app.get('/api/analytics/auth/callback', async (c) => {
         <title>認証エラー</title>
         <script src="https://cdn.tailwindcss.com"></script>
       </head>
-      <body class="bg-gray-100 flex items-center justify-center min-h-screen">
+      <body data-read-only="${c.get('user')?.role === 'crew' ? 'true' : 'false'}" class="bg-gray-100 flex items-center justify-center min-h-screen">
+      <script src="/static/read-only.js" defer></script>
         <div class="bg-white rounded-lg shadow-lg p-8 max-w-md">
           <div class="text-center">
             <i class="fas fa-times-circle text-red-500 text-6xl mb-4"></i>
@@ -4813,7 +4828,8 @@ app.get('/api/analytics/auth/callback', async (c) => {
         <script src="https://cdn.tailwindcss.com"></script>
         <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
       </head>
-      <body class="bg-gray-100 flex items-center justify-center min-h-screen">
+      <body data-read-only="${c.get('user')?.role === 'crew' ? 'true' : 'false'}" class="bg-gray-100 flex items-center justify-center min-h-screen">
+      <script src="/static/read-only.js" defer></script>
         <div class="bg-white rounded-lg shadow-lg p-8 max-w-md">
           <div class="text-center">
             <i class="fas fa-check-circle text-green-500 text-6xl mb-4"></i>
@@ -4861,7 +4877,8 @@ app.get('/api/analytics/auth/callback', async (c) => {
         <script src="https://cdn.tailwindcss.com"></script>
         <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
       </head>
-      <body class="bg-gray-100 flex items-center justify-center min-h-screen">
+      <body data-read-only="${c.get('user')?.role === 'crew' ? 'true' : 'false'}" class="bg-gray-100 flex items-center justify-center min-h-screen">
+      <script src="/static/read-only.js" defer></script>
         <div class="bg-white rounded-lg shadow-lg p-8 max-w-md">
           <div class="text-center">
             <i class="fas fa-times-circle text-red-500 text-6xl mb-4"></i>
