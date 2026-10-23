@@ -6,7 +6,11 @@
 
 // YouTube API テスト
 async function testYouTubeAPI() {
-  const YOUTUBE_API_KEY = 'AIzaSyBT-wSgP31w7-TshPem5eCCLSoGZcgndds';
+  const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || "";
+  if (!YOUTUBE_API_KEY) {
+    console.error("YOUTUBE_API_KEY is required; API check skipped.");
+    return false;
+  }
   const channelId = 'UCXuqSBlHAE6Xw-yeJA0Tunw'; // Linus Tech Tips
 
   console.log('\n🎥 YouTube API テスト...');
@@ -30,14 +34,18 @@ async function testYouTubeAPI() {
       return false;
     }
   } catch (error) {
-    console.log(`❌ YouTube API エラー: ${error.message}`);
+    console.log(`❌ YouTube API エラー: ${'API request failed'}`);
     return false;
   }
 }
 
 // X API テスト
 async function testXAPI() {
-  const X_BEARER_TOKEN = 'AAAAAAAAAAAAAAAAAAAAAFuSzwEAAAAALeDG6jk1hTBDVlVMIpso4sTC%2BOs%3DNvFKvfKNaaGtt11vHis0lKhs3YO8jgkCK0n2dcypKiWaUo6uFT';
+  const X_BEARER_TOKEN = process.env.X_BEARER_TOKEN || "";
+  if (!X_BEARER_TOKEN) {
+    console.error("X_BEARER_TOKEN is required; API check skipped.");
+    return false;
+  }
   const username = 'jack';
 
   console.log('\n🐦 X API テスト...');
@@ -62,11 +70,11 @@ async function testXAPI() {
       console.log(`   ツイート数: ${user.public_metrics.tweet_count.toLocaleString()}`);
       return true;
     } else {
-      console.log('❌ X API エラー:', data);
+      console.log('❌ X API エラー:');
       return false;
     }
   } catch (error) {
-    console.log(`❌ X API エラー: ${error.message}`);
+    console.log(`❌ X API エラー: ${'API request failed'}`);
     return false;
   }
 }
