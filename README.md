@@ -1,5 +1,32 @@
 # VTuberスクール 成長度リザルトシステム
 
+## SEC-018 / SEC-020：配備前の認証設定
+
+全業務APIと画面はSSOのadmin/leaderを要求します。crewは許可しません。従来のAPI認証除外は撤去し、公開するのはGET/HEAD `/api/health`の固定応答のみです。匿名APIは401、認証済みでも権限不足は403です。APIのqueryにauth_tokenを指定しても認証できません。HTMLのSSO着地時のみtokenをcookieへ移し、URLから取り除きます。SSOはHS256・1時間以内・このサービスのtargetUrl.originを検証します。
+
+配備前にRenderのEnvironmentへ以下を設定し、既存利用者のadmin/leader roleとWannaV-mainの登録URLを確認してください。秘密値はコード・ログ・チャットへ貼り付けません。
+
+| Key | 設定 |
+|---|---|
+| JWT_SECRET | WannaV-mainと同じ、32文字以上の既存の強い共有鍵。公開された既定値は禁止 |
+| EVALUATION_JOB_TOKEN | JWT_SECRETとは別の、32文字以上のランダムなジョブ署名鍵 |
+| APP_ORIGIN | 実際のHTTPS origin。通常は https://vtuber-school-evaluation.onrender.com （パス・queryなし） |
+| DASHBOARD_URL | 共通ダッシュボードURL。既定値は https://wannav-main.onrender.com |
+
+JWT_SECRET・ジョブ鍵・APP_ORIGINが不十分なら起動を拒否します。既存の安全な共有鍵を不要に交換しません。過去に公開既定鍵を使用した場合は、所有者が全SSO連携先での鍵交換と既存セッション失効を調整してください。
+
+daily/weekly GitHub Actionsは、同じEVALUATION_JOB_TOKENをリポジトリのSettings → Secrets and variables → Actionsへ登録してから切り替えます。任意のrepository variable EVALUATION_BASE_URLは公開originです。Actionsはscope・audience・issuer・90秒有効期限・一意のjtiを持つHS256 JWTをリクエストごとに発行します。鍵自体やtokenはログへ出さず、応答も許可した件数・状態だけに制限します。既存の匿名curlや単純なBearer共有鍵はそのまま使えません。
+
+ジョブ認証で許可するのはPOST `/api/analytics/auto-fetch`、`/api/auto-evaluate`、`/api/auto-evaluate-x-only`、`/api/x/evaluate-batch-auto`だけです。ジョブ鍵で生徒一覧・診断・その他管理APIを操作できません。使用済みjtiは有効期限まで同一プロセス内で拒否し、再試行時は新しいJWTを発行します。再送防止の記録はプロセス内メモリであり、複数インスタンスや再起動をまたぐ厳密な一意性は保証しません。実行したバッチ自体の冪等性は別途設計が必要です。
+
+POST等のブラウザ変更要求はAPP_ORIGINとOriginの一致を要求します。従来のGET評価APIにも副作用があるため、OAuth戻り先以外のAPIはブラウザのcross-site/same-site呼出しを拒否します。OAuthのstate等の別所見を解消したものとは扱いません。
+
+`/api/admin/run-migrations`は全員に410を返し、公開HTTPからDB移行を実行できません。DB移行は既存の運用手順で所有者が別途実行します。この変更でDBschema・本番DB・cronを変更しません。定期処理はこのリポジトリでは外部Actionsであり、今回は実行していません。
+
+`npm run test:security`はmockのHono appと署名clientを使い、実DB・Google・Gemini・本番へ接続しません。既存npm testはlocalhostへcurlするコマンドのため、隔離検証では使用しません。既存package-lockにプラットフォーム依存の欠落がありnpm ciは失敗します。依存版やlockを修正せず、検証環境のみnpm install --ignore-scripts --package-lock=falseで導入しました。既存buildは静的ファイルcopyのみで、dist/_worker.jsはsrc/index.tsxを再exportします。Node本番起動とWrangler本番環境の実SSO・外部APIは配備後に別途確認が必要です。
+
+注意：SEC-019で検出した現行テストスクリプトとGit履歴のGoogleキー形式固定値は、この2所見の修正では失効できません。所有者による管理画面での失効・再発行・利用履歴確認が別途必要で、キーの値は報告しません。切戻し時も匿名APIや公開既定鍵を復活させず、必要なら上流で公開を止めてから対応してください。
+
 VTuber育成スクールの生徒様の成長度を評価・可視化するシステムです。Google Gemini AIを活用してトークメモを自動分析し、S〜Dの5段階評価でプロレベルセクションの採点を行います。
 
 ## 📊 プロジェクト概要
@@ -578,3 +605,15 @@ curl -X POST https://vtuber-school-evaluation.onrender.com/api/analytics/auto-fe
 
 © 2024 VTuberスクール. All rights reserved.
 # Trigger redeploy
+
+## crewの閲覧専用アクセス
+
+crewは生徒一覧、保存済み評価、月次レポート、アナリティクス履歴、利用回数を閲覧できます。画面・APIの両方に役割を適用します。評価実行ボタンとOAuth管理への導線は非表示にし、閲覧専用の案内を表示します。
+
+サーバーはcrewの許可経路を明示的な一覧で制限します。全ての書込みメソッド、自動・個別評価、同期、診断、OAuth/token管理、未知の経路は拒否します。GETでも評価やtoken更新を行うAPIは許可しません。`/analytics-data`は表示時にtoken更新へ進むためcrewは閲覧不可ですが、保存済み履歴ページは閲覧できます。
+
+`/api/evaluation/complete/:studentId`はcrewの場合に保存済みキャッシュだけを読み取ります。`cache=false`でも再評価しません。キャッシュがないときは未保存の案内を返し、評価APIや保存処理を呼びません。admin/leaderの既存の評価・保存動作は維持します。
+
+個人別の担当生徒制限は今回追加していません。crewの閲覧は本システム内の生徒一覧・許可済み結果に対する権限です。共通ダッシュボードのシステムリンクがcrewに表示される設定かも配備前に所有者が確認してください。実DBのリンク設定や利用者roleは今回変更していません。
+
+`npm run test:security`はcrewの閲覧成功、書込み/副作用GETの拒否、UI制御、実統合評価ハンドラーのcache miss・cache=false・正常cache hitとadmin/leaderの互換を含め20件成功。Google・AI・実DBを呼ばない検証です。配備には従来案と同じAPP_ORIGINとEVALUATION_JOB_TOKEN（Render/Actions）が必要です。

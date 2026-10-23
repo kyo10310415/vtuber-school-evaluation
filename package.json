@@ -16,7 +16,8 @@
     "migrate": "node scripts/migrate.js",
     "git:commit": "git add . && git commit -m",
     "git:status": "git status",
-    "git:log": "git log --oneline"
+    "git:log": "git log --oneline",
+    "test:security": "node --test tests/*.test.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

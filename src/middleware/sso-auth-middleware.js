@@ -10,14 +10,18 @@
  */
 
 import jwt from 'jsonwebtoken';
+import { readSecurityConfig } from './security-config.js';
+import { canCrewRead } from './access.js';
 
 // WannaV Dashboardと同じJWT_SECRETを使用
-const JWT_SECRET = process.env.JWT_SECRET || 'wannav-secret-key-change-in-production';
+const config = readSecurityConfig();
+const JWT_SECRET = config.jwtSecret;
 const DASHBOARD_URL = process.env.DASHBOARD_URL || 'https://wannav-main.onrender.com';
 
 function ssoAuthMiddleware(req, res, next) {
   // 認証トークンをチェック
-  const tokenFromQuery = req.query.auth_token;
+  const api = req.path === '/api' || req.path.startsWith('/api/');
+  const tokenFromQuery = !api && req.method === 'GET' ? req.query.auth_token : null;
   const tokenFromCookie = req.cookies?.wannav_sso;
 
   const token = tokenFromQuery || tokenFromCookie;
@@ -30,15 +34,19 @@ function ssoAuthMiddleware(req, res, next) {
 
   try {
     // トークンを検証
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'], maxAge: '1h' });
     
     // SSOトークンかチェック
-    if (decoded.type !== 'sso') {
+    if (decoded.type !== 'sso' || !['admin', 'leader', 'crew'].includes(decoded.role) || new URL(decoded.targetUrl).origin !== config.origin) {
       console.log('❌ 無効なトークンタイプ');
       return res.redirect(DASHBOARD_URL);
     }
 
-    console.log(`✅ SSO 認証成功: ${decoded.username} (${decoded.role})`);
+    if (decoded.role === 'crew' && !canCrewRead(req.method, req.path)) {
+      return res.status(403).json({ error: 'Read-only access' });
+    }
+
+    console.log('SSO authentication succeeded');
 
     // ユーザー情報をrequestに追加
     req.user = {
@@ -52,7 +60,7 @@ function ssoAuthMiddleware(req, res, next) {
       res.cookie('wannav_sso', token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        maxAge: 7 * 24 * 60 * 60 * 1000, // 7日間
+        maxAge: 60 * 60 * 1000,
         sameSite: 'lax'
       });
       
