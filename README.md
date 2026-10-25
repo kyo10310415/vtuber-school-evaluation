@@ -636,3 +636,11 @@ Cloudflare/Viteのツール4件をdevDependenciesへ移動し、ローカル/Clo
 buildはNode標準APIで静的ファイルをコピーします。Render（RENDER=true）でだけ、コピー後にnpm prune --omit=dev --ignore-scriptsを実行し、Vite/Wrangler/Miniflare等を成果物から除去します。ローカルのnpm run buildでは開発ツールを削除しません。ローカル/Cloudflareの開発・試験はnpm ci --include=devで導入してください。Blueprintも既存本番と同じnpm run start、npm ci --omit=devでの構築へ揃えました。
 
 21テスト、Renderビルドの実行、開発ツールが存在しない状態のworker importと未認証students401を隔離環境で確認。稼働用audit Critical/High0・Moderate1。全依存には開発ツールのHigh6が残り、版の脆弱性を修正したとは判定しません。実Google・AI・DB更新は試験していません。
+
+## 開発ツールの互換更新（2026-10-25）
+
+Wranglerを4.116.0へ固定しました。内部Miniflare4.20260730.0を使う安定版構成で、Miniflare5系のalpha/betaへは移行しません。Node本番構成と環境変数は変更しません。本番のRENDER=true buildで開発ツールを除外する方針は維持します。
+
+21セキュリティテスト・Node build・Cloudflare worker buildが成功。試験コードのimport除去がCRLFにも対応するよう修正しました。隔離したNode構成では匿名API401と本番artifactからツール7種の除外を確認しました。全依存auditはHigh6→4/Moderate1、本番依存はHigh0/Moderate1。High4は開発用sharp/undiciと推移依存の警告で未解消です。
+
+Cloudflare向けにViteで新規生成したworkerのローカル起動は認証設定を読み込めず失敗しました。生成物中のprocess.env参照が空オブジェクトへ置換されている点を確認していますが、Cloudflare構成の実稼働互換性は未確認です。この更新で解消したとは扱いません。Render Nodeでは既存のworkerを維持します。
