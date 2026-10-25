@@ -622,3 +622,9 @@ crewは生徒一覧、保存済み評価、月次レポート、アナリティ�
 `test-apis.mjs`は`YOUTUBE_API_KEY`と`X_BEARER_TOKEN`の既存環境変数だけを参照します。未設定のAPIは外部通信せず失敗として終了し、ソース中の固定値へfallbackしません。実APIを呼ぶスクリプトなので、通常の回帰テストや本番配備確認として無条件に実行しないでください。
 過去に公開されたGoogle APIキーは、現行版から削除しても履歴・コピーに残ります。所有者による失効・再発行と利用ログ確認が必要です。今回、キー有効性の試験・実API通信・履歴書換は実施していません。秘密値はGitやチャットへ記載しないでください。
 API確認スクリプトは例外原文やAPIエラー応答オブジェクトも出力せず、固定の失敗表示だけを残します。
+
+### 2026-10-25 第12バッチ依存更新
+
+Hono/Node adapter、Viteと安定版で更新可能な推移依存を既存manifest範囲内でlock更新。認証・API・業務コード・DBスキーマ・環境設定は変更しません。Node22.23.4でinstall scripts無効のclean install、21テスト、差分チェック成功。HTTP adapterの保護付き静的配信・エンコードされたパス・JSON処理は架空fixtureで検証。
+
+稼働用audit: Critical0/High6/Moderate1/Low0。全依存audit: Critical0/High6/Moderate1/Low0。警告件数と実際の攻撃成立は別に評価します。静的ファイルbuildとtsx経由worker import成功。Renderの起動はnpm run startを確認。Wrangler/Miniflare系High6は残存し、新しいalpha/betaを導入しないためツール移行を保留。実AI評価・Google通信・DB更新なし。
