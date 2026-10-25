@@ -628,3 +628,11 @@ API確認スクリプトは例外原文やAPIエラー応答オブジェクト�
 Hono/Node adapter、Viteと安定版で更新可能な推移依存を既存manifest範囲内でlock更新。認証・API・業務コード・DBスキーマ・環境設定は変更しません。Node22.23.4でinstall scripts無効のclean install、21テスト、差分チェック成功。HTTP adapterの保護付き静的配信・エンコードされたパス・JSON処理は架空fixtureで検証。
 
 稼働用audit: Critical0/High6/Moderate1/Low0。全依存audit: Critical0/High6/Moderate1/Low0。警告件数と実際の攻撃成立は別に評価します。静的ファイルbuildとtsx経由worker import成功。Renderの起動はnpm run startを確認。Wrangler/Miniflare系High6は残存し、新しいalpha/betaを導入しないためツール移行を保留。実AI評価・Google通信・DB更新なし。
+
+### 2026-10-25 Render成果物からの開発ツール除外
+
+Cloudflare/Viteのツール4件をdevDependenciesへ移動し、ローカル/Cloudflare用の既存コマンドは維持します。テストが直接使用するesbuild0.27.2をdevDependencyとして明示しました。アプリのstartは従来どおりtsx server.jsです。
+
+buildはNode標準APIで静的ファイルをコピーします。Render（RENDER=true）でだけ、コピー後にnpm prune --omit=dev --ignore-scriptsを実行し、Vite/Wrangler/Miniflare等を成果物から除去します。ローカルのnpm run buildでは開発ツールを削除しません。ローカル/Cloudflareの開発・試験はnpm ci --include=devで導入してください。Blueprintも既存本番と同じnpm run start、npm ci --omit=devでの構築へ揃えました。
+
+21テスト、Renderビルドの実行、開発ツールが存在しない状態のworker importと未認証students401を隔離環境で確認。稼働用audit Critical/High0・Moderate1。全依存には開発ツールのHigh6が残り、版の脆弱性を修正したとは判定しません。実Google・AI・DB更新は試験していません。
