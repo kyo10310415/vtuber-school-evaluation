@@ -6,7 +6,7 @@ import { createHmac, randomUUID } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 
 test('Actions client signs scoped short JWT and emits only counts', async () => {
-  const code = readFileSync(new URL('../.github/scripts/evaluation-request.mjs', import.meta.url), 'utf8').replace(/^import .*;\n/gm, '');
+  const code = readFileSync(new URL('../.github/scripts/evaluation-request.mjs', import.meta.url), 'utf8').replace(/^import .*;\r?\n/gm, '');
   const output = []; let request;
   const secret = 'test-only-workflow-key-'.repeat(3);
   const context = { createHmac, randomUUID, Buffer, Date, URL, AbortSignal,
