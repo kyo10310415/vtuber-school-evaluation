@@ -650,3 +650,9 @@ Cloudflare向けにViteで新規生成したworkerのローカル起動は認証
 Google API SDK経由のqsを6.14.0から6.16.1へ、既存の互換範囲内でlock更新しました。SDK本体、認証設定、API・DB・業務処理は変更しません。現在の本番依存auditはCritical/High/Medium/Lowすべて0件です。開発用のHigh4（Wrangler/Miniflare/sharp/undici）は未解消です。
 
 npmが提案するWrangler4.152.0はMiniflare5のbetaに依存するため、この更新では導入しません。RenderのNode起動とRENDER=true時の開発ツール除去を維持します。Cloudflare向けの起動互換性に関する上記の制限も残ります。過去の日付のaudit件数は当時の結果です。
+
+## 起動ログとローカル開発（2026-10-26）
+
+Nodeサーバーは起動時にシートID・連携URLなどの環境設定一覧を表示しません。設定値は引き続きアプリへ渡します。DBマイグレーション失敗も例外本文を表示せず、固定メッセージと終了コード1を返し、接続を終了します。既存ログ・DBは変更しません。
+
+`dev:sandbox`、`start:wrangler`、`preview`の待受先を127.0.0.1へ明示しました。同じPCから利用してください。別PCやコンテナ外からの直接アクセスはできなくなります。Renderの`npm start`と待受先は変更しません。開発依存のHigh4は未解消であり、実認証情報・未信頼入力を持ち込む用途を安全とは扱いません。

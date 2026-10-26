@@ -70,15 +70,18 @@ async function runMigration() {
     });
 
   } catch (error) {
-    console.error('❌ マイグレーション失敗:', error.message);
+    console.error('❌ マイグレーション失敗。接続設定とDBの状態を確認してください。');
     if (error.code === 'ECONNREFUSED') {
       console.error('');
       console.error('データベースに接続できません。DATABASE_URLを確認してください。');
     }
-    process.exit(1);
+    process.exitCode = 1;
   } finally {
     await pool.end();
   }
 }
 
-runMigration();
+runMigration().catch(() => {
+  console.error('❌ マイグレーションの終了処理に失敗しました');
+  process.exitCode = 1;
+});
