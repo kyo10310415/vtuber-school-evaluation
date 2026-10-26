@@ -1,3 +1,4 @@
+import { getDatabaseConfig } from './database-config.js';
 /**
  * PostgreSQL から欠席・リスケデータを取得
  * wannav_student_management の lesson_reports テーブルから直近3ヶ月を集計
@@ -23,10 +24,7 @@ export async function fetchAbsenceDataFromPostgres(
   databaseUrl: string,
   month: string
 ): Promise<AbsenceData[]> {
-  const client = new Client({
-    connectionString: databaseUrl,
-    ssl: { rejectUnauthorized: false }
-  });
+  const client = new Client(getDatabaseConfig(databaseUrl));
 
   try {
     await client.connect();
