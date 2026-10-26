@@ -6,21 +6,6 @@ import app from './dist/_worker.js'
 const port = parseInt(process.env.PORT || '3000', 10)
 
 console.log(`Starting server on port ${port}...`)
-console.log('Environment variables loaded:')
-console.log('- GOOGLE_SERVICE_ACCOUNT:', process.env.GOOGLE_SERVICE_ACCOUNT ? 'Defined ✓' : 'Missing ✗')
-console.log('- GEMINI_API_KEY:', process.env.GEMINI_API_KEY ? 'Defined ✓' : 'Missing ✗')
-console.log('- STUDENT_MASTER_SPREADSHEET_ID:', process.env.STUDENT_MASTER_SPREADSHEET_ID || 'Missing ✗')
-console.log('- ABSENCE_SPREADSHEET_ID:', process.env.ABSENCE_SPREADSHEET_ID || 'Missing ✗')
-console.log('- PAYMENT_SPREADSHEET_ID:', process.env.PAYMENT_SPREADSHEET_ID || 'Missing ✗')
-console.log('- RESULT_SPREADSHEET_ID:', process.env.RESULT_SPREADSHEET_ID || 'Missing ✗')
-console.log('- YOUTUBE_API_KEY:', process.env.YOUTUBE_API_KEY ? 'Defined ✓' : 'Missing ✗')
-console.log('- X_BEARER_TOKEN:', process.env.X_BEARER_TOKEN ? 'Defined ✓' : 'Missing ✗')
-console.log('- DATABASE_URL:', process.env.DATABASE_URL ? 'Defined ✓' : 'Missing ✗')
-console.log('- YOUTUBE_ANALYTICS_CLIENT_ID:', process.env.YOUTUBE_ANALYTICS_CLIENT_ID ? 'Defined ✓' : 'Missing ✗')
-console.log('- YOUTUBE_ANALYTICS_CLIENT_SECRET:', process.env.YOUTUBE_ANALYTICS_CLIENT_SECRET ? 'Defined ✓' : 'Missing ✗')
-console.log('- YOUTUBE_ANALYTICS_REDIRECT_URI:', process.env.YOUTUBE_ANALYTICS_REDIRECT_URI || 'Missing ✗')
-console.log('- ANALYTICS_TARGET_SPREADSHEET_ID:', process.env.ANALYTICS_TARGET_SPREADSHEET_ID || 'Missing ✗')
-
 // 新しいHonoアプリを作成して静的ファイル配信を追加
 const wrappedApp = new Hono()
 
