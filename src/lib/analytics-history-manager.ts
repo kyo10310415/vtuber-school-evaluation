@@ -1,3 +1,4 @@
+import { getDatabaseConfig } from './database-config.js';
 /**
  * Analytics History Manager
  * アナリティクスデータの履歴保存・取得を管理
@@ -54,12 +55,7 @@ export interface AnalyticsHistoryRecord {
  */
 async function getDbConnection(databaseUrl: string) {
   const { Pool } = await import('pg');
-  return new Pool({
-    connectionString: databaseUrl,
-    ssl: {
-      rejectUnauthorized: false,
-    },
-  });
+  return new Pool(getDatabaseConfig(databaseUrl));
 }
 
 /**

@@ -1,3 +1,4 @@
+import { getDatabaseConfig } from './database-config.js';
 /**
  * Database Migration Runner
  * アプリ起動時に自動的にマイグレーションを実行
@@ -8,12 +9,7 @@
  */
 async function getDbConnection(databaseUrl: string) {
   const { Pool } = await import('pg');
-  return new Pool({
-    connectionString: databaseUrl,
-    ssl: {
-      rejectUnauthorized: false,
-    },
-  });
+  return new Pool(getDatabaseConfig(databaseUrl));
 }
 
 /**

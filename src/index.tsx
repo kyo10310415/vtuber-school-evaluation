@@ -1,3 +1,4 @@
+import { getDatabaseConfig } from './lib/database-config.js'
 import { Hono } from 'hono'
 import { serveStatic } from 'hono/cloudflare-workers'
 import { renderer } from './renderer'
@@ -5595,7 +5596,7 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
     
     // データベース接続
     const { Pool } = await import('pg')
-    const pool = new Pool({ connectionString: DATABASE_URL })
+    const pool = new Pool(getDatabaseConfig(DATABASE_URL))
     
     try {
       // 進捗状況を確認

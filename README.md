@@ -656,3 +656,11 @@ npmが提案するWrangler4.152.0はMiniflare5のbetaに依存するため、こ
 Nodeサーバーは起動時にシートID・連携URLなどの環境設定一覧を表示しません。設定値は引き続きアプリへ渡します。DBマイグレーション失敗も例外本文を表示せず、固定メッセージと終了コード1を返し、接続を終了します。既存ログ・DBは変更しません。
 
 `dev:sandbox`、`start:wrangler`、`preview`の待受先を127.0.0.1へ明示しました。同じPCから利用してください。別PCやコンテナ外からの直接アクセスはできなくなります。Renderの`npm start`と待受先は変更しません。開発依存のHigh4は未解消であり、実認証情報・未信頼入力を持ち込む用途を安全とは扱いません。
+
+## PostgreSQLのTLS方針（2026-10-26）
+
+DB接続設定は`src/lib/database-config.js`へ集約しました。Render上（`RENDER=true`）で短い`dpg-...`形式の内部ホストへ接続する場合だけ、自己署名証明書を許可してTLSを必須にします。それ以外の接続先はOS/Nodeの信頼ストアで証明書とホスト名を検証します。検証失敗から非検証・平文へ自動で切り替えません。Renderの内部TLSは自己署名でverify-full非対応という[公式仕様](https://render.com/docs/postgresql-creating-connecting)に合わせています。
+
+URL内の`ssl*`/`uselibpqcompat`は共通方針を上書きしないよう除去します。`?host=`による別ホスト指定と`NODE_TLS_REJECT_UNAUTHORIZED=0`は拒否します。接続先・認証情報はURL本体に設定し、秘密値をログへ貼らないでください。外部DBが独自CAを使う場合はNodeの`NODE_EXTRA_CA_CERTS`等で信頼設定を用意する必要があります。既存URLのsslcert/sslkey/sslrootcertによるクライアント証明書・CAファイル設定は維持し、検証方針だけを共通設定で強制します。証明書ファイルを読めない場合は値を表示せず失敗します。
+
+対象はOAuthトークン・分析履歴・欠席参照・アプリ内/手動マイグレーション・X評価進捗の6接続経路です。スキーマ・SQL・認証情報は変更しません。実DBへの接続試験・マイグレーションは今回実行していないため、本番の認証後DB業務確認は別途必要です。

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { getDatabaseConfig } from '../src/lib/database-config.js';
 /**
  * Database Migration Script
  * Render PostgreSQLにマイグレーションを実行
@@ -32,12 +33,7 @@ async function runMigration() {
 
   console.log('🔄 データベースマイグレーション開始...\n');
 
-  const pool = new Pool({
-    connectionString: databaseUrl,
-    ssl: {
-      rejectUnauthorized: false,
-    },
-  });
+  const pool = new Pool(getDatabaseConfig(databaseUrl));
 
   try {
     // マイグレーションファイルを読み込み

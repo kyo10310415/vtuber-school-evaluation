@@ -1,3 +1,4 @@
+import { getDatabaseConfig } from './database-config.js';
 /**
  * OAuth Token Manager - PostgreSQL版
  * Render PostgreSQLを使用してOAuthトークンを永続化・管理
@@ -11,12 +12,7 @@ import type { OAuthTokenInfo } from './youtube-analytics-client';
 async function getDbConnection(databaseUrl: string) {
   // Node.js環境（Render）でのみpgモジュールを使用
   const { Pool } = await import('pg');
-  return new Pool({
-    connectionString: databaseUrl,
-    ssl: {
-      rejectUnauthorized: false, // Renderの証明書を信頼
-    },
-  });
+  return new Pool(getDatabaseConfig(databaseUrl));
 }
 
 /**

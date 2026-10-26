@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
+import { getDatabaseConfig } from '../src/lib/database-config.js';
 
 const marker = 'SYNTHETIC_PRIVATE_OPERATION_VALUE';
 function capture() {
@@ -34,7 +35,7 @@ test('server startup does not log environment values and preserves application b
 
 async function migrationFixture({ failQuery = false, failEnd = false } = {}) {
   const log = capture(); let ended = 0, queries = 0;
-  const proc = { env: { DATABASE_URL: marker }, exitCode: 0, exit() { throw new Error('unexpected hard exit'); } };
+  const proc = { env: { DATABASE_URL: `postgresql://fixture:${marker}@database.example/fixture` }, exitCode: 0, exit() { throw new Error('unexpected hard exit'); } };
   class Pool {
     async query() { queries++; if (failQuery) throw Object.assign(new Error(marker), { code: 'ECONNREFUSED' }); return { rows: [] }; }
     async end() { ended++; if (failEnd) throw new Error(marker); }
@@ -42,7 +43,7 @@ async function migrationFixture({ failQuery = false, failEnd = false } = {}) {
   let source = await readFile(new URL('../scripts/migrate.js', import.meta.url), 'utf8');
   source = source.replace(/^#!.*\r?\n/, '').replace(/^import .*\r?\n/gm, '').replace('const __filename = fileURLToPath(import.meta.url);', "const __filename = '/fixture/scripts/migrate.js';")
     .replace('runMigration().catch(', 'await runMigration().catch(');
-  await vm.runInNewContext(`(async () => { ${source}\n})()`, { ...log, process: proc, pkg: { Pool },
+  await vm.runInNewContext(`(async () => { ${source}\n})()`, { ...log, process: proc, pkg: { Pool }, getDatabaseConfig,
     readFile: async () => 'fixture migration SQL', join: (...parts) => parts.join('/'), dirname: () => '/fixture/scripts' });
   return { ...log, proc, ended, queries };
 }
