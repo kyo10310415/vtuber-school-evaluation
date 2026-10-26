@@ -644,3 +644,9 @@ Wranglerを4.116.0へ固定しました。内部Miniflare4.20260730.0を使う�
 21セキュリティテスト・Node build・Cloudflare worker buildが成功。試験コードのimport除去がCRLFにも対応するよう修正しました。隔離したNode構成では匿名API401と本番artifactからツール7種の除外を確認しました。全依存auditはHigh6→4/Moderate1、本番依存はHigh0/Moderate1。High4は開発用sharp/undiciと推移依存の警告で未解消です。
 
 Cloudflare向けにViteで新規生成したworkerのローカル起動は認証設定を読み込めず失敗しました。生成物中のprocess.env参照が空オブジェクトへ置換されている点を確認していますが、Cloudflare構成の実稼働互換性は未確認です。この更新で解消したとは扱いません。Render Nodeでは既存のworkerを維持します。
+
+## 推移依存qsの更新（2026-10-26）
+
+Google API SDK経由のqsを6.14.0から6.16.1へ、既存の互換範囲内でlock更新しました。SDK本体、認証設定、API・DB・業務処理は変更しません。現在の本番依存auditはCritical/High/Medium/Lowすべて0件です。開発用のHigh4（Wrangler/Miniflare/sharp/undici）は未解消です。
+
+npmが提案するWrangler4.152.0はMiniflare5のbetaに依存するため、この更新では導入しません。RenderのNode起動とRENDER=true時の開発ツール除去を維持します。Cloudflare向けの起動互換性に関する上記の制限も残ります。過去の日付のaudit件数は当時の結果です。
