@@ -1,5 +1,9 @@
 # VTuberスクール 成長度リザルトシステム
 
+## Node.jsの実行バージョン
+
+ローカルとRenderのNode.jsは、`.node-version`の`22.23.4`を使用します。依存パッケージの更新とは別に、実行環境のセキュリティ更新を適用するための固定です。Renderに`NODE_VERSION`が設定されている場合はそちらが優先されるため、配備後のログで実際のバージョンを確認してください。今後のパッチ更新時は、`npm run test:security`と`npm run build`を隔離環境で確認してから、このファイルを更新します。
+
 ## SEC-018 / SEC-020：配備前の認証設定
 
 全業務APIと画面はSSOのadmin/leaderを要求します。crewは許可しません。従来のAPI認証除外は撤去し、公開するのはGET/HEAD `/api/health`の固定応答のみです。匿名APIは401、認証済みでも権限不足は403です。APIのqueryにauth_tokenを指定しても認証できません。HTMLのSSO着地時のみtokenをcookieへ移し、URLから取り除きます。SSOはHS256・1時間以内・このサービスのtargetUrl.originを検証します。
