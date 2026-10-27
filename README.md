@@ -1,5 +1,12 @@
 # VTuberスクール 成長度リザルトシステム
 
+## 開発用Cloudflareツール
+
+Wranglerは4.153.0に固定しています。内部依存はMiniflare 5のベータ版を含むため、
+更新時はセキュリティテストとビルドに加え、`npm run dev`、`npm run dev:sandbox`、
+`npm run cf-typegen` のローカル互換性を確認してください。実APIの認証情報や本番DBは
+検証に使いません。Render向けビルドでは既存の処理により開発依存を除去します。
+
 ## Node.jsの実行バージョン
 
 ローカルとRenderのNode.jsは、`.node-version`の`22.23.4`を使用します。依存パッケージの更新とは別に、実行環境のセキュリティ更新を適用するための固定です。Renderに`NODE_VERSION`が設定されている場合はそちらが優先されるため、配備後のログで実際のバージョンを確認してください。今後のパッチ更新時は、`npm run test:security`と`npm run build`を隔離環境で確認してから、このファイルを更新します。
