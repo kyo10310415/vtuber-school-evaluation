@@ -46,7 +46,7 @@ export async function getCachedEvaluation(
     )
     
     if (!response.ok) {
-      console.warn(`[Cache] Failed to fetch cache sheet: ${sheetName}`)
+      console.warn('[Cache] Cache sheet fetch failed')
       return null
     }
     
@@ -84,8 +84,8 @@ export async function getCachedEvaluation(
           const cachedData = JSON.parse(row[dataIndex])
           const cachedAt = row[header.findIndex((h: string) => h === 'キャッシュ日時')] || ''
           
-          // デバッグ: マッチした行の詳細をログ出力
-          console.log(`[Cache] Found row for ${studentId} ${month}: cached_at=${cachedAt}, data_preview=${JSON.stringify(cachedData).substring(0, 100)}...`)
+          // Keep cache diagnostics free of identifiers and evaluation payloads.
+          console.log('[Cache] Matching cache row found')
           
           // ✅ 不完全なデータは候補から除外（YouTube/X評価の場合）
           let isIncomplete = false
@@ -95,7 +95,7 @@ export async function getCachedEvaluation(
                           cachedData.subscriberCount === 0 || 
                           cachedData.totalViews === 0;
             if (isIncomplete) {
-              console.log(`[Cache] Skipping incomplete YouTube data for ${studentId} ${month} (cached at: ${cachedAt}, videos=${cachedData.videosInMonth}, subscribers=${cachedData.subscriberCount}, views=${cachedData.totalViews})`)
+              console.log('[Cache] Incomplete YouTube cache skipped')
               continue  // 不完全データは候補から除外
             }
           }
@@ -103,7 +103,7 @@ export async function getCachedEvaluation(
           if (evaluationType === 'x') {
             isIncomplete = cachedData.tweetsInMonth === 0 && cachedData.followersCount === 0;
             if (isIncomplete) {
-              console.log(`[Cache] Skipping incomplete X data for ${studentId} ${month} (cached at: ${cachedAt}, tweets=${cachedData.tweetsInMonth}, followers=${cachedData.followersCount})`)
+              console.log('[Cache] Incomplete X cache skipped')
               continue  // 不完全データは候補から除外
             }
           }
@@ -112,31 +112,31 @@ export async function getCachedEvaluation(
           if (!latestCachedAt || cachedAt > latestCachedAt) {
             latestCachedData = cachedData
             latestCachedAt = cachedAt
-            console.log(`[Cache] Found complete data for ${studentId} ${month} (cached at: ${cachedAt})`)
+            console.log('[Cache] Complete cache candidate found')
           }
         } catch (e) {
-          console.warn(`[Cache] Failed to parse cached data for ${studentId} ${month}`)
+          console.warn('[Cache] Cached data parse failed')
         }
       }
     }
     
     if (latestCachedData) {
-      console.log(`[Cache] Cache hit for ${studentId} ${month} (cached at: ${latestCachedAt})`)
+      console.log('[Cache] Cache hit')
       
-      // デバッグ: YouTube/X評価の主要データをログ出力
+      // Record the cache phase without individual metrics.
       if (evaluationType === 'youtube') {
-        console.log(`[Cache] YouTube data: subscribers=${latestCachedData.subscriberCount}, videos=${latestCachedData.videosInMonth}, views=${latestCachedData.totalViews}`)
+        console.log('[Cache] YouTube cache loaded')
       } else if (evaluationType === 'x') {
-        console.log(`[Cache] X data: followers=${latestCachedData.followersCount}, tweets=${latestCachedData.tweetsInMonth}`)
+        console.log('[Cache] X cache loaded')
       }
       
       return latestCachedData
     }
     
-    console.log(`[Cache] Cache miss for ${studentId} ${month}`)
+    console.log('[Cache] Cache miss')
     return null
   } catch (error: any) {
-    console.error('[Cache] Error fetching cache:', error.message)
+    console.error('[Cache] Cache lookup failed')
     return null
   }
 }
@@ -190,15 +190,15 @@ export async function saveCachedEvaluation(
     )
     
     if (!response.ok) {
-      const errorText = await response.text()
-      console.error(`[Cache] Failed to save cache: ${errorText}`)
+      await response.text()
+      console.error('[Cache] Cache save request failed')
       return false
     }
     
-    console.log(`[Cache] Saved cache for ${studentId} ${month}`)
+    console.log('[Cache] Cache saved')
     return true
   } catch (error: any) {
-    console.error('[Cache] Error saving cache:', error.message)
+    console.error('[Cache] Cache save failed')
     return false
   }
 }
@@ -223,7 +223,7 @@ export async function initializeCacheSheet(
     )
     
     if (!checkResponse.ok) {
-      console.error(`[Cache] Failed to get spreadsheet info`)
+      console.error('[Cache] Cache spreadsheet lookup failed')
       return false
     }
     
@@ -233,7 +233,7 @@ export async function initializeCacheSheet(
     
     // Step 2: シートが存在しない場合は作成
     if (!sheetExists) {
-      console.log(`[Cache] Creating new sheet: ${sheetName}`)
+      console.log('[Cache] Creating cache sheet')
       
       const createResponse = await fetch(
         `https://sheets.googleapis.com/v4/spreadsheets/${cacheSpreadsheetId}:batchUpdate`,
@@ -258,14 +258,14 @@ export async function initializeCacheSheet(
       )
       
       if (!createResponse.ok) {
-        const errorText = await createResponse.text()
-        console.error(`[Cache] Failed to create sheet: ${errorText}`)
+        await createResponse.text()
+        console.error('[Cache] Cache sheet creation request failed')
         return false
       }
       
-      console.log(`[Cache] Sheet created: ${sheetName}`)
+      console.log('[Cache] Cache sheet created')
     } else {
-      console.log(`[Cache] Sheet already exists: ${sheetName}`)
+      console.log('[Cache] Cache sheet already exists')
     }
     
     // Step 3: ヘッダー行を書き込み
@@ -293,15 +293,15 @@ export async function initializeCacheSheet(
     )
     
     if (!headerResponse.ok) {
-      const errorText = await headerResponse.text()
-      console.error(`[Cache] Failed to write header: ${errorText}`)
+      await headerResponse.text()
+      console.error('[Cache] Cache header write request failed')
       return false
     }
     
-    console.log(`[Cache] Initialized cache sheet: ${sheetName}`)
+    console.log('[Cache] Cache sheet initialized')
     return true
   } catch (error: any) {
-    console.error('[Cache] Error initializing cache sheet:', error.message)
+    console.error('[Cache] Cache sheet initialization failed')
     return false
   }
 }
