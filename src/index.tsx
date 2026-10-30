@@ -5673,11 +5673,7 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
       
       let progress = progressResult.rows[0]
       
-      // 月が変わったら自動リセット（前月の評価が完了していても、新しい月の評価を開始）
-      if (progress && progress.evaluation_month < currentMonth && !reset) {
-        console.log(`[Auto Evaluate X Only] New month detected. Resetting progress for new evaluation.`)
-        progress = null
-      }
+      // SELECT already scopes progress to evaluationMonth; only an explicit reset discards it.
       
       // リセットパラメータが指定された場合は進捗をリセット
       if (reset === 'true' && progress) {
