@@ -108,11 +108,8 @@ export async function fetchStudents(
   const data = await response.json();
   const rows = data.values || [];
   
-  console.log('[fetchStudents] Response:', {
-    spreadsheetId,
-    sheetName,
+  console.log('[fetchStudents] Rows fetched', {
     rowCount: rows.length,
-    firstRow: rows[0] || null,
   });
   
   return rows.map((row: any[]) => ({
