@@ -9,7 +9,7 @@ const start = moduleSource.indexOf('export async function fetchStudents(');
 const end = moduleSource.indexOf('export async function fetchAbsenceData(', start);
 const source = transformSync(moduleSource.slice(start, end), { loader: 'ts', format: 'cjs' }).code;
 const marker = 'SYNTHETIC_PRIVATE_STUDENT_VALUE';
-function fixture({ values, phaseError, providerError = false } = {}) {
+function fixture({ values, phaseError, providerError = false, data } = {}) {
   const logs = [], requests = [], tokenArguments = [];
   const originalError = new Error(marker);
   const box = { module: { exports: {} },
@@ -17,7 +17,7 @@ function fixture({ values, phaseError, providerError = false } = {}) {
     getAccessToken: async value => { tokenArguments.push(value); if (phaseError === 'token') throw originalError; return marker + '-token'; },
     fetch: async (url, options) => {
       requests.push({ url, options }); if (phaseError === 'fetch') throw originalError;
-      return { ok: !providerError, json: async () => { if (phaseError === 'json') throw originalError; return providerError ? { error: { message: marker } } : values === undefined ? {} : { values }; } };
+      return { ok: !providerError, json: async () => { if (phaseError === 'json') throw originalError; return data !== undefined ? data : providerError ? { error: { message: marker } } : values === undefined ? {} : { values }; } };
     },
   };
   vm.runInNewContext(source, box);
@@ -62,4 +62,21 @@ test('token/fetch/JSON exceptions preserve rejection identity without raw consol
 test('provider error JSON keeps existing empty mapping contract and never logs provider text', async () => {
   const f = fixture({ providerError: true }); const result = await f.run(marker + '-service-account', marker + '-spreadsheet');
   assert.equal(Array.isArray(result) && result.length === 0, true); assertSafeLogs(f, 0);
+});
+test('new strict reader rejects HTTP and malformed source instead of reporting successful zero', async () => {
+  for (const data of [{}, [], null, { values: {} }, { values: [{}] }, { values: [[{}]] }, { error: { message: marker } }]) {
+    const f = fixture({ data });
+    await assert.rejects(f.run(marker + '-account', marker + '-sheet', 'synthetic', { strict: true }));
+    assert.equal(JSON.stringify(f.logs).includes(marker), false);
+  }
+  const denied = fixture({ providerError: true });
+  await assert.rejects(denied.run(marker + '-account', marker + '-sheet', 'synthetic', { strict: true }));
+  assert.equal(denied.logs.length, 0);
+});
+test('strict reader accepts genuine empty range and explicit empty values', async () => {
+  for (const data of [{ range: 'synthetic!A2:Z', majorDimension: 'ROWS' }, { values: [] }]) {
+    const f = fixture({ data });
+    const rows = await f.run(marker + '-account', marker + '-sheet', 'synthetic', { strict: true });
+    assert.equal(Array.isArray(rows) && rows.length === 0, true); assertSafeLogs(f, 0);
+  }
 });

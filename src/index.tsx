@@ -1,3 +1,4 @@
+import { readPartitionRequest, buildPartitionPlan } from './lib/evaluation-partition'
 import { getDatabaseConfig } from './lib/database-config.js'
 import { Hono } from 'hono'
 import { serveStatic } from 'hono/cloudflare-workers'
@@ -3791,7 +3792,14 @@ app.get('/api/results/:studentId', async (c) => {
 })
 
 // 自動評価エンドポイント（GitHub Actions Cronから呼び出される）
-app.post('/api/auto-evaluate', async (c) => {
+async function handleAutoEvaluation(c: any, partitionMode: 'plan' | 'execute' | null = null) {
+  // Keep this handler-level partition log boundary free of identifiers and SDK details.
+  const output = globalThis.console
+  const console = partitionMode ? {
+    log: () => output.log('[Partition Evaluation] Processing'),
+    warn: () => output.warn('[Partition Evaluation] Warning'),
+    error: () => output.error('[Partition Evaluation] Request failed'),
+  } : output
   try {
     const GOOGLE_SERVICE_ACCOUNT = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT')
     const GEMINI_API_KEY = getEnv(c, 'GEMINI_API_KEY')
@@ -3803,10 +3811,24 @@ app.post('/api/auto-evaluate', async (c) => {
     
     // 評価月（クエリパラメータまたは前月）
     const month = c.req.query('month') || getPreviousMonth()
+    let partitionRequest: ReturnType<typeof readPartitionRequest> | null = null
+    if (partitionMode) {
+      try {
+        partitionRequest = readPartitionRequest(c.req.url, partitionMode, c.req.header('X-Evaluation-Roster-Revision'))
+      } catch {
+        return c.json({ success: false, error: 'Invalid partition evaluation parameters' }, 400)
+      }
+    }
+    const persistEvaluationCache = async (save: (...args: any[]) => Promise<boolean>, ...args: any[]) => {
+      const saved = await save(...args)
+      if (partitionMode && saved !== true) throw new Error('Evaluation cache save failed')
+      return saved
+    }
+
     
     // バッチ処理のパラメータ
-    const batchSize = parseInt(c.req.query('batchSize') || '5') // デフォルト5名（タイムアウト回避）
-    const batchIndex = parseInt(c.req.query('batchIndex') || '0') // デフォルト0（最初のバッチ）
+    const batchSize = partitionRequest?.batchSize ?? parseInt(c.req.query('batchSize') || '5') // デフォルト5名（タイムアウト回避）
+    const batchIndex = partitionRequest?.batchIndex ?? parseInt(c.req.query('batchIndex') || '0') // デフォルト0（最初のバッチ）
     const skipProLevel = c.req.query('skipProLevel') === 'true' // プロレベル評価をスキップするか
     const skipX = c.req.query('skipX') === 'true' // X評価をスキップするか（レート制限対策）
     const skipYouTube = c.req.query('skipYouTube') === 'true' // YouTube評価をスキップするか（クォータ対策）
@@ -3828,10 +3850,12 @@ app.post('/api/auto-evaluate', async (c) => {
     }
     
     // Gemini初期化（プロレベル評価が必要な場合のみ）
-    const gemini = skipProLevel ? null : new GeminiAnalyzer(GEMINI_API_KEY)
+    let gemini = partitionMode || skipProLevel ? null : new GeminiAnalyzer(GEMINI_API_KEY)
     
     // 全生徒を取得
-    const allStudents = await fetchStudents(GOOGLE_SERVICE_ACCOUNT, STUDENT_MASTER_SPREADSHEET_ID)
+    const allStudents = partitionMode
+      ? await fetchStudents(GOOGLE_SERVICE_ACCOUNT, STUDENT_MASTER_SPREADSHEET_ID, 'リスト', { strict: true })
+      : await fetchStudents(GOOGLE_SERVICE_ACCOUNT, STUDENT_MASTER_SPREADSHEET_ID)
     console.log(`[Auto Evaluate] Found ${allStudents.length} total students`)
     
     // フィルタリング: アクティブのみ、永久会員を除外
@@ -3844,6 +3868,24 @@ app.post('/api/auto-evaluate', async (c) => {
     console.log(`[Auto Evaluate] Filtered to ${filteredStudents.length} active students (excluding 永久会員)`)
     // 評価済みスキップ前の全体数を保持（プログレスバー用）
     const totalActiveStudents = filteredStudents.length
+    let partitionPlan: Awaited<ReturnType<typeof buildPartitionPlan>>['plan'] | null = null
+    if (partitionMode && partitionRequest) {
+      const selection = await buildPartitionPlan(filteredStudents, month, partitionRequest.partitionDay, batchSize)
+      partitionPlan = selection.plan
+      if (partitionMode === 'plan') return c.json({ success: true, plan: selection.plan })
+      if (selection.plan.rosterRevision !== c.req.header('X-Evaluation-Roster-Revision')) {
+        return c.json({ success: false, error: 'Partition roster changed; request a new plan' }, 409)
+      }
+      if (selection.plan.totalBatches === 0) {
+        return c.json({ success: true, successCount: 0, errorCount: 0, skippedCount: 0 })
+      }
+      if (batchIndex >= selection.plan.totalBatches) {
+        return c.json({ success: false, error: 'Partition batch index is outside the plan' }, 400)
+      }
+      filteredStudents = selection.students
+      gemini = skipProLevel ? null : new GeminiAnalyzer(GEMINI_API_KEY)
+    }
+
     
     // トークメモがある生徒のみに絞り込み（onlyWithTalkMemo=true）
     if (onlyWithTalkMemo) {
@@ -3986,6 +4028,7 @@ app.post('/api/auto-evaluate', async (c) => {
         continue
       }
       processedStudentIds.add(student.studentId)
+      const errorsBeforeStudent = errors.length
       
       try {
         // アクセストークンを30分ごとに更新（トークンの有効期限は1時間）
@@ -4159,7 +4202,7 @@ app.post('/api/auto-evaluate', async (c) => {
                 if (evaluation && !evaluation.error) {
                   result.evaluations.youtube = evaluation
                   // 成功時のみキャッシュに保存
-                  await saveCachedEvaluation(
+                  await persistEvaluationCache(saveCachedEvaluation,
                     accessToken,
                     RESULT_SPREADSHEET_ID,
                     student.studentId,
@@ -4266,7 +4309,7 @@ app.post('/api/auto-evaluate', async (c) => {
                   
                   result.evaluations.x = partialEval
                   // 部分的なデータでもキャッシュに保存
-                  await saveCachedEvaluation(
+                  await persistEvaluationCache(saveCachedEvaluation,
                     accessToken,
                     RESULT_SPREADSHEET_ID,
                     student.studentId,
@@ -4280,7 +4323,7 @@ app.post('/api/auto-evaluate', async (c) => {
                   // 通常の成功パターン
                   result.evaluations.x = evaluation
                   // 成功時のみキャッシュに保存
-                  await saveCachedEvaluation(
+                  await persistEvaluationCache(saveCachedEvaluation,
                     accessToken,
                     RESULT_SPREADSHEET_ID,
                     student.studentId,
@@ -4317,7 +4360,9 @@ app.post('/api/auto-evaluate', async (c) => {
         }
         
         results.push(result)
-        successCount++
+        if (partitionMode && (errors.length > errorsBeforeStudent ||
+            Object.values(result.evaluations).some((value: any) => value?.error))) errorCount++
+        else successCount++
         console.log(`[Auto Evaluate] Student evaluation completed: ${student.studentId}`)
       } catch (error: any) {
         console.error(`[Auto Evaluate] 生徒評価エラー: ${student.studentId}`, error.message)
@@ -4348,6 +4393,18 @@ app.post('/api/auto-evaluate', async (c) => {
     const nextBatchIndex = hasNextBatch ? batchIndex + 1 : null
     const totalBatches = Math.ceil(filteredStudents.length / batchSize)
     
+    if (partitionMode && partitionPlan) {
+      return c.json({
+        success: errorCount === 0,
+        successCount, errorCount, skippedCount,
+        batchInfo: {
+          batchIndex, batchSize, totalBatches, processedStudents: students.length,
+          activeRows: partitionPlan.activeRows, eligibleStudents: partitionPlan.eligibleStudents,
+          emptyTemplateCount: partitionPlan.emptyTemplateCount, invalidActiveCount: partitionPlan.invalidActiveCount,
+          partitionStudentCount: partitionPlan.partitionStudentCount, hasNextBatch, nextBatchIndex,
+        },
+      })
+    }
     return c.json({
       success: true,
       month,
@@ -4369,10 +4426,18 @@ app.post('/api/auto-evaluate', async (c) => {
       results
     })
   } catch (error: any) {
+    if (partitionMode) {
+      console.error('[Partition Evaluation] Request failed')
+      return c.json({ success: false, error: 'Partition evaluation source or operation failed' }, 503)
+    }
     console.error('[/api/auto-evaluate] Error:', error.message, error.stack)
     return c.json({ success: false, error: error.message, stack: error.stack }, 500)
   }
-})
+}
+
+app.post('/api/auto-evaluate', c => handleAutoEvaluation(c))
+app.post('/api/auto-evaluate/plan', c => handleAutoEvaluation(c, 'plan'))
+app.post('/api/auto-evaluate/partition', c => handleAutoEvaluation(c, 'execute'))
 
 // わなみさん使用回数を確認（手動確認用）
 app.get('/api/wanami-usage', async (c) => {
@@ -5608,11 +5673,7 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
       
       let progress = progressResult.rows[0]
       
-      // 月が変わったら自動リセット（前月の評価が完了していても、新しい月の評価を開始）
-      if (progress && progress.evaluation_month < currentMonth && !reset) {
-        console.log(`[Auto Evaluate X Only] New month detected. Resetting progress for new evaluation.`)
-        progress = null
-      }
+      // SELECT already scopes progress to evaluationMonth; only an explicit reset discards it.
       
       // リセットパラメータが指定された場合は進捗をリセット
       if (reset === 'true' && progress) {
@@ -5698,6 +5759,12 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
       const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
       const { evaluateXAccount } = await import('./lib/x-client')
       const { getCachedEvaluation, saveCachedEvaluation } = await import('./lib/evaluation-cache')
+      const persistXCache = async (...args: Parameters<typeof saveCachedEvaluation>) => {
+        const saved = await saveCachedEvaluation(...args)
+        if (saved !== true) throw new Error('X evaluation cache save failed')
+        return saved
+      }
+
       
       const results: any[] = []
       let successCount = 0
@@ -5787,7 +5854,7 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
           }
           
           // 部分的なデータでもキャッシュに保存
-          await saveCachedEvaluation(
+          await persistXCache(
             accessToken,
             RESULT_SPREADSHEET_ID,
             student.studentId,
@@ -5809,7 +5876,7 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
           successCount++
         } else if (xEval && !xEval.error) {
           // 通常の成功パターン
-          await saveCachedEvaluation(
+          await persistXCache(
             accessToken,
             RESULT_SPREADSHEET_ID,
             student.studentId,

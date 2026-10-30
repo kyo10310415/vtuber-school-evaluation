@@ -89,7 +89,8 @@ function pemToArrayBuffer(pem: string): ArrayBuffer {
 export async function fetchStudents(
   serviceAccountJson: string,
   spreadsheetId: string,
-  sheetName: string = 'リスト'
+  sheetName: string = 'リスト',
+  options: { strict?: boolean } = {}
 ): Promise<Student[]> {
   const accessToken = await getAccessToken(serviceAccountJson);
   
@@ -105,7 +106,16 @@ export async function fetchStudents(
     }
   );
 
+  if (options.strict && !response.ok) throw new Error('Student source request failed');
   const data = await response.json();
+  if (options.strict && (!data || typeof data !== 'object' || Array.isArray(data) || data.error ||
+      (data.values === undefined
+        ? typeof data.range !== 'string' || !data.range.trim() ||
+          (data.majorDimension !== undefined && data.majorDimension !== 'ROWS')
+        : !Array.isArray(data.values) || data.values.some((row: unknown) => !Array.isArray(row) ||
+            row.some(cell => cell !== null && !['string', 'number', 'boolean'].includes(typeof cell)))))) {
+    throw new Error('Student source response is invalid');
+  }
   const rows = data.values || [];
   
   console.log('[fetchStudents] Rows fetched', {
@@ -500,9 +510,6 @@ export async function fetchDocumentsInFolderByMonth(
   });
 
   console.log(`[fetchDocumentsInFolderByMonth] month=${month}, all=${allFiles.length}, matched=${filtered.length}`);
-  if (allFiles.length > 0) {
-    console.log(`[fetchDocumentsInFolderByMonth] All files:`, allFiles.map(f => f.name));
-  }
 
   return filtered;
 }
@@ -530,8 +537,7 @@ export async function fetchDocumentContent(
   console.log('[fetchDocumentContent] Document structure:', {
     hasBody: !!doc.body,
     hasTabs: !!doc.tabs,
-    tabsLength: doc.tabs?.length || 0,
-    tabTitles: doc.tabs?.map((t: any) => t.tabProperties?.title || 'untitled') || []
+    tabsLength: doc.tabs?.length || 0
   });
   
   // Google Meet録画の文字起こしを取得する戦略:
@@ -554,8 +560,6 @@ export async function fetchDocumentContent(
     if (exportResponse.ok) {
       const fullText = await exportResponse.text();
       console.log('[fetchDocumentContent] Exported text length:', fullText.length);
-      console.log('[fetchDocumentContent] First 500 chars:', fullText.substring(0, 500));
-      console.log('[fetchDocumentContent] Last 500 chars:', fullText.substring(Math.max(0, fullText.length - 500)));
       
       // Google Meetの文字起こしを検出する戦略:
       // 1. 行ごとに解析して、発話者パターン（"名前: 内容"）が連続する箇所を探す
@@ -582,7 +586,7 @@ export async function fetchDocumentContent(
           if (consecutiveSpeakerLines >= 3 && transcriptStartIndex === -1) {
             // 3行以上連続で発話パターンがあれば文字起こしと判定
             transcriptStartIndex = i - consecutiveSpeakerLines + 1;
-            console.log('[fetchDocumentContent] Transcript detected at line', transcriptStartIndex, ':', lines[transcriptStartIndex].substring(0, 80));
+            console.log('[fetchDocumentContent] Transcript detected at line', transcriptStartIndex);
           }
         } else if (!line) {
           // 空行は許容（継続）
@@ -614,7 +618,6 @@ export async function fetchDocumentContent(
         
         content = transcriptLines.join('\n');
         console.log('[fetchDocumentContent] Extracted transcript lines:', transcriptLines.length);
-        console.log('[fetchDocumentContent] Transcript preview:', content.substring(0, 300));
       } else {
         // 文字起こしパターンが見つからない場合は全テキストを使用
         console.log('[fetchDocumentContent] No transcript pattern found, using full text');
@@ -626,15 +629,14 @@ export async function fetchDocumentContent(
       content = extractTextFromContent(doc.body?.content || []);
     }
   } catch (error) {
-    console.error('[fetchDocumentContent] Export error:', error);
+    console.error('[fetchDocumentContent] Export failed; using document body fallback');
     // フォールバック: body.content から取得
     content = extractTextFromContent(doc.body?.content || []);
   }
 
   console.log('[fetchDocumentContent] Result:', {
     extractionMethod: 'drive_export_api',
-    contentLength: content.length,
-    contentPreview: content.substring(0, 200)
+    contentLength: content.length
   });
   
   // メッセージを解析（簡易的な実装）
@@ -669,7 +671,6 @@ function parseMessages(content: string): TalkMessage[] {
   const lines = content.split('\n').filter(line => line.trim());
 
   console.log('[parseMessages] Total lines after filtering:', lines.length);
-  console.log('[parseMessages] First 5 lines:', lines.slice(0, 5));
 
   for (const line of lines) {
     // 行末の \r や \n を除去
@@ -691,7 +692,6 @@ function parseMessages(content: string): TalkMessage[] {
   }
 
   console.log('[parseMessages] Parsed messages count:', messages.length);
-  console.log('[parseMessages] First 3 messages:', messages.slice(0, 3));
 
   return messages;
 }
