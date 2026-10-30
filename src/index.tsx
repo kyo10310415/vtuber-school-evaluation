@@ -5643,13 +5643,17 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
     console.log(`[Auto Evaluate X Only] Current month: ${currentMonth}, Evaluation month: ${evaluationMonth}`)
     
     // ✅ クォータチェックを追加
-    const { getQuotaStatus, getAvailableStudentCount } = await import('./lib/x-quota-manager')
+    const { getQuotaStatus } = await import('./lib/x-quota-manager')
     const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
     
     // クォータ状況を確認
     const quotaStatus = await getQuotaStatus(accessToken, RESULT_SPREADSHEET_ID)
     console.log(`[Auto Evaluate X Only] Quota status:`, quotaStatus)
     
+    if (quotaStatus.status !== 'known' || quotaStatus.totalRequests === null) {
+      return c.json({ success: false, error: 'X quota usage unknown', quota: quotaStatus }, 503)
+    }
+
     if (quotaStatus.remainingQuota <= 0) {
       return c.json({
         success: false,
@@ -5928,7 +5932,11 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
     
     // ✅ クォータ使用量を記録
     const { recordQuotaUsage } = await import('./lib/x-quota-manager')
-    await recordQuotaUsage(accessToken, RESULT_SPREADSHEET_ID, successCount)
+    try {
+      await recordQuotaUsage(accessToken, RESULT_SPREADSHEET_ID, successCount)
+    } catch {
+      return c.json({ success: false, error: 'X quota usage recording failed' }, 503)
+    }
     
     // 進捗を更新
     const completedStudents = progress.completed_students + successCount
@@ -5938,6 +5946,9 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
     
     // 更新されたクォータ状況を取得
     const updatedQuota = await getQuotaStatus(accessToken, RESULT_SPREADSHEET_ID)
+    if (updatedQuota.status !== 'known' || updatedQuota.totalRequests === null) {
+      return c.json({ success: false, error: 'X quota usage unknown', quota: updatedQuota }, 503)
+    }
     
     await pool.query(`
       UPDATE x_evaluation_progress 
@@ -5951,7 +5962,7 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
     
     console.log(`[Auto Evaluate X Only] Complete: ${successCount} success, ${errorCount} errors, ${skippedCount} skipped`)
     console.log(`[Auto Evaluate X Only] Progress: ${completedStudents}/${filteredStudents.length} students completed`)
-    console.log(`[Auto Evaluate X Only] Quota: ${updatedQuota.totalRequests}/${updatedQuota.totalRequests + updatedQuota.remainingQuota} used`)
+    console.log('[Auto Evaluate X Only] Quota usage confirmed')
     
     return c.json({
       success: true,
@@ -5998,8 +6009,9 @@ app.get('/api/x/quota', async (c) => {
       success: true,
       quota: status,
       usage: {
-        percentage: ((status.totalRequests / (status.totalRequests + status.remainingQuota)) * 100).toFixed(1) + '%',
-        canEvaluate: status.remainingQuota > 0,
+        status: status.status,
+        percentage: status.totalRequests === null ? null : ((status.totalRequests / 14000) * 100).toFixed(1) + '%',
+        canEvaluate: status.status === 'known' && status.remainingQuota > 0,
         maxStudents: Math.floor(status.remainingQuota / 1) // 1人あたり1リクエスト
       }
     })
