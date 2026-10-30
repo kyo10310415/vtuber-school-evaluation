@@ -16,7 +16,7 @@ export class GeminiAnalyzer {
     const prompt = this.createAnalysisPrompt(talkMemo);
     
     try {
-      console.log('[GeminiAnalyzer] Starting analysis for document:', talkMemo.documentId);
+      console.log('[GeminiAnalyzer] Starting document analysis');
       console.log('[GeminiAnalyzer] Message count:', talkMemo.messages.length);
       
       const result = await this.model.generateContent(prompt);
@@ -24,7 +24,6 @@ export class GeminiAnalyzer {
       const text = response.text();
       
       console.log('[GeminiAnalyzer] Response text length:', text.length);
-      console.log('[GeminiAnalyzer] Response preview:', text.substring(0, 500));
       
       // Markdownコードブロックを除去（```json ... ``` または ``` ... ```）
       let jsonText = text;
@@ -42,15 +41,11 @@ export class GeminiAnalyzer {
         }
       }
       
-      console.log('[GeminiAnalyzer] JSON text preview:', jsonText.substring(0, 300));
       
       const analysis = JSON.parse(jsonText);
       return this.normalizeAnalysisResult(analysis);
     } catch (error: any) {
-      console.error('[GeminiAnalyzer] Analysis error:', error);
-      console.error('[GeminiAnalyzer] Error name:', error?.name);
-      console.error('[GeminiAnalyzer] Error message:', error?.message);
-      console.error('[GeminiAnalyzer] Error stack:', error?.stack);
+      console.error('[GeminiAnalyzer] Analysis failed');
       
       // エラー時のデフォルト値
       return {
