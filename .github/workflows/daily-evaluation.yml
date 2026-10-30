@@ -15,6 +15,10 @@ on:
         required: false
         type: string
 
+concurrency:
+  group: school-evaluation-monthly-resume
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
@@ -167,74 +171,6 @@ jobs:
           done
           echo "failure_count=$((HTTP_FAILURES + EVALUATION_ERRORS))" >> "$GITHUB_OUTPUT"
           echo "roster_changed=$ROSTER_CHANGED" >> "$GITHUB_OUTPUT"
-      # ============================================
-      # X評価（Day 1のみ実行）
-      # ============================================
-      
-      - name: Check if Day 1 for X evaluation
-        if: always() && steps.check_date.outputs.should_run == 'true' && steps.get_month.outcome == 'success'
-        id: check_day1
-        run: |
-          DAY="${{ steps.check_date.outputs.day }}"
-          if [ "$DAY" = "1" ]; then
-            echo "is_day1=true" >> $GITHUB_OUTPUT
-            echo "✅ Day 1: Will run X evaluation"
-          else
-            echo "is_day1=false" >> $GITHUB_OUTPUT
-            echo "⏭️ Not Day 1: Skipping X evaluation"
-          fi
-      
-      - name: Reset X evaluation progress
-        id: reset_x
-        if: always() && steps.check_day1.outputs.is_day1 == 'true'
-        run: |
-          MONTH="${{ steps.get_month.outputs.month }}"
-          echo "🔄 Resetting X evaluation progress for $MONTH..."
-          RESPONSE=$(node .github/scripts/evaluation-request.mjs "/api/auto-evaluate-x-only?reset=true&month=$MONTH" --json-only)
-          RESET_ERRORS=$(printf '%s' "$RESPONSE" | jq -r '(.errorCount // 0) + (.summary.errors // 0) + (if .requestFailed then 1 else 0 end)')
-          [[ "$RESET_ERRORS" =~ ^[0-9]+$ ]] || exit 1
-          echo "failure_count=$RESET_ERRORS" >> "$GITHUB_OUTPUT"
-          echo "X initial request errors=$RESET_ERRORS"
-      
-      - name: Process X Evaluation Batches
-        id: x_batches
-        if: always() && steps.check_day1.outputs.is_day1 == 'true' && steps.reset_x.outcome == 'success'
-        run: |
-          MONTH="${{ steps.get_month.outputs.month }}"
-          echo "🔄 Processing X Evaluation..."
-          
-          X_ERRORS=0
-          IS_COMPLETED=false
-          for BATCH_NUM in {0..5}; do
-            echo "============================================"
-            echo "📦 Processing X Batch $BATCH_NUM"
-            echo "============================================"
-            
-            RESPONSE=$(node .github/scripts/evaluation-request.mjs "/api/auto-evaluate-x-only?month=$MONTH" --json-only)
-            echo "$RESPONSE" | jq '.'
-            ERRORS=$(printf '%s' "$RESPONSE" | jq -r '(.errorCount // 0) + (.summary.errors // 0) + (if .requestFailed then 1 else 0 end)')
-            [[ "$ERRORS" =~ ^[0-9]+$ ]] || exit 1
-            X_ERRORS=$((X_ERRORS + ERRORS))
-            
-            IS_COMPLETED=$(echo "$RESPONSE" | jq -r '.progress.isCompleted')
-            if [ "$IS_COMPLETED" = "true" ]; then
-              echo "🎉 All X evaluations completed!"
-              break
-            fi
-            
-            COMPLETED=$(echo "$RESPONSE" | jq -r '.progress.completedStudents')
-            TOTAL=$(echo "$RESPONSE" | jq -r '.progress.totalStudents')
-            echo "✅ X Batch $BATCH_NUM completed: $COMPLETED/$TOTAL students"
-            
-            # 次のバッチの前に30分待機
-            if [ $BATCH_NUM -lt 5 ]; then
-              echo "⏳ Waiting 30 minutes before next X batch..."
-              sleep 1800
-            fi
-          done
-          echo "failure_count=$X_ERRORS" >> "$GITHUB_OUTPUT"
-          echo "is_completed=$IS_COMPLETED" >> "$GITHUB_OUTPUT"
-      
       - name: Aggregate evaluation outcome
         if: always()
         run: |
@@ -244,14 +180,9 @@ jobs:
           if [ "${{ steps.common_batches.outcome }}" = "failure" ]; then FAILED=1; fi
           COMMON_ERRORS="${{ steps.common_batches.outputs.failure_count || '0' }}"
           INVALID_ACTIVE="${{ steps.batch_range.outputs.invalid_active || '0' }}"
-          X_ERRORS="${{ steps.x_batches.outputs.failure_count || '0' }}"
-          RESET_ERRORS="${{ steps.reset_x.outputs.failure_count || '0' }}"
-          if [ "$COMMON_ERRORS" -gt 0 ] || [ "$INVALID_ACTIVE" -gt 0 ] || [ "$X_ERRORS" -gt 0 ] || [ "$RESET_ERRORS" -gt 0 ]; then FAILED=1; fi
-          if [ "${{ steps.reset_x.outcome }}" = "failure" ] || [ "${{ steps.x_batches.outcome }}" = "failure" ]; then FAILED=1; fi
-          if [ "${{ steps.check_day1.outputs.is_day1 }}" = "true" ] && [ "${{ steps.x_batches.outputs.is_completed }}" != "true" ]; then FAILED=1; fi
+          if [ "$COMMON_ERRORS" -gt 0 ] || [ "$INVALID_ACTIVE" -gt 0 ]; then FAILED=1; fi
           rm -f "${RUNNER_TEMP:?}/evaluation-roster-revision"
-          if [ "$FAILED" -ne 0 ]; then echo "::error::Evaluation coverage or execution is incomplete"; exit 1; fi
-
+          if [ "$FAILED" -ne 0 ]; then echo "::error::Common evaluation coverage or execution is incomplete"; exit 1; fi
       - name: Summary
         if: always()
         run: |
@@ -264,3 +195,113 @@ jobs:
           echo "Batches: ${{ steps.batch_range.outputs.start_batch }} - ${{ steps.batch_range.outputs.end_batch }}"
           echo "Status: ${{ job.status }}"
           echo "============================================"
+
+  x-evaluation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout X request helper
+        timeout-minutes: 5
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Check X monthly evaluation window
+        id: check_date
+        timeout-minutes: 1
+        run: |
+          [[ -z "$INPUT_DAY" || "$INPUT_DAY" =~ ^[1-9]$ ]] || exit 1
+          [[ -z "$INPUT_MONTH" || "$INPUT_MONTH" =~ ^[0-9]{4}-(0[1-9]|1[0-2])$ ]] || exit 1
+          DAY_OF_MONTH=$(date +%d | sed 's/^0//')
+
+          if [ -n "$INPUT_DAY" ]; then
+            DAY_OF_MONTH="$INPUT_DAY"
+            echo "Using manual day: $DAY_OF_MONTH"
+          fi
+          echo "day=$DAY_OF_MONTH" >> $GITHUB_OUTPUT
+
+          if [ $DAY_OF_MONTH -le 9 ]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+            echo "✅ Within first 9 days of month, will run evaluation"
+          else
+            echo "should_run=false" >> $GITHUB_OUTPUT
+            echo "⏭️ Beyond day 9, skipping evaluation"
+          fi
+      - name: Wake X evaluation service
+        id: wake_x
+        if: steps.check_date.outputs.should_run == 'true'
+        timeout-minutes: 4
+        run: |
+          READY=false
+          for ATTEMPT in {1..10}; do
+            STATUS=$(curl --connect-timeout 5 --max-time 10 -s -o /dev/null -w "%{http_code}" "${EVALUATION_BASE_URL%/}/api/health" || true)
+            if [ "$STATUS" = "200" ]; then READY=true; break; fi
+            if [ "$ATTEMPT" -lt 10 ]; then sleep 10; fi
+          done
+          if [ "$READY" != "true" ]; then echo "::error::X evaluation service unavailable"; exit 1; fi
+      - name: Get X evaluation month
+        id: get_month
+        if: steps.check_date.outputs.should_run == 'true'
+        timeout-minutes: 1
+        run: |
+          if [ -n "$INPUT_MONTH" ]; then
+            MONTH="$INPUT_MONTH"
+          else
+            MONTH=$(date -u -d "1 month ago" +%Y-%m)
+          fi
+          echo "month=$MONTH" >> $GITHUB_OUTPUT
+          echo "📅 Evaluating for month: $MONTH"
+      - name: Resume X monthly evaluation
+        id: x_batches
+        if: steps.check_date.outputs.should_run == 'true' && steps.wake_x.outcome == 'success' && steps.get_month.outcome == 'success'
+        timeout-minutes: 95
+        run: |
+          MONTH="${{ steps.get_month.outputs.month }}"
+          DAY="${{ steps.check_date.outputs.day }}"
+          X_ERRORS=0
+          IS_COMPLETED=false
+          REQUEST_FAILED=false
+          for ((REQUEST=0; REQUEST<2; REQUEST++)); do
+            if ! RESPONSE=$(node .github/scripts/evaluation-request.mjs "/api/auto-evaluate-x-only?month=$MONTH" --json-only); then
+              X_ERRORS=$((X_ERRORS + 1))
+              REQUEST_FAILED=true
+              break
+            fi
+            ERRORS=$(printf '%s' "$RESPONSE" | jq -r '(.errorCount // 0) + (.summary.errors // 0) + (if .requestFailed then 1 else 0 end)')
+            IS_COMPLETED=$(printf '%s' "$RESPONSE" | jq -r '.progress.isCompleted')
+            REQUEST_FLAG=$(printf '%s' "$RESPONSE" | jq -r '.requestFailed // false')
+            if ! [[ "$ERRORS" =~ ^[0-9]+$ ]] || ! [[ "$IS_COMPLETED" =~ ^(true|false)$ ]] || [ "$REQUEST_FLAG" != "false" ]; then
+              X_ERRORS=$((X_ERRORS + 1))
+              REQUEST_FAILED=true
+              break
+            fi
+            X_ERRORS=$((X_ERRORS + ERRORS))
+            echo "X request $((REQUEST + 1))/2 completed with errors=$ERRORS"
+            if [ "$IS_COMPLETED" = "true" ]; then break; fi
+            if [ "$REQUEST" -lt 1 ]; then sleep 1800; fi
+          done
+          STATE=continue
+          if [ "$REQUEST_FAILED" = "true" ]; then STATE=request_failed
+          elif [ "$X_ERRORS" -gt 0 ]; then STATE=partial_error
+          elif [ "$IS_COMPLETED" = "true" ]; then STATE=completed
+          elif [ "$DAY" = "9" ]; then STATE=incomplete_day9
+          fi
+          echo "failure_count=$X_ERRORS" >> "$GITHUB_OUTPUT"
+          echo "is_completed=$IS_COMPLETED" >> "$GITHUB_OUTPUT"
+          echo "state=$STATE" >> "$GITHUB_OUTPUT"
+          echo "X monthly progress: state=$STATE errors=$X_ERRORS"
+      - name: Aggregate X monthly resume outcome
+        if: always()
+        run: |
+          if [ "${{ steps.check_date.outputs.should_run }}" != "true" ]; then exit 0; fi
+          if [ "${{ steps.wake_x.outcome }}" != "success" ] || [ "${{ steps.get_month.outcome }}" != "success" ] || [ "${{ steps.x_batches.outcome }}" != "success" ]; then
+            echo "::error::X monthly resume request did not complete"
+            exit 1
+          fi
+          ERRORS="${{ steps.x_batches.outputs.failure_count }}"
+          COMPLETED="${{ steps.x_batches.outputs.is_completed }}"
+          DAY="${{ steps.check_date.outputs.day }}"
+          if ! [[ "$ERRORS" =~ ^[0-9]+$ ]] || ! [[ "$COMPLETED" =~ ^(true|false)$ ]]; then exit 1; fi
+          if [ "$ERRORS" -gt 0 ]; then echo "::error::X evaluation has partial or request failures"; exit 1; fi
+          if [ "$COMPLETED" = "true" ]; then echo "X monthly evaluation completed"; exit 0; fi
+          if [ "$DAY" = "9" ]; then echo "::error::X monthly evaluation is still incomplete on day 9"; exit 1; fi
+          echo "X monthly evaluation will resume within the next scheduled window"

@@ -19,7 +19,6 @@ function fragment(name) {
 }
 const dateCheck = fragment('Check if within first 9 days of month');
 const batchRange = fragment('Calculate batch range for today');
-const xDayCheck = fragment('Check if Day 1 for X evaluation');
 const bash = process.platform === 'win32' ? join(process.env.ProgramFiles || 'C:/Program Files', 'Git/bin/bash.exe') : 'bash';
 function runFragments(today, manualDay, expectedDay, plannedStudents) {
   const temp = mkdtempSync(join(tmpdir(), 'evaluation-workflow-day-'));
@@ -43,7 +42,6 @@ function runFragments(today, manualDay, expectedDay, plannedStudents) {
     assert.equal(readFileSync(callsFile, 'utf8').includes('/api/auto-evaluate/plan?month=2026-09&partitionDay=' + expectedDay), true);
     assert.equal(readFileSync(output, 'utf8').includes('a'.repeat(64)), false);
     assert.equal(readFileSync(join(temp, 'evaluation-roster-revision'), 'utf8') === 'a'.repeat(64), true);
-    values = execute(xDayCheck.replaceAll('${{ steps.check_date.outputs.day }}', values.day));
     return { ...values, loopIterations: Math.max(0, Number(values.end_batch) - Number(values.start_batch) + 1), batchSkipped: false };
   } finally {
     const absolute = resolve(temp);
@@ -56,13 +54,13 @@ for (const c of [
   { name: 'normal day 2 dynamic partition', today: '02', manual: '', day: '2', run: 'true', students: 11, start: '0', end: '2', loops: 3, x: 'false' },
   { name: 'normal day 9 has its own partition instead of the old cap', today: '09', manual: '', day: '9', run: 'true', students: 1, start: '0', end: '0', loops: 1, x: 'false' },
   { name: 'normal day 30 skips business branches', today: '30', manual: '', day: '30', run: 'false', loops: 0 },
-  { name: 'manual day 1 overrides calendar day 30 for range and X branch', today: '30', manual: '1', day: '1', run: 'true', students: 7, start: '0', end: '1', loops: 2, x: 'true' },
+  { name: 'manual day 1 overrides calendar day 30 for partition range', today: '30', manual: '1', day: '1', run: 'true', students: 7, start: '0', end: '1', loops: 2, x: 'true' },
   { name: 'manual day 2 overrides calendar day 30 for range', today: '30', manual: '2', day: '2', run: 'true', students: 11, start: '0', end: '2', loops: 3, x: 'false' },
 ]) {
   test('actual isolated Bash workflow fragments: ' + c.name, () => {
     const result = runFragments(c.today, c.manual, c.day, c.students ?? 0);
     assert.equal(result.day, c.day); assert.equal(result.should_run, c.run); assert.equal(result.loopIterations, c.loops);
-    assert.equal(result.start_batch, c.start); assert.equal(result.end_batch, c.end); assert.equal(result.is_day1, c.x);
+    assert.equal(result.start_batch, c.start); assert.equal(result.end_batch, c.end);
     assert.equal(result.batchSkipped, c.run === 'false');
   });
 }

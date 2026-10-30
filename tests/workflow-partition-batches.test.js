@@ -78,20 +78,19 @@ function outcome(patch = {}) {
   return run(replaceExpressions(aggregate, {
     'steps.check_date.outputs.should_run': 'true', 'steps.batch_range.outputs.plan_failed': 'false',
     'steps.common_batches.outcome': 'success', 'steps.common_batches.outputs.failure_count': '0',
-    'steps.batch_range.outputs.invalid_active': '0', 'steps.x_batches.outputs.failure_count': '0',
-    'steps.reset_x.outputs.failure_count': '0', 'steps.reset_x.outcome': 'skipped', 'steps.x_batches.outcome': 'skipped',
-    'steps.check_day1.outputs.is_day1': 'false', 'steps.x_batches.outputs.is_completed': 'false', ...patch,
+    'steps.batch_range.outputs.invalid_active': '0', ...patch,
   }));
 }
 test('final aggregate distinguishes normal empty template from invalid records and any request errors', () => {
   assert.equal(outcome().status, 0);
   for (const patch of [{ 'steps.batch_range.outputs.plan_failed': 'true' }, { 'steps.batch_range.outputs.invalid_active': '1' },
-    { 'steps.common_batches.outputs.failure_count': '1' }, { 'steps.x_batches.outputs.failure_count': '1' },
-    { 'steps.reset_x.outputs.failure_count': '1' }, { 'steps.x_batches.outcome': 'failure' }]) assert.equal(outcome(patch).status, 1);
+    { 'steps.common_batches.outputs.failure_count': '1' }, { 'steps.common_batches.outcome': 'failure' }]) assert.equal(outcome(patch).status, 1);
 });
-test('day-one X is maintained after common failure and incomplete X cannot report success', () => {
-  assert.equal(/Check if Day 1 for X evaluation\r?\n\s+if: always\(\)/.test(workflow), true);
-  assert.equal(/Process X Evaluation Batches\r?\n\s+id: x_batches\r?\n\s+if: always\(\)/.test(workflow), true);
-  assert.equal(outcome({ 'steps.check_day1.outputs.is_day1': 'true', 'steps.x_batches.outputs.is_completed': 'false' }).status, 1);
-  assert.equal(outcome({ 'steps.check_day1.outputs.is_day1': 'true', 'steps.x_batches.outputs.is_completed': 'true' }).status, 0);
+test('common evaluation aggregation does not depend on the independent X job', () => {
+  assert.equal(aggregate.includes('steps.x_batches'), false);
+  assert.equal(aggregate.includes('steps.reset_x'), false);
+  assert.equal(/\n  x-evaluation:\r?\n/.test(workflow), true);
+  const xJob = workflow.slice(workflow.indexOf('  x-evaluation:'));
+  assert.equal(/\n\s+needs:/.test(xJob), false);
+  assert.equal(outcome({ 'steps.common_batches.outputs.failure_count': '1' }).status, 1);
 });

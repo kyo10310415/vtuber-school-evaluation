@@ -699,7 +699,7 @@ import時には実行せず、直接CLI実行のみ実行します。失敗は�
 - 計画は行数・適格生徒数・空テンプレート数・不正ID行数・当日人数・必要バッチ数だけを返します。例外として64桁のopaque `rosterRevision` をprotocolに含めます。revisionはversion/月/day/batchSize/並び順込みのID集合のSHA256で、IDや評価本文は返しません。実行時に再照合し変化はAI/DB/write前に409で停止します。workflowはrevisionをechoせず、権限制限したrunner一時fileから専用headerへ渡します。URLやstep outputsには載せません。
 - statusだけactiveでID/氏名/プラン/連携項目が全て空のテンプレートは `emptyTemplateCount` として正常除外します。ID欠損でも他データがある行や非文字列IDは `invalidActiveCount` として可視化し最終jobを未完了にします。重複IDは曖昧なため計画を拒否します。名簿を自動修正しません。
 - 新partition経路では `studentId`・`onlyWithTalkMemo=true`・`skipEvaluated=true`・`planOnly`・`dayCount` 等の曖昧な組合せを拒否します。既存の手動対象や未評価先頭処理は従来の `/api/auto-evaluate` を使い、通常の取得・保存キー・cache優先・zeroデータ選択は維持します。旧endpointに `planOnly` queryを付けてread-onlyとみなしてはいけません。
-- HTTP200の評価失敗・cache保存失敗は再AI試行せず次のバッチへ進み、HTTP失敗だけ既存の最大3回を維持します。409は直ちに共通バッチを止め自動再計画しません。Xの分岐を共通バッチ失敗で飛ばさず、X/resetのsummary.errors・HTTP失敗・未完了を最後に集計して失敗を可視化します。timeout120分は増やしません。
+- HTTP200の評価失敗・cache保存失敗は再AI試行せず次のバッチへ進み、HTTP失敗だけ既存の最大3回を維持します。409は直ちに共通バッチを止め自動再計画しません。Xは独立した月次resume jobで実行し、共通バッチの失敗には依存しません。両jobともtimeout120分は増やしません。
 
 同じ日の処理途中に対象が変わった場合は、所有者が新計画を確認して先頭から再実行してください。既存cacheを優先し、force再評価は追加していません。既に処理済みのProLevel等が再度処理される可能性や、担当日終了後に新たにactiveとなった生徒の手動追補は、月全体の固定snapshotを持たない運用上の限界です。実行計画のcoverageと実際の完了を区別してください。
 
@@ -718,3 +718,13 @@ import時には実行せず、直接CLI実行のみ実行します。失敗は�
 X専用評価は要求された評価月で進捗を取得し、その月の次のbatchから再開します。評価月が現在月より古いという理由だけで、取得済み進捗を破棄しません。完了済み月は従来どおり評価を省略し、別の評価月はその月の進捗を新規作成します。`reset=true` は要求月の進捗を明示的に削除して最初のbatchを実行する既存契約のままです。
 
 回帰は実handlerを合成DB・キャッシュで実行し、前月の連続batch、完了済み、明示reset、別月新規を検証します。実DB・Google・Xへの接続、実評価や実進捗更新は行いません。同時実行のDB競合、途中で変わるX対象順序、キャッシュ保存やproviderの成功保証はこの変更の対象外です。
+
+### X月次進捗の継続と時間予算
+
+X評価は同じdaily workflowの独立した `x-evaluation` jobで月初1〜9日に要求月の保存済み進捗から続けます。共通のProLevel/YouTube jobへ `needs` を付けず、同じmanual month/day設定に従います。workflowからの自動resetは行いません。完了済みなら最初の状態応答で終了し、明示reset API自体は従来のまま維持します。
+
+- 1日最大2batch、間は30分です。helperの各HTTP request上限30分を含めても処理の最大待ち予算は30+30+30=90分、step上限95分です。checkout5分・日付1分・health4分・対象月1分を含むstep上限合計106分、job上限120分を維持します。healthは接続5秒/全体10秒の有限試行です。
+- 1〜8日のエラーなし未完了は継続状態とし、次のwindowで同じ月の進捗を再開します。9日目の未完了は失敗です。途中の評価/保存エラー、HTTP失敗、不正応答・setup失敗は日付にかかわらず失敗として可視化します。HTTP不明状態に自動で別requestを重ねず、providerへの追加再評価retryは増やしません。
+- schedule/manualは固定のworkflow concurrency groupを共用し、`cancel-in-progress: false` とします。実行中のworkflowを新しいmanual実行で取り消さず、同workflow内の月/day違いも同時実行させません。これは他workflowや直接API操作の排他、HTTP abort後のサーバー/外部処理停止を保証する仕組みではありません。手動操作前は保存済み進捗と実行状況を確認してください。
+
+9日×2batchの枠は処理能力の上限計画であり、API quota・rate limit・データ不備・スケジューラやprovider障害があれば完了を保証しません。理論容量や合成進捗検証を実運用の全員完了と混同しないでください。テストは保存進捗の合成応答と実Bash断片のみで、実X/Google/AI・本番DB・実jobを起動しません。
