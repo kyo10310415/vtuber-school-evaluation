@@ -34,7 +34,7 @@ function fixture(initial = {}) {
   let handler;
   const modules = {
     pg: { Pool },
-    './lib/x-quota-manager': { getQuotaStatus: async () => ({ remainingQuota: 1000, totalRequests: 0 }), getAvailableStudentCount: async () => 1000, recordQuotaUsage: async () => {} },
+    './lib/x-quota-manager': { getQuotaStatus: async () => ({ status: 'known', remainingQuota: 1000, totalRequests: 13000 }), getAvailableStudentCount: async () => 1000, recordQuotaUsage: async () => {} },
     './lib/x-client': { evaluateXAccount: async () => { counters.provider++; throw new Error('External provider forbidden'); } },
     './lib/evaluation-cache': { getCachedEvaluation: async (_token, _sheet, id) => { selected.push(id); return { rateLimited: false }; }, saveCachedEvaluation: async () => { counters.save++; throw new Error('External cache write forbidden'); } },
   };
