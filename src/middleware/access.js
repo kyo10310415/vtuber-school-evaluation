@@ -3,6 +3,7 @@ import { getCookie, setCookie } from 'hono/cookie';
 
 export const JOB_PATHS = new Set([
   '/api/analytics/auto-fetch', '/api/auto-evaluate',
+  '/api/auto-evaluate/plan', '/api/auto-evaluate/partition',
   '/api/auto-evaluate-x-only', '/api/x/evaluate-batch-auto',
 ]);
 

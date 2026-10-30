@@ -690,10 +690,17 @@ import時には実行せず、直接CLI実行のみ実行します。失敗は�
 
 この匿名化は「保存済みデータなし」の原因を修正したものではありません。従来どおり取得失敗・不正ヘッダー・JSON不正・対象データなし等がnullになる場合があります。実シート内容・実jobの稼働やデータの完全性は別途確認が必要です。回帰テストでは合成データとfetch stubだけを使い、実Google呼び出し・AI評価・job起動は行いません。
 
-### 日次workflowの手動day指定
+### 日次workflowの対象と計画
 
-`daily-evaluation.yml` の `workflow_dispatch.inputs.day` を指定した場合、手動値の確定後にdayを後続stepへ渡します。バッチ範囲とDay1のX分岐が同じ確定値を使います。通常の月初1-9日の判定、対象月のデフォルト前月、既存の31バッチ上限は変更していません。既存上限ではday3-9の共通バッチループが0回になる点も今回変更していません。
+日次評価はアクティブな実生徒の学籍番号を安定hashで1〜9日に分け、各日の対象を学籍番号順に並べます。固定31バッチ上限は撤去し、その日の計画で返る必要バッチ数だけを先頭から処理します。人数や行順が変わっても既存IDの担当日は変わりません。手動day指定は最終確定後に後続stepへ渡し、月初1〜9日・通常前月という月の方針は維持します。
 
-この修正はGitHubでrunが作られていない理由や既存cacheの欠落原因を解消したという証拠ではありません。回帰テストは実workflowのBash断片（日付判定・バッチ計算・X分岐判定）だけを合成日付で実行し、評価HTTPリクエストや実jobを起動しません。テスト環境にはBashが必要です（WindowsはGit for Windowsの標準インストール先、LinuxはPATH上のbash）。
+- `POST /api/auto-evaluate/plan` は `partitionDay=1..9`・`month=YYYY-MM`・`batchSize=1..100` で計画を返します。厳密な生徒マスター読取以外のGemini生成・AI・DB・シート書込みをしません。HTTP取得失敗や不正な値構造を正常0件にしません。正規の空rangeは0件計画として扱います。
+- `POST /api/auto-evaluate/partition` は同じ条件と非負整数の `batchIndex`、専用 `X-Evaluation-Roster-Revision` headerが必須です。旧serverでは新しいscope/pathを受け付けないため、旧workerが計画を実評価と誤認して実行することはありません。既存jobの短期HMAC・path scope、admin/leaderのOrigin方針を適用し、crewや未認証は拒否します。
+- 計画は行数・適格生徒数・空テンプレート数・不正ID行数・当日人数・必要バッチ数だけを返します。例外として64桁のopaque `rosterRevision` をprotocolに含めます。revisionはversion/月/day/batchSize/並び順込みのID集合のSHA256で、IDや評価本文は返しません。実行時に再照合し変化はAI/DB/write前に409で停止します。workflowはrevisionをechoせず、権限制限したrunner一時fileから専用headerへ渡します。URLやstep outputsには載せません。
+- statusだけactiveでID/氏名/プラン/連携項目が全て空のテンプレートは `emptyTemplateCount` として正常除外します。ID欠損でも他データがある行や非文字列IDは `invalidActiveCount` として可視化し最終jobを未完了にします。重複IDは曖昧なため計画を拒否します。名簿を自動修正しません。
+- 新partition経路では `studentId`・`onlyWithTalkMemo=true`・`skipEvaluated=true`・`planOnly`・`dayCount` 等の曖昧な組合せを拒否します。既存の手動対象や未評価先頭処理は従来の `/api/auto-evaluate` を使い、通常の取得・保存キー・cache優先・zeroデータ選択は維持します。旧endpointに `planOnly` queryを付けてread-onlyとみなしてはいけません。
+- HTTP200の評価失敗・cache保存失敗は再AI試行せず次のバッチへ進み、HTTP失敗だけ既存の最大3回を維持します。409は直ちに共通バッチを止め自動再計画しません。Xの分岐を共通バッチ失敗で飛ばさず、X/resetのsummary.errors・HTTP失敗・未完了を最後に集計して失敗を可視化します。timeout120分は増やしません。
 
-生徒マスター取得（fetchStudents）の運用ログは固定イベントと取得行数だけを記録します。先頭行・スプレッドシートID・シート名を出力せず、取得URL、認証、列のマッピング、空データ/例外の返却・伝播は変更しません。この境界以外のログや過去ログ全体を匿名化済みとする保証ではありません。
+同じ日の処理途中に対象が変わった場合は、所有者が新計画を確認して先頭から再実行してください。既存cacheを優先し、force再評価は追加していません。既に処理済みのProLevel等が再度処理される可能性や、担当日終了後に新たにactiveとなった生徒の手動追補は、月全体の固定snapshotを持たない運用上の限界です。実行計画のcoverageと実際の完了を区別してください。
+
+回帰テストは合成名簿/Google・AI・DB stubと実Bash断片だけを使用します。WindowsはGit for Windows標準Bash、LinuxはPATH上のbashが必要です。本修正だけではGitHubに10月runが作られなかった理由や実cacheが見つからなかった全原因を解消したとは判定しません。handler-level logsと新API/helper応答は最小化しますが、呼出先ライブラリの全ログをscrubした保証ではありません。別途承認されたログアクセス/保持方針の下で運用してください。

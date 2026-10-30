@@ -89,7 +89,8 @@ function pemToArrayBuffer(pem: string): ArrayBuffer {
 export async function fetchStudents(
   serviceAccountJson: string,
   spreadsheetId: string,
-  sheetName: string = 'リスト'
+  sheetName: string = 'リスト',
+  options: { strict?: boolean } = {}
 ): Promise<Student[]> {
   const accessToken = await getAccessToken(serviceAccountJson);
   
@@ -105,7 +106,16 @@ export async function fetchStudents(
     }
   );
 
+  if (options.strict && !response.ok) throw new Error('Student source request failed');
   const data = await response.json();
+  if (options.strict && (!data || typeof data !== 'object' || Array.isArray(data) || data.error ||
+      (data.values === undefined
+        ? typeof data.range !== 'string' || !data.range.trim() ||
+          (data.majorDimension !== undefined && data.majorDimension !== 'ROWS')
+        : !Array.isArray(data.values) || data.values.some((row: unknown) => !Array.isArray(row) ||
+            row.some(cell => cell !== null && !['string', 'number', 'boolean'].includes(typeof cell)))))) {
+    throw new Error('Student source response is invalid');
+  }
   const rows = data.values || [];
   
   console.log('[fetchStudents] Rows fetched', {
