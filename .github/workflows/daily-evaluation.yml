@@ -40,12 +40,12 @@ jobs:
           [[ -z "$INPUT_DAY" || "$INPUT_DAY" =~ ^[1-9]$ ]] || exit 1
           [[ -z "$INPUT_MONTH" || "$INPUT_MONTH" =~ ^[0-9]{4}-(0[1-9]|1[0-2])$ ]] || exit 1
           DAY_OF_MONTH=$(date +%d | sed 's/^0//')
-          echo "day=$DAY_OF_MONTH" >> $GITHUB_OUTPUT
           
           if [ -n "$INPUT_DAY" ]; then
             DAY_OF_MONTH="$INPUT_DAY"
             echo "Using manual day: $DAY_OF_MONTH"
           fi
+          echo "day=$DAY_OF_MONTH" >> $GITHUB_OUTPUT
           
           if [ $DAY_OF_MONTH -le 9 ]; then
             echo "should_run=true" >> $GITHUB_OUTPUT
