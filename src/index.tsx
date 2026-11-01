@@ -22,6 +22,7 @@ type Bindings = {
   NOTION_DATABASE_ID: string;
   YOUTUBE_API_KEY: string;
   X_BEARER_TOKEN: string;
+  X_SCHEDULED_EVALUATION_ENABLED: string;
   YOUTUBE_ANALYTICS_CLIENT_ID: string;
   YOUTUBE_ANALYTICS_CLIENT_SECRET: string;
   YOUTUBE_ANALYTICS_REDIRECT_URI: string;
@@ -5610,6 +5611,10 @@ app.post('/api/analytics/auto-fetch', async (c) => {
 // X評価専用バッチエンドポイント（レート制限対策: 1日100人ずつ処理、進捗管理付き）
 app.post('/api/auto-evaluate-x-only', async (c) => {
   try {
+    // Quota policy changes must not silently resume scheduled evaluation.
+    if (getEnv(c, 'X_SCHEDULED_EVALUATION_ENABLED') !== 'true') {
+      return c.json({ success: false, error: 'X scheduled evaluation paused', executionEnabled: false }, 503)
+    }
     const GOOGLE_SERVICE_ACCOUNT = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT')
     const STUDENT_MASTER_SPREADSHEET_ID = getEnv(c, 'STUDENT_MASTER_SPREADSHEET_ID')
     const RESULT_SPREADSHEET_ID = getEnv(c, 'RESULT_SPREADSHEET_ID')
@@ -5626,6 +5631,10 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
     
     // パラメータ取得
     const { month, batchSize = 100, reset } = c.req.query()
+    const requestedBatchSize = Number(batchSize)
+    if (!/^[1-9]\d*$/.test(String(batchSize)) || !Number.isSafeInteger(requestedBatchSize) || requestedBatchSize > 100) {
+      return c.json({ success: false, error: 'Invalid X batch size' }, 400)
+    }
     
     // 評価対象月（デフォルト: 前月）
     const evaluationMonth = month || (() => {
@@ -5643,23 +5652,22 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
     console.log(`[Auto Evaluate X Only] Current month: ${currentMonth}, Evaluation month: ${evaluationMonth}`)
     
     // ✅ クォータチェックを追加
-    const { getQuotaStatus } = await import('./lib/x-quota-manager')
-    const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
+    const { getQuotaStatus, X_POSTS_PER_STUDENT_BOUND } = await import('./lib/x-quota-manager')
     
     // クォータ状況を確認
-    const quotaStatus = await getQuotaStatus(accessToken, RESULT_SPREADSHEET_ID)
+    const quotaStatus = await getQuotaStatus(X_BEARER_TOKEN)
     console.log(`[Auto Evaluate X Only] Quota status:`, quotaStatus)
     
-    if (quotaStatus.status !== 'known' || quotaStatus.totalRequests === null) {
+    if (quotaStatus.status !== 'known' || quotaStatus.totalPosts === null) {
       return c.json({ success: false, error: 'X quota usage unknown', quota: quotaStatus }, 503)
     }
 
     if (quotaStatus.remainingQuota <= 0) {
       return c.json({
         success: false,
-        error: `X API 月間クォータを使い切りました（${quotaStatus.month}）`,
+        error: 'X Post budget exhausted',
         quota: quotaStatus,
-        message: '次月（翌月1日）までお待ちください'
+        message: '提供元の消費Post数とリセット期間を確認してください'
       }, 429)
     }
     
@@ -5680,11 +5688,9 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
       // SELECT already scopes progress to evaluationMonth; only an explicit reset discards it.
       
       // リセットパラメータが指定された場合は進捗をリセット
-      if (reset === 'true' && progress) {
-        console.log(`[Auto Evaluate X Only] Manual reset requested for ${evaluationMonth}`)
-        await pool.query(`DELETE FROM x_evaluation_progress WHERE evaluation_month = $1`, [evaluationMonth])
-        progress = null
-      }
+      const resetExistingProgress = reset === 'true' && !!progress
+      if (resetExistingProgress) progress = null // Keep the old row until budget admission succeeds.
+
       
       // 進捗が完了している場合はスキップ
       if (progress && progress.is_completed) {
@@ -5715,6 +5721,20 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
       
       console.log(`[Auto Evaluate X Only] Total active students with X accounts: ${filteredStudents.length}`)
       
+      // One current X fetch reads at most one page of 100 Posts. Keep the
+      // requested batch size/offset unchanged; never skip students by shrinking it.
+      const plannedStart = (progress?.current_batch_index ?? 0) * requestedBatchSize
+      const plannedStudents = Math.min(requestedBatchSize, Math.max(0, filteredStudents.length - plannedStart))
+      const requiredPostBudget = plannedStudents * X_POSTS_PER_STUDENT_BOUND
+      if (!Number.isSafeInteger(requiredPostBudget) || requiredPostBudget > quotaStatus.remainingQuota) {
+        return c.json({ success: false, error: 'X Post budget insufficient for batch', quota: quotaStatus,
+          requiredPostBudget, maxPostsPerUncachedStudent: X_POSTS_PER_STUDENT_BOUND }, 429)
+      }
+
+      if (resetExistingProgress) {
+        await pool.query(`DELETE FROM x_evaluation_progress WHERE evaluation_month = $1`, [evaluationMonth])
+      }
+
       // 進捗が存在しない場合は初期化
       if (!progress) {
         console.log(`[Auto Evaluate X Only] Initializing progress for ${evaluationMonth}`)
@@ -5730,7 +5750,7 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
       
       // 現在のバッチインデックスを取得
       const batchIndex = progress.current_batch_index
-      const batchSizeNum = parseInt(String(batchSize))
+      const batchSizeNum = requestedBatchSize
       
       // バッチ処理
       const startIndex = batchIndex * batchSizeNum
@@ -5930,13 +5950,8 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
       }
     }
     
-    // ✅ クォータ使用量を記録
-    const { recordQuotaUsage } = await import('./lib/x-quota-manager')
-    try {
-      await recordQuotaUsage(accessToken, RESULT_SPREADSHEET_ID, successCount)
-    } catch {
-      return c.json({ success: false, error: 'X quota usage recording failed' }, 503)
-    }
+    // Refresh the provider counter; success counts are not Post consumption.
+    // Never append an estimated usage row to Google Sheets.
     
     // 進捗を更新
     const completedStudents = progress.completed_students + successCount
@@ -5945,8 +5960,8 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
     const isCompleted = !hasNextBatch
     
     // 更新されたクォータ状況を取得
-    const updatedQuota = await getQuotaStatus(accessToken, RESULT_SPREADSHEET_ID)
-    if (updatedQuota.status !== 'known' || updatedQuota.totalRequests === null) {
+    const updatedQuota = await getQuotaStatus(X_BEARER_TOKEN)
+    if (updatedQuota.status !== 'known' || updatedQuota.totalPosts === null) {
       return c.json({ success: false, error: 'X quota usage unknown', quota: updatedQuota }, 503)
     }
     
@@ -5997,27 +6012,27 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
 // X API クォータ状況確認エンドポイント
 app.get('/api/x/quota', async (c) => {
   try {
-    const GOOGLE_SERVICE_ACCOUNT = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT')
-    const RESULT_SPREADSHEET_ID = getEnv(c, 'RESULT_SPREADSHEET_ID')
-    
-    const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
-    const { getQuotaStatus } = await import('./lib/x-quota-manager')
-    
-    const status = await getQuotaStatus(accessToken, RESULT_SPREADSHEET_ID)
-    
+    const X_BEARER_TOKEN = getEnv(c, 'X_BEARER_TOKEN')
+    const executionEnabled = getEnv(c, 'X_SCHEDULED_EVALUATION_ENABLED') === 'true'
+    const { getQuotaStatus, X_POSTS_PER_STUDENT_BOUND } = await import('./lib/x-quota-manager')
+    const status = await getQuotaStatus(X_BEARER_TOKEN)
+    const estimatedMaxUncachedStudents = Math.floor(status.remainingQuota / X_POSTS_PER_STUDENT_BOUND)
     return c.json({
       success: true,
       quota: status,
       usage: {
         status: status.status,
-        percentage: status.totalRequests === null ? null : ((status.totalRequests / 14000) * 100).toFixed(1) + '%',
-        canEvaluate: status.status === 'known' && status.remainingQuota > 0,
-        maxStudents: Math.floor(status.remainingQuota / 1) // 1人あたり1リクエスト
+        unit: 'posts',
+        executionEnabled,
+        percentage: status.totalPosts === null || !status.effectiveCap ? null : ((status.totalPosts / status.effectiveCap) * 100).toFixed(1) + '%',
+        canEvaluate: executionEnabled && status.status === 'known' && estimatedMaxUncachedStudents > 0,
+        maxStudents: executionEnabled ? estimatedMaxUncachedStudents : 0,
+        estimatedMaxUncachedStudents,
+        maxPostsPerUncachedStudent: X_POSTS_PER_STUDENT_BOUND
       }
     })
-  } catch (error: any) {
-    console.error('[X Quota] Error:', error.message)
-    return c.json({ success: false, error: error.message }, 500)
+  } catch {
+    return c.json({ success: false, error: 'X quota status unavailable' }, 503)
   }
 })
 
