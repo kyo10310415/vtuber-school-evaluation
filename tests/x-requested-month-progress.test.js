@@ -8,7 +8,7 @@ const start = source.indexOf("app.post('/api/auto-evaluate-x-only',");
 const end = source.indexOf('\n})', start) + 4;
 assert.ok(start >= 0 && end > start);
 const code = transformSync(source.slice(start, end).replaceAll('await import(', 'await loadModule('), { loader: 'tsx', format: 'cjs' }).code;
-function fixture(initial = {}) {
+function fixture(initial = {}, remainingQuota = 1000) {
   const rows = new Map(Object.entries(initial).map(([month, row]) => [month, { ...row, evaluation_month: month }]));
   const queries = [], selected = [], counters = { source: 0, end: 0, provider: 0, save: 0 };
   class Pool {
@@ -34,14 +34,14 @@ function fixture(initial = {}) {
   let handler;
   const modules = {
     pg: { Pool },
-    './lib/x-quota-manager': { getQuotaStatus: async () => ({ status: 'known', remainingQuota: 1000, totalRequests: 13000 }), getAvailableStudentCount: async () => 1000, recordQuotaUsage: async () => {} },
+    './lib/x-quota-manager': { getQuotaStatus: async () => ({ status: 'known', remainingQuota, totalPosts: 14000 - remainingQuota, totalRequests: null, resetDay: 12 }), X_POSTS_PER_STUDENT_BOUND: 100 },
     './lib/x-client': { evaluateXAccount: async () => { counters.provider++; throw new Error('External provider forbidden'); } },
     './lib/evaluation-cache': { getCachedEvaluation: async (_token, _sheet, id) => { selected.push(id); return { rateLimited: false }; }, saveCachedEvaluation: async () => { counters.save++; throw new Error('External cache write forbidden'); } },
   };
   const box = { app: { post: (_path, fn) => { handler = fn; } },
     console: { log() {}, error() {}, warn() {} },
     Date: class extends Date { constructor(...args) { super(...(args.length ? args : ['2026-10-30T00:00:00Z'])); } },
-    getEnv: () => 'synthetic-configuration', getAccessToken: async () => 'synthetic-access', getDatabaseConfig: () => ({}),
+    getEnv: (_c, key) => key === 'X_SCHEDULED_EVALUATION_ENABLED' ? 'true' : 'synthetic-configuration', getAccessToken: async () => 'synthetic-access', getDatabaseConfig: () => ({}),
     loadModule: async name => { if (!modules[name]) throw new Error('Forbidden module'); return modules[name]; },
     fetchStudents: async () => { counters.source++; return ['synthetic-a', 'synthetic-b', 'synthetic-c'].map(studentId => ({ studentId, name: 'Synthetic', status: 'アクティブ', xAccount: 'synthetic-account' })); },
   };
@@ -79,4 +79,15 @@ test('actual X new requested month initializes its own progress without deleting
   assert.equal(f.rows.get('2026-09').current_batch_index, 1);
   assert.equal(f.queries.filter(q => q.kind === 'DELETE').length, 0);
   assert.deepEqual(f.queries.filter(q => q.kind === 'INSERT').map(q => q.args[0]), ['2026-08']);
+});
+
+
+test('budget refusal preserves requested reset progress instead of deleting it', async () => {
+  const f = fixture({ '2026-09': pending }, 99);
+  const result = await f.run({ reset: 'true' });
+  assert.equal(result.status, 429);
+  assert.equal(f.queries.some(q => q.kind === 'DELETE' || q.kind === 'INSERT' || q.kind === 'UPDATE'), false);
+  assert.equal(f.rows.get('2026-09').current_batch_index, pending.current_batch_index);
+  assert.equal(f.rows.get('2026-09').completed_students, pending.completed_students);
+  assert.equal(f.counters.provider, 0);
 });

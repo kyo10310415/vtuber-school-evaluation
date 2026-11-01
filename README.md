@@ -730,12 +730,20 @@ X評価は同じdaily workflowの独立した `x-evaluation` jobで月初1〜9�
 9日×2batchの枠は処理能力の上限計画であり、API quota・rate limit・データ不備・スケジューラやprovider障害があれば完了を保証しません。理論容量や合成進捗検証を実運用の全員完了と混同しないでください。テストは保存進捗の合成応答と実Bash断片のみで、実X/Google/AI・本番DB・実jobを起動しません。
 
 
-### Xクォータ記録が不明な場合（R11）
+### Xの消費Post数・提供元期間による予算判定
 
-`X_API_Quota` の読取失敗・欠落・ヘッダーのみ・不正な行・当月以外の最終記録は、使用量不明として扱います。APIは `status: "unknown"`, `totalRequests: null`, `remainingQuota: 0` を返し、使用率も `null` にします。X専用評価は503 `X quota usage unknown` で、X呼出・評価・進捗DB接続より前に停止します。正しい当月記録がある場合の評価と、既知の残量不足時の429は維持します。
+X定期評価の予算判定は、提供元の `GET https://api.x.com/2/usage/tweets` の `project_usage`（消費Post数）、`project_cap`、`cap_reset_day` を使います。許可上限は `min(14000, project_cap)`、許可残量は `max(0, 許可上限 - project_usage)` です。例：消費624／提供元上限3,000,000の場合、アプリ上限14,000・許可残量13,376 Posts。提供元上限は無料枠や残高の保証ではありません。
 
-既存の管理用初期化APIはシートのメタデータを先に確認し、存在するシートは全使用範囲を読んで確認し、有効なヘッダー・履歴を変更しません。不正な既存ヘッダーでは失敗とし、完全に空のシートだけヘッダーを補修できます。欠落時だけシートと4列のヘッダーを作成し、使用量0の行は作りません。月替わりも自動0リセットしません。正しい当月使用量は、所有者が根拠のある記録を確認して補修する必要があります。ヘッダー作成に失敗して空シートだけ残った場合は再実行でヘッダーだけ補修します。データが残る不正シートは所有者確認が必要です。
+月初に使用量0を作らず、提供元counterが示す期間・リセット日を使います。`month`は互換表示だけでリセット条件ではありません。正確な期間開始／終了日時はレスポンスから推定せず、`resetDay`・`periodSource: provider_counter` を返します。使用量0は提供元が実際に0を返した場合だけ既知として扱います。成功生徒数をPost数へ加算しません。旧 `totalRequests` と `lastReset` は誤った意味に流用せず `null`、実数は `totalPosts` です。
 
-使用量記録のHTTP失敗・不正カウント・不明状態は成功扱いにせず、X専用評価は固定503で停止し進捗更新を行いません。記録時点までに完了した評価・キャッシュ保存を取り消すものではなく、provider失敗や中断後の実消費量は所有者確認が必要です。14,000は従来のアプリ内予算であり、providerの実残量の保証ではありません。従来どおり成功人数を使用量の推計に使うため、全API呼出・並行実行の原子的な完全計数は保証しません。既存の認証・role/Origin制限、他providerや通常評価経路は変更しません。
+HTTP・network・timeout・不正数値・欠落・部分エラーなどで取得を確認できない場合は `status: unknown`, `totalPosts: null`, `remainingQuota: 0` とし、評価を許可しません。rawエラー、Bearer Token、project/app IDは返却・ログ出力しません。旧 `X_API_Quota` シートは過去記録として保持し、判定には使わず、推計値の追記・0初期化・既存記録の書換えも行いません。既存の非破壊ヘッダー作成APIは管理用として維持します。
 
-X専用評価の進捗DBには、評価サービスの `DATABASE_URL` の接続先へ `migrations/003_x_evaluation_progress.sql` を管理作業として適用してください。通常の `npm run migrate` はOAuth用の001だけを適用し、003は適用しません。003は進捗テーブルと索引の追加のみで、既存の評価・生徒情報を更新しません。HTTPの移行APIを有効化せず、トランザクション・タイムアウト・適用後の構造確認を伴う管理手順で実施してください。移行やヘッダー作成だけで実評価を起動したり、クォータが既知になったと扱ったりしないでください。
+**配備だけでX定期評価を再開しません。** `X_SCHEDULED_EVALUATION_ENABLED` は未設定／`true`以外では停止し、専用評価APIは認証後503 `X scheduled evaluation paused` を返します。明示的に再開する場合だけ所有者の運用判断で `true` にしてください。読取り用 `/api/x/quota` は停止中でも使用量を取得しますが、`usage.executionEnabled`・`canEvaluate` はfalseです。既存のSSO・role・Origin・専用job認証は維持します。停止はX定期評価の専用経路が対象で、他の管理者用評価経路の再設計は含みません。
+
+現在のXクライアントは未キャッシュ生徒1人につき最大1page／100 Postsです。バッチ全員が未キャッシュの場合の最大値 `対象人数 * 100` を残量と比較し、不足時は429で進捗作成・advance前に止めます。保存済みcacheも含む保守的見積もりなので、少ない残量ではcacheがあるbatchも止まる場合があります。動的にbatchSizeを縮めるとoffsetが変わり生徒を飛ばすため、縮小しません。`estimatedMaxUncachedStudents` は `floor(許可残量/100)` で、1 Post=1生徒とは扱いません。処理後は提供元counterを再取得してから進捗をadvanceします。再取得失敗前に済んだ外部処理やcache保存は巻き戻しません。
+
+14,000はこの専用経路の事前予算判定です。共有projectの他writer・他endpoint・providerの計数遅延をまたぐ原子的なglobal hard capを保証せず、利用料金も見積もりません。完全な排他・予約台帳・外部spending limitの追加は今回の範囲外です。
+
+X専用評価の進捗DBには、評価サービスの `DATABASE_URL` の接続先へ `migrations/003_x_evaluation_progress.sql` を管理作業として適用してください。通常の `npm run migrate` はOAuth用001だけで003は適用しません。003は進捗table/indexの追加だけです。HTTP移行APIを有効化せず、transaction・timeout・構造確認を伴う手順で実施してください。移行・旧Sheetヘッダー作成だけで実評価を起動しません。
+
+提供元仕様: https://docs.x.com/x-api/usage/get-usage ・ https://docs.x.com/x-api/usage/introduction
