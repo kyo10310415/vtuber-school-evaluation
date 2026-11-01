@@ -11,6 +11,7 @@ import { calculateYouTubeGrade } from './grade-calculator'
  * 有効な形式:
  * - UCから始まる24文字のID（例: UCCHRAm4dV1KXhrEMAafnYsQ）
  * - @から始まるハンドル名（例: @username）
+ * - ハンドルURL（例: https://www.youtube.com/@username）
  * - チャンネルURL（例: https://www.youtube.com/channel/UC...）
  * 
  * 無効な形式:
@@ -24,30 +25,36 @@ export function validateYouTubeChannelId(channelId: string): { valid: boolean; n
   
   const trimmedId = channelId.trim();
   
-  // メールアドレス形式を除外
-  if (trimmedId.startsWith('mailto:') || trimmedId.includes('@') && trimmedId.includes('.')) {
+  if (/^mailto:/i.test(trimmedId) || (!trimmedId.startsWith('@') && !/^https?:\/\//i.test(trimmedId) && trimmedId.includes('@'))) {
     return { valid: false, error: 'メールアドレスは無効です。YouTubeチャンネルIDを入力してください' };
   }
-  
-  // チャンネルURL形式
-  if (trimmedId.startsWith('http://') || trimmedId.startsWith('https://')) {
-    const match = trimmedId.match(/channel\/(UC[\w-]{22})/);
-    if (match) {
-      return { valid: true, normalizedId: match[1] };
+
+  let identifier = trimmedId;
+  if (/^https?:\/\//i.test(trimmedId)) {
+    try {
+      const url = new URL(trimmedId);
+      if (!['youtube.com', 'www.youtube.com', 'm.youtube.com'].includes(url.hostname) || url.username || url.password) {
+        return { valid: false, error: 'チャンネルURLが無効です' };
+      }
+      const channel = url.pathname.match(/^\/channel\/(UC[A-Za-z0-9_-]{22})\/?$/);
+      const handle = url.pathname.match(/^\/(@[^/]+)\/?$/);
+      if (channel) identifier = channel[1];
+      else if (handle) identifier = decodeURIComponent(handle[1]);
+      else return { valid: false, error: 'チャンネルURLが無効です' };
+    } catch {
+      return { valid: false, error: 'チャンネルURLが無効です' };
     }
-    return { valid: false, error: 'チャンネルURLが無効です' };
   }
-  
-  // UCから始まる24文字のID
-  if (trimmedId.startsWith('UC') && trimmedId.length === 24) {
-    return { valid: true, normalizedId: trimmedId };
+
+  if (/^UC[A-Za-z0-9_-]{22}$/.test(identifier)) {
+    return { valid: true, normalizedId: identifier };
   }
-  
-  // @から始まるハンドル名
-  if (trimmedId.startsWith('@')) {
-    return { valid: true, normalizedId: trimmedId };
+
+  // Preserve Unicode handles; reject separators, whitespace and query delimiters.
+  if (/^@[^\s@/?#&=]+$/u.test(identifier)) {
+    return { valid: true, normalizedId: identifier };
   }
-  
+
   return { valid: false, error: 'チャンネルIDの形式が無効です（UCから始まる24文字、または@から始まるハンドル名）' };
 }
 
@@ -112,44 +119,43 @@ export async function fetchYouTubeChannelStats(
     return null;
   }
 
-  const url = `https://www.googleapis.com/youtube/v3/channels?part=statistics&id=${channelId}&key=${apiKey}`;
+  const validation = validateYouTubeChannelId(channelId);
+  if (!validation.valid || !validation.normalizedId) return null;
+  const identifier = validation.normalizedId;
+  const params = new URLSearchParams({ part: 'statistics', key: apiKey });
+  params.set(identifier.startsWith('@') ? 'forHandle' : 'id', identifier);
+  const url = `https://www.googleapis.com/youtube/v3/channels?${params}`;
 
   try {
     const response = await fetch(url);
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`[YouTube API] Channel stats error: ${response.status} - ${errorText}`);
-      
-      // エラーの詳細をパース
-      try {
-        const errorData = JSON.parse(errorText);
-        console.error('[YouTube API] Error details:', JSON.stringify(errorData, null, 2));
-      } catch (e) {
-        // JSONパースエラーは無視
-      }
-      
+      console.error(`[YouTube API] Channel stats error: ${response.status}`);
       return null;
     }
 
     const data = await response.json();
 
     if (!data.items || data.items.length === 0) {
-      console.warn(`[YouTube API] Channel not found: ${channelId}`);
+      console.warn('[YouTube API] Channel not found');
       return null;
     }
 
     const item = data.items[0];
     const stats = item.statistics;
+    if (!/^UC[A-Za-z0-9_-]{22}$/.test(item.id) || !stats) {
+      console.warn('[YouTube API] Invalid channel response');
+      return null;
+    }
 
     return {
-      channelId,
+      channelId: item.id,
       subscriberCount: parseInt(stats.subscriberCount || '0'),
       viewCount: parseInt(stats.viewCount || '0'),
       videoCount: parseInt(stats.videoCount || '0'),
     };
   } catch (error: any) {
-    console.error('[YouTube API] Fetch error:', error.message);
+    console.error('[YouTube API] Fetch error');
     return null;
   }
 }
@@ -172,8 +178,7 @@ export async function fetchRecentVideos(
   const searchResponse = await fetch(searchUrl);
 
   if (!searchResponse.ok) {
-    const errorText = await searchResponse.text();
-    console.error(`[YouTube API] Search error: ${searchResponse.status} - ${errorText}`);
+    console.error(`[YouTube API] Search error: ${searchResponse.status}`);
     return [];
   }
 
@@ -192,8 +197,7 @@ export async function fetchRecentVideos(
   const videosResponse = await fetch(videosUrl);
 
   if (!videosResponse.ok) {
-    const errorText = await videosResponse.text();
-    console.error(`[YouTube API] Videos error: ${videosResponse.status} - ${errorText}`);
+    console.error(`[YouTube API] Videos error: ${videosResponse.status}`);
     return [];
   }
 
@@ -259,26 +263,25 @@ export async function evaluateYouTubeChannel(
   // ✅ チャンネルIDの検証
   const validation = validateYouTubeChannelId(channelId);
   if (!validation.valid) {
-    console.error(`[YouTube Evaluation] Invalid channel ID: ${channelId}`);
+    console.error('[YouTube Evaluation] Invalid channel ID');
     console.error(`[YouTube Evaluation] Error: ${validation.error}`);
     return { error: `無効なチャンネルID: ${validation.error}` } as any;
   }
   
   const normalizedChannelId = validation.normalizedId || channelId;
 
-  console.log(`[YouTube Evaluation] Evaluating channel: ${normalizedChannelId} for ${targetMonth}`);
-  console.log(`[YouTube Evaluation] API Key exists: ${!!apiKey}, length: ${apiKey?.length || 0}`);
+  console.log('[YouTube Evaluation] Evaluation started');
 
   try {
     // 1. チャンネル統計を取得
     const stats = await fetchYouTubeChannelStats(apiKey, normalizedChannelId);
     if (!stats) {
-      console.warn(`[YouTube Evaluation] Failed to fetch channel stats: ${normalizedChannelId}`);
+      console.warn('[YouTube Evaluation] Failed to fetch channel stats');
       return { error: 'チャンネル統計の取得に失敗しました' } as any;
     }
 
     // 2. 最近の動画を取得（最大50件）
-    const recentVideos = await fetchRecentVideos(apiKey, normalizedChannelId, 50);
+    const recentVideos = await fetchRecentVideos(apiKey, stats.channelId, 50);
 
     // 3. 対象月の動画をフィルタリング
     const monthVideos = filterVideosByMonth(recentVideos, targetMonth);
@@ -347,8 +350,8 @@ export async function evaluateYouTubeChannel(
 
     return evaluation;
   } catch (error: any) {
-    console.error('[YouTube Evaluation] Error:', error.message, error.stack);
-    return { error: error.message } as any;
+    console.error('[YouTube Evaluation] Evaluation failed');
+    return { error: 'YouTube評価の取得に失敗しました' } as any;
   }
 }
 
