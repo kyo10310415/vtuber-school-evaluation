@@ -41,7 +41,7 @@ function fixture(students, { sourceFailure = false, cached = false, cacheSaveFai
     getPreviousEvaluationFromSheet: async () => null,
     loadModule: async name => {
       if (name === './lib/google-client') return { fetchPaymentStatusFromUnpaidSheet: async () => [], fetchWanamiUsageCount: async () => new Map() };
-      if (name === './lib/evaluation-cache') return { getCachedEvaluation: async () => cached ? complete : null, saveCachedEvaluation: async () => { calls.writes++; return !cacheSaveFails; } };
+      if (name === './lib/evaluation-cache') return { loadEvaluationSheetRows: async () => [], getCachedEvaluation: async () => cached ? complete : null, saveCachedEvaluation: async () => { calls.writes++; return !cacheSaveFails; } };
       if (name === './lib/youtube-client') return { evaluateYouTubeChannel: async () => { calls.ai++; return youtubeError ?? complete; } };
       throw Error('Unexpected synthetic module');
     },

@@ -3985,6 +3985,17 @@ async function handleAutoEvaluation(c: any, partitionMode: 'plan' | 'execute' | 
     // アクセストークンを取得（キャッシュ用）
     let accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
     let tokenRefreshedAt = Date.now()
+    let youtubeCacheRows: any[][] | undefined
+    let previousEvaluationRows: any[][] | undefined
+    if (partitionMode && !skipYouTube && YOUTUBE_API_KEY && students.some(student => student.youtubeChannelId)) {
+      const { loadEvaluationSheetRows } = await import('./lib/evaluation-cache')
+      const [cacheRows, historyRows] = await Promise.all([
+        loadEvaluationSheetRows(accessToken, RESULT_SPREADSHEET_ID, 'youtube_cache'),
+        loadEvaluationSheetRows(accessToken, RESULT_SPREADSHEET_ID, '評価結果')
+      ])
+      youtubeCacheRows = cacheRows
+      previousEvaluationRows = historyRows
+    }
     
     // 欠席データを取得（wannav-student-management PostgreSQL「レッスン報告」から取得、プロレベル評価が必要な場合のみ）
     const STUDENT_MANAGEMENT_DATABASE_URL = getEnv(c, 'STUDENT_MANAGEMENT_DATABASE_URL')
@@ -4099,7 +4110,8 @@ async function handleAutoEvaluation(c: any, partitionMode: 'plan' | 'execute' | 
                 RESULT_SPREADSHEET_ID,
                 student.studentId,
                 month,
-                'youtube'
+                'youtube',
+                youtubeCacheRows
               )
               
               // ✅ 不完全なデータ（動画0件、登録者0など）は再評価する
@@ -4125,7 +4137,8 @@ async function handleAutoEvaluation(c: any, partitionMode: 'plan' | 'execute' | 
                   RESULT_SPREADSHEET_ID,
                   student.studentId,
                   month,
-                  'youtube'
+                  'youtube',
+                  previousEvaluationRows
                 )
                 
                 const previousSubscriberCount = previousYoutubeData?.subscriberCount
@@ -4570,7 +4583,8 @@ async function getPreviousEvaluationFromSheet(
   spreadsheetId: string,
   studentId: string,
   month: string,
-  evaluationType: 'youtube' | 'x'
+  evaluationType: 'youtube' | 'x',
+  snapshot?: any[][]
 ): Promise<any | null> {
   try {
     const previousMonth = getPreviousMonth(month)
@@ -4579,23 +4593,9 @@ async function getPreviousEvaluationFromSheet(
     // メインシート名を設定 (評価結果シート)
     const sheetName = '評価結果'
     
-    // スプレッドシートから全データを取得
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}`
-    const response = await fetch(url, {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-      },
-    })
-    
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.warn(`[Spreadsheet] Failed to fetch sheet: ${response.status} - ${errorText}`)
-      return null
-    }
-    
-    const data = await response.json()
-    const rows = data.values || []
-    
+    const { loadEvaluationSheetRows } = await import('./lib/evaluation-cache')
+    const rows = snapshot ?? await loadEvaluationSheetRows(accessToken, spreadsheetId, sheetName)
+
     if (rows.length < 2) {
       console.warn(`[Spreadsheet] No data in sheet: ${sheetName}`)
       return null
@@ -5723,14 +5723,13 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
       
       const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
       const { evaluateXAccount } = await import('./lib/x-client')
-      const { getCachedEvaluation, saveCachedEvaluation } = await import('./lib/evaluation-cache')
-      const persistXCache = async (...args: Parameters<typeof saveCachedEvaluation>) => {
-        const saved = await saveCachedEvaluation(...args)
-        if (saved !== true) throw new Error('X evaluation cache save failed')
-        return saved
-      }
+      const { getCachedEvaluation, saveCachedEvaluations, loadEvaluationSheetRows } = await import('./lib/evaluation-cache')
+      const [xCacheRows, previousEvaluationRows] = await Promise.all([
+        loadEvaluationSheetRows(accessToken, RESULT_SPREADSHEET_ID, 'x_cache'),
+        loadEvaluationSheetRows(accessToken, RESULT_SPREADSHEET_ID, '評価結果')
+      ])
+      const pendingCache: { studentId: string; studentName: string; evaluationData: any }[] = []
 
-      
       const results: any[] = []
       let successCount = 0
       let errorCount = 0
@@ -5750,7 +5749,8 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
             RESULT_SPREADSHEET_ID,
             student.studentId,
             evaluationMonth,
-            'x'
+            'x',
+            xCacheRows
         )
         
         // ✅ レート制限による部分データは再評価する
@@ -5780,7 +5780,8 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
           RESULT_SPREADSHEET_ID,
           student.studentId,
           evaluationMonth,
-          'x'
+          'x',
+          previousEvaluationRows
         )
         
         const previousFollowersCount = previousXData?.followersCount
@@ -5834,16 +5835,7 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
           }
           
           // 部分的なデータでもキャッシュに保存
-          await persistXCache(
-            accessToken,
-            RESULT_SPREADSHEET_ID,
-            student.studentId,
-            student.name,
-            evaluationMonth,
-            'x',
-            partialEval
-          )
-          console.log(`[Auto Evaluate X Only] Partial save (rate limited): ${student.studentId} - フォロワー数のみ保存`)
+          pendingCache.push({ studentId: student.studentId, studentName: student.name, evaluationData: partialEval })
           
           results.push({
             studentId: student.studentId,
@@ -5856,16 +5848,7 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
           errorCount++
         } else if (xEval && !xEval.error && !xEval.rateLimited) {
           // 通常の成功パターン
-          await persistXCache(
-            accessToken,
-            RESULT_SPREADSHEET_ID,
-            student.studentId,
-            student.name,
-            evaluationMonth,
-            'x',
-            xEval
-          )
-          console.log(`[Auto Evaluate X Only] X evaluation saved for ${student.studentId}`)
+          pendingCache.push({ studentId: student.studentId, studentName: student.name, evaluationData: xEval })
           
           results.push({
             studentId: student.studentId,
@@ -5906,6 +5889,24 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
       }
     }
     
+    if (pendingCache.length > 0) {
+      const saved = await saveCachedEvaluations(accessToken, RESULT_SPREADSHEET_ID, evaluationMonth, 'x', pendingCache)
+      if (!saved) {
+        // Nothing in this unsaved batch can be counted toward its progress.
+        errorCount += successCount
+        successCount = 0
+        for (const result of results) {
+          if (result.status === 'success' || result.status === 'partial') {
+            result.status = 'error'
+            result.error = 'X evaluation cache save failed'
+            delete result.evaluation
+          }
+        }
+      } else {
+        console.log('[Auto Evaluate X Only] Evaluation rows saved:', pendingCache.length)
+      }
+    }
+
     // Refresh the provider counter; success counts are not Post consumption.
     // Never append an estimated usage row to Google Sheets.
     

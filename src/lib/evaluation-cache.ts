@@ -24,6 +24,25 @@ export function getPreviousMonth(month: string): string {
   return `${prevYear}-${prevMonth}`;
 }
 
+// Scheduled jobs share one snapshot per sheet within each request.
+export async function loadEvaluationSheetRows(
+  accessToken: string, spreadsheetId: string, sheetName: string
+): Promise<any[][]> {
+  const response = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  )
+  const data = await response.json()
+  if (!response.ok) {
+    if (response.status === 400 && data.error?.message?.startsWith('Unable to parse range:')) return []
+    console.warn('[Cache] Evaluation sheet read failed, HTTP', response.status)
+    throw new Error('Evaluation sheet unavailable')
+  }
+  if (Array.isArray(data.values)) return data.values
+  if (data.values === undefined && typeof data.range === 'string') return []
+  throw new Error('Invalid evaluation sheet response')
+}
+
 /**
  * キャッシュされた評価を取得
  */
@@ -32,27 +51,14 @@ export async function getCachedEvaluation(
   cacheSpreadsheetId: string,
   studentId: string,
   month: string,
-  evaluationType: 'youtube' | 'x'
+  evaluationType: 'youtube' | 'x',
+  snapshot?: any[][]
 ): Promise<any | null> {
   try {
     const sheetName = evaluationType === 'youtube' ? 'youtube_cache' : 'x_cache'
     
-    // シートのデータを取得
-    const response = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${cacheSpreadsheetId}/values/${encodeURIComponent(sheetName)}`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` }
-      }
-    )
-    
-    if (!response.ok) {
-      console.warn('[Cache] Cache sheet fetch failed')
-      return null
-    }
-    
-    const data = await response.json()
-    const rows = data.values || []
-    
+    const rows = snapshot ?? await loadEvaluationSheetRows(accessToken, cacheSpreadsheetId, sheetName)
+
     if (rows.length < 2) {
       return null
     }
@@ -153,27 +159,25 @@ export async function saveCachedEvaluation(
   evaluationType: 'youtube' | 'x',
   evaluationData: any
 ): Promise<boolean> {
+  return saveCachedEvaluations(accessToken, cacheSpreadsheetId, month, evaluationType,
+    [{ studentId, studentName, evaluationData }])
+}
+
+export async function saveCachedEvaluations(
+  accessToken: string,
+  cacheSpreadsheetId: string,
+  month: string,
+  evaluationType: 'youtube' | 'x',
+  evaluations: { studentId: string; studentName: string; evaluationData: any }[]
+): Promise<boolean> {
+  if (evaluations.length === 0) return true
   try {
     const sheetName = evaluationType === 'youtube' ? 'youtube_cache' : 'x_cache'
-    
-    // 有効期限: 90日後（3ヶ月分のレポートに対応）
     const expiresAt = new Date()
     expiresAt.setDate(expiresAt.getDate() + 90)
-    
     const cachedAt = new Date().toISOString()
-    
-    // 評価データをJSON文字列化
-    const dataJson = JSON.stringify(evaluationData)
-    
-    // 新しい行を追加
-    const newRow = [
-      studentId,
-      studentName,
-      month,
-      dataJson,
-      cachedAt,
-      expiresAt.toISOString()
-    ]
+    const values = evaluations.map(({ studentId, studentName, evaluationData }) =>
+      [studentId, studentName, month, JSON.stringify(evaluationData), cachedAt, expiresAt.toISOString()])
     
     const response = await fetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${cacheSpreadsheetId}/values/${encodeURIComponent(sheetName)}:append?valueInputOption=RAW`,
@@ -184,7 +188,7 @@ export async function saveCachedEvaluation(
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          values: [newRow]
+          values
         })
       }
     )
