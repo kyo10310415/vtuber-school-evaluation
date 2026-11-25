@@ -36,7 +36,7 @@ test('lookup failures never reach search and never log provider bodies or except
  }
 });
 test('evaluation/search/videos diagnostics omit identifiers, credentials and provider text',async()=>{
- const f=fixture([stats(),reply({},false)]);await f.api.evaluateYouTubeChannel(key,'@'+marker,'2026-10');assert.equal(JSON.stringify(f.logs).includes(marker),false);
- const g=fixture([reply({items:[{id:{videoId:'synthetic-video'}}]}),reply({},false)]);await g.api.fetchRecentVideos(key,canonical);assert.equal(JSON.stringify(g.logs).includes(marker),false);
+ const f=fixture([stats(),reply({},false)]);const searchResult=await f.api.evaluateYouTubeChannel(key,'@'+marker,'2026-10');assert.ok(searchResult.error);assert.equal(searchResult.overallGrade,undefined);assert.equal(JSON.stringify(f.logs).includes(marker),false);
+ const g=fixture([reply({items:[{id:{videoId:'synthetic-video'}}]}),reply({},false)]);await assert.rejects(g.api.fetchRecentVideos(key,canonical), /Videos error: 403/);assert.equal(JSON.stringify(g.logs).includes(marker),false);
  const h=fixture([stats(),new Error(marker)]),result=await h.api.evaluateYouTubeChannel(key,'@'+marker,'2026-10');assert.ok(result.error);assert.equal(JSON.stringify(h.logs).includes(marker),false);assert.equal(JSON.stringify(result).includes(marker),false);
 });

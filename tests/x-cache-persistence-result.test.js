@@ -31,7 +31,7 @@ test('normal X save uses provider Post snapshot, never adds successful students 
 });
 for(const partial of [false,true])test('failed '+(partial?'partial':'normal')+' cache save retains student error count',async()=>{
  const f=fixture(false,{partial}),r=await f.app.request('/api/auto-evaluate-x-only?month=2026-10',{method:'POST'}),b=await r.json();
- assert.equal(r.status,200);assert.equal(b.summary.success,0);assert.equal(b.summary.errors,1);assert.equal(f.calls.saved,1);assert.equal(f.calls.quotaReads,2);assert.equal(f.calls.ended,1);
+ assert.equal(r.status,200);assert.equal(b.summary.success,0);assert.equal(b.summary.errors,1);assert.equal(b.progress.isCompleted,false);assert.equal(f.calls.progressUpdates,0);assert.equal(f.calls.saved,1);assert.equal(f.calls.quotaReads,2);assert.equal(f.calls.ended,1);
 });
 test('provider snapshot becoming unknown after processing does not advance progress',async()=>{
  const f=fixture(true,{lateUnknown:true}),r=await f.app.request('/api/auto-evaluate-x-only?month=2026-10',{method:'POST'}),b=await r.json();
@@ -52,4 +52,14 @@ for(const size of ['0','101','1x','1.5','-1','Infinity'])test('invalid batch siz
 });
 test('100-Post budget bound remains tied to current one-page100 X-client fetch',()=>{
  const client=readFileSync(new URL('../src/lib/x-client.ts',import.meta.url),'utf8');assert.match(client,/const maxPages = 1/);assert.match(client,/fetchRecentTweets\(bearerToken, user\.userId, 100, targetMonth\)/);
+});
+
+test('a saved X rate-limit placeholder remains eligible for retry', async () => {
+ const f=fixture(true,{partial:true});
+ const r=await f.app.request('/api/auto-evaluate-x-only?month=2026-10',{method:'POST'});
+ const b=await r.json();
+ assert.equal(b.summary.errors,1);
+ assert.equal(b.progress.isCompleted,false);
+ assert.equal(b.progress.nextBatchIndex,0);
+ assert.equal(f.calls.progressUpdates,0);
 });

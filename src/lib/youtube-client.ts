@@ -178,8 +178,7 @@ export async function fetchRecentVideos(
   const searchResponse = await fetch(searchUrl);
 
   if (!searchResponse.ok) {
-    console.error(`[YouTube API] Search error: ${searchResponse.status}`);
-    return [];
+    throw new Error(`[YouTube API] Search error: ${searchResponse.status}`);
   }
 
   const searchData = await searchResponse.json();
@@ -197,8 +196,7 @@ export async function fetchRecentVideos(
   const videosResponse = await fetch(videosUrl);
 
   if (!videosResponse.ok) {
-    console.error(`[YouTube API] Videos error: ${videosResponse.status}`);
-    return [];
+    throw new Error(`[YouTube API] Videos error: ${videosResponse.status}`);
   }
 
   const videosData = await videosResponse.json();
@@ -265,7 +263,7 @@ export async function evaluateYouTubeChannel(
   if (!validation.valid) {
     console.error('[YouTube Evaluation] Invalid channel ID');
     console.error(`[YouTube Evaluation] Error: ${validation.error}`);
-    return { error: `無効なチャンネルID: ${validation.error}` } as any;
+    return { error: `無効なチャンネルID: ${validation.error}`, errorCode: 'INVALID_CHANNEL_INPUT' } as any;
   }
   
   const normalizedChannelId = validation.normalizedId || channelId;

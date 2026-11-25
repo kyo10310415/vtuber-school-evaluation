@@ -20,7 +20,7 @@ const appSource = readFileSync(new URL('../src/index.tsx', import.meta.url), 'ut
 const start = appSource.indexOf('async function handleAutoEvaluation(');
 const end = appSource.indexOf('// わなみさん使用回数を確認', start);
 const handler = transformSync(appSource.slice(start, end).replace(/await import\(/g, 'await loadModule('), { loader: 'ts', format: 'cjs' }).code;
-function fixture(students, { sourceFailure = false, cached = false, cacheSaveFails = false, proWriteFails = false, analysisFails = false, rows = [] } = {}) {
+function fixture(students, { sourceFailure = false, cached = false, cacheSaveFails = false, proWriteFails = false, analysisFails = false, rows = [], youtubeError = null } = {}) {
   const calls = { roster: [], aiCtor: 0, ai: 0, db: 0, writes: 0, reads: 0, logs: [] };
   const app = new Hono(); app.use('*', createAccessMiddleware(config));
   const complete = { videosInMonth: 1, subscriberCount: 1, totalViews: 1, privatePayload: marker };
@@ -42,7 +42,7 @@ function fixture(students, { sourceFailure = false, cached = false, cacheSaveFai
     loadModule: async name => {
       if (name === './lib/google-client') return { fetchPaymentStatusFromUnpaidSheet: async () => [], fetchWanamiUsageCount: async () => new Map() };
       if (name === './lib/evaluation-cache') return { getCachedEvaluation: async () => cached ? complete : null, saveCachedEvaluation: async () => { calls.writes++; return !cacheSaveFails; } };
-      if (name === './lib/youtube-client') return { evaluateYouTubeChannel: async () => { calls.ai++; return complete; } };
+      if (name === './lib/youtube-client') return { evaluateYouTubeChannel: async () => { calls.ai++; return youtubeError ?? complete; } };
       throw Error('Unexpected synthetic module');
     },
   };
@@ -208,4 +208,41 @@ test('repair only regrades legacy fallback rows, advances over missing memos and
   const result = await (await rejected.request(endpoint, params + '&batchIndex=0')).json();
   assert.equal(result.errorCount, 1);
   assert.equal(rejected.calls.writes, 0);
+});
+
+test('invalid YouTube registration is reported as unevaluated, while an API failure fails the batch', async () => {
+  const students = roster(1), day = studentPartitionDay(students[0].studentId);
+  for (const invalidInput of [true, false]) {
+    const f = fixture(students, { youtubeError: { error: marker, errorCode: invalidInput ? 'INVALID_CHANNEL_INPUT' : undefined } });
+    const plan = await (await f.request(planPath, query(day))).json();
+    const r = await f.request(runPath, query(day) + '&batchIndex=0', { revision: plan.plan.rosterRevision });
+    const body = await r.json();
+    assert.equal(r.status, 200);
+    assert.equal(body.success, invalidInput);
+    assert.equal(body.errorCount, invalidInput ? 0 : 1);
+    assert.equal(body.invalidYouTubeCount, invalidInput ? 1 : 0);
+    assert.equal(JSON.stringify(body).includes(marker), false);
+    assert.equal(f.calls.writes, 0);
+  }
+});
+
+test('all nine monthly partitions save both ProLevel and YouTube once per eligible student', async () => {
+  const students = roster(19).map(student => ({ ...student, talkMemoFolderUrl: 'synthetic-folder' }));
+  const f = fixture(students);
+  let total = 0;
+  for (let day = 1; day <= 9; day++) {
+    const q = query(day).replace('batchSize=5', 'batchSize=2');
+    const { plan } = await (await f.request(planPath, q)).json();
+    for (let i = 0; i < plan.totalBatches; i++) {
+      const response = await f.request(runPath, q + '&batchIndex=' + i, { revision: plan.rosterRevision });
+      const body = await response.json();
+      assert.equal(response.status, 200);
+      assert.equal(body.errorCount, 0);
+      assert.equal(body.success, true);
+      assert.equal(body.batchInfo.hasNextBatch, i + 1 < plan.totalBatches);
+      total += body.successCount;
+    }
+  }
+  assert.equal(total, students.length);
+  assert.equal(f.calls.writes, students.length * 2);
 });
