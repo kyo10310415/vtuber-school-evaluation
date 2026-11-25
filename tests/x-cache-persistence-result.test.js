@@ -8,17 +8,17 @@ const start=source.indexOf("app.post('/api/auto-evaluate-x-only'");
 const next=source.indexOf('\napp.',start+10);
 const code=transformSync(source.slice(start,next<0?source.length:next).replace(/await import\(/g,'await loadModule('),{loader:'ts',format:'cjs'}).code;
 class FixedDate extends Date{constructor(...args){super(...(args.length?args:['2026-11-01T06:00:00Z']));}}
-function fixture(saveSucceeds,{partial=false,lateUnknown=false,remaining=1000,enabled=true}={}){
+function fixture(saveSucceeds,{partial=false,lateUnknown=false,remaining=1000,enabled=true,studentCount=1,accountError=null}={}){
  const calls={saved:0,ended:0,quotaReads:0,progressUpdates:0,provider:0,queries:[],accessTokens:0,modules:0};
- const progress={evaluation_month:'2026-10',current_batch_index:0,completed_students:0,total_students:1,is_completed:false};
+ const progress={evaluation_month:'2026-10',current_batch_index:0,completed_students:0,total_students:studentCount,is_completed:false};
  const app=new Hono();
  const deps={app,Date:FixedDate,console:{log(){},warn(){},error(){}},
  getEnv:(_c,key)=>key==='X_SCHEDULED_EVALUATION_ENABLED'?(enabled?'true':''):'synthetic-only',getDatabaseConfig:()=>({}),getAccessToken:async()=>{calls.accessTokens++;return 'synthetic-token';},
- fetchStudents:async()=>[{studentId:'synthetic-id',name:'Synthetic',status:'アクティブ',xAccount:'synthetic-x'}],getPreviousEvaluationFromSheet:async()=>null,
+ fetchStudents:async()=>Array.from({length:studentCount},(_,i)=>({studentId:'synthetic-id-'+i,name:'Synthetic',status:'アクティブ',xAccount:'synthetic-x'})),getPreviousEvaluationFromSheet:async()=>null,
  loadModule:async name=>{calls.modules++;
  if(name==='pg')return{Pool:class{async query(sql){calls.queries.push(sql.trim().split(/\s/)[0]);if(/UPDATE x_evaluation_progress/.test(sql))calls.progressUpdates++;return{rows:/SELECT \*/.test(sql)||/INSERT INTO x_evaluation_progress/.test(sql)?[progress]:[]};}async end(){calls.ended++;}}};
  if(name==='./lib/x-quota-manager')return{X_POSTS_PER_STUDENT_BOUND:100,getQuotaStatus:async()=>{calls.quotaReads++;return calls.quotaReads>1&&lateUnknown?{status:'unknown',totalPosts:null,totalRequests:null,remainingQuota:0}:{status:'known',totalPosts:calls.quotaReads>1?13007:14000-remaining,totalRequests:null,remainingQuota:calls.quotaReads>1?993:remaining,unit:'posts',resetDay:12};}};
- if(name==='./lib/x-client')return{evaluateXAccount:async()=>{calls.provider++;return partial?{rateLimited:true,partialData:{followersCount:1,followingCount:1}}:{tweetsInMonth:1,followersCount:1};}};
+ if(name==='./lib/x-client')return{evaluateXAccount:async()=>{calls.provider++;return accountError ?? (partial?{rateLimited:true,partialData:{followersCount:1,followingCount:1}}:{tweetsInMonth:1,followersCount:1});}};
  if(name==='./lib/evaluation-cache')return{getCachedEvaluation:async()=>null,saveCachedEvaluation:async()=>{calls.saved++;return saveSucceeds;}};
  throw Error('Unexpected synthetic dependency');}
  };
@@ -62,4 +62,23 @@ test('a saved X rate-limit placeholder remains eligible for retry', async () => 
  assert.equal(b.progress.isCompleted,false);
  assert.equal(b.progress.nextBatchIndex,0);
  assert.equal(f.calls.progressUpdates,0);
+});
+
+test('X budget limits new provider requests without advancing past remaining members in the batch',async()=>{
+ const f=fixture(true,{remaining:100,studentCount:3});
+ const r=await f.app.request('/api/auto-evaluate-x-only?month=2026-10',{method:'POST'});
+ const b=await r.json();
+ assert.equal(r.status,200);assert.equal(b.summary.budgetDeferred,true);
+ assert.equal(b.progress.isCompleted,false);assert.equal(b.progress.nextBatchIndex,0);
+ assert.equal(f.calls.provider,1);assert.equal(f.calls.saved,1);assert.equal(f.calls.progressUpdates,0);
+});
+test('invalid or missing X registrations do not write grades or block the completed batch',async()=>{
+ for(const code of ['INVALID_ACCOUNT_INPUT','ACCOUNT_NOT_FOUND']){
+  const f=fixture(true,{accountError:{error:'bad account',errorCode:code}});
+  const r=await f.app.request('/api/auto-evaluate-x-only?month=2026-10',{method:'POST'});
+  const b=await r.json();
+  assert.equal(r.status,200);assert.equal(b.summary.invalidAccounts,1);
+  assert.equal(b.summary.success,0);assert.equal(b.summary.errors,0);
+  assert.equal(b.progress.isCompleted,true);assert.equal(f.calls.saved,0);
+ }
 });

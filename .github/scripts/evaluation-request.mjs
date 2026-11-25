@@ -48,6 +48,8 @@ if (!response.ok && typeof console.error === 'function') {
 }
 const count = value => Number.isSafeInteger(value) && value >= 0;
 if (url.pathname === '/api/auto-evaluate-x-only') {
+  safe.summary.invalidAccounts = number(body.summary?.invalidAccounts);
+  safe.summary.budgetDeferred = body.summary?.budgetDeferred === true;
   const summaryValid = body.summary && ['total', 'success', 'errors'].every(field => count(body.summary[field]));
   const completedValid = body.progress?.isCompleted === true &&
     count(body.progress.completedStudents) && count(body.progress.totalStudents);
