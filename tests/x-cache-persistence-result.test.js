@@ -19,7 +19,7 @@ function fixture(saveSucceeds,{partial=false,lateUnknown=false,remaining=1000,en
  if(name==='pg')return{Pool:class{async query(sql){calls.queries.push(sql.trim().split(/\s/)[0]);if(/UPDATE x_evaluation_progress/.test(sql))calls.progressUpdates++;return{rows:/SELECT \*/.test(sql)||/INSERT INTO x_evaluation_progress/.test(sql)?[progress]:[]};}async end(){calls.ended++;}}};
  if(name==='./lib/x-quota-manager')return{X_POSTS_PER_STUDENT_BOUND:100,getQuotaStatus:async()=>{calls.quotaReads++;return calls.quotaReads>1&&lateUnknown?{status:'unknown',totalPosts:null,totalRequests:null,remainingQuota:0}:{status:'known',totalPosts:calls.quotaReads>1?13007:14000-remaining,totalRequests:null,remainingQuota:calls.quotaReads>1?993:remaining,unit:'posts',resetDay:12};}};
  if(name==='./lib/x-client')return{evaluateXAccount:async()=>{calls.provider++;return accountError ?? (partial?{rateLimited:true,partialData:{followersCount:1,followingCount:1}}:{tweetsInMonth:1,followersCount:1});}};
- if(name==='./lib/evaluation-cache')return{getCachedEvaluation:async()=>null,saveCachedEvaluation:async()=>{calls.saved++;return saveSucceeds;}};
+ if(name==='./lib/evaluation-cache')return{loadEvaluationSheetRows: async () => [], getCachedEvaluation:async()=>null,saveCachedEvaluations:async()=>{calls.saved++;return saveSucceeds;}};
  throw Error('Unexpected synthetic dependency');}
  };
  const keys=Object.keys(deps);new Function(...keys,code)(...keys.map(k=>deps[k]));

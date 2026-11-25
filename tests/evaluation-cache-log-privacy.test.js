@@ -111,3 +111,26 @@ test('initialization metadata/create/header and thrown failures keep false witho
     const f = fixture(responses); assert.equal(await init(f), false); assert.equal(f.requests.length, responses.length); privateLogsAbsent(f);
   }
 });
+
+test('a scheduled batch shares one published sheet snapshot across student lookups', async () => {
+  const rowCount = 100;
+  const matching = Array.from({ length: rowCount }, (_, i) =>
+    row({ followersCount: i + 1, tweetsInMonth: 1 }, '2026-10-30', 'synthetic-' + i));
+  const f = fixture([{ data: { values: [headers, ...matching] } }]);
+  const snapshot = await f.api.loadEvaluationSheetRows(marker + '-token', marker + '-sheet', 'x_cache');
+  for (let i = 0; i < rowCount; i++) {
+    const result = await f.api.getCachedEvaluation(marker + '-token', marker + '-sheet', 'synthetic-' + i, month, 'x', snapshot);
+    assert.equal(result.followersCount, i + 1);
+  }
+  assert.equal(f.requests.length, 1);
+  privateLogsAbsent(f);
+});
+test('scheduled cache append submits multiple evaluations in one Sheets write', async () => {
+  const f = fixture([{}]);
+  const entries = [1, 2, 3].map(i => ({
+    studentId: 'synthetic-' + i, studentName: marker, evaluationData: { followersCount: i }
+  }));
+  assert.equal(await f.api.saveCachedEvaluations(marker + '-token', marker + '-sheet', month, 'x', entries), true);
+  assert.equal(f.requests.length, 1);
+  assert.equal(JSON.parse(f.requests[0].options.body).values.length, 3);
+});

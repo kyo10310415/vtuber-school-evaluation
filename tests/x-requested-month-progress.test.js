@@ -36,7 +36,7 @@ function fixture(initial = {}, remainingQuota = 1000) {
     pg: { Pool },
     './lib/x-quota-manager': { getQuotaStatus: async () => ({ status: 'known', remainingQuota, totalPosts: 14000 - remainingQuota, totalRequests: null, resetDay: 12 }), X_POSTS_PER_STUDENT_BOUND: 100 },
     './lib/x-client': { evaluateXAccount: async () => { counters.provider++; throw new Error('External provider forbidden'); } },
-    './lib/evaluation-cache': { getCachedEvaluation: async (_token, _sheet, id) => { selected.push(id); return { rateLimited: false }; }, saveCachedEvaluation: async () => { counters.save++; throw new Error('External cache write forbidden'); } },
+    './lib/evaluation-cache': { loadEvaluationSheetRows: async () => [], getCachedEvaluation: async (_token, _sheet, id) => { selected.push(id); return { rateLimited: false }; }, saveCachedEvaluations: async () => { counters.save++; throw new Error('External cache write forbidden'); } },
   };
   const box = { app: { post: (_path, fn) => { handler = fn; } },
     console: { log() {}, error() {}, warn() {} },
