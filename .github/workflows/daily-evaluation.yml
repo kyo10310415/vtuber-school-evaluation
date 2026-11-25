@@ -1,5 +1,11 @@
 name: August 2026 ProLevel backfill
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      active_index:
+        description: Zero-based active roster position for a single August retry
+        required: false
+        type: string
 permissions:
   contents: read
 concurrency:
@@ -7,6 +13,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   prolevel:
+    if: inputs.active_index == ''
     name: August ProLevel partition ${{ matrix.day }}
     runs-on: ubuntu-latest
     timeout-minutes: 115
@@ -68,3 +75,23 @@ jobs:
           done
           echo "August partition $DAY complete: selected=$selected saved=$saved missing=$missing errors=$errors failed=$failed invalid_active=$invalid"
           [[ "$errors" == 0 && "$failed" == 0 && "$invalid" == 0 ]]
+
+  retry:
+    if: inputs.active_index != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ACTIVE_INDEX: ${{ inputs.active_index }}
+      EVALUATION_JOB_TOKEN: ${{ secrets.EVALUATION_JOB_TOKEN }}
+      EVALUATION_BASE_URL: ${{ vars.EVALUATION_BASE_URL || 'https://vtuber-school-evaluation.onrender.com' }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Retry one August ProLevel evaluation
+        shell: bash
+        run: |
+          [[ "$ACTIVE_INDEX" =~ ^(0|[1-9][0-9]{0,3})$ ]] || exit 1
+          result=$(node .github/scripts/evaluation-request.mjs "/api/auto-evaluate?month=2026-08&batchSize=1&batchIndex=$ACTIVE_INDEX&skipEvaluated=true&skipX=true&skipYouTube=true&skipWanamiUsage=true" --json-only)
+          printf '%s\n' "$result"
+          jq -e '.errorCount == 0 and .successCount + .skippedCount == 1' <<< "$result" >/dev/null

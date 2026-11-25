@@ -74,6 +74,24 @@ if (isPlan) {
 const invalidPartitionResult = isPartition && response.ok && (typeof body.success !== 'boolean' ||
     body.success !== (body.errorCount === 0) ||
     !['successCount', 'errorCount', 'skippedCount'].every(field => count(body[field])));
+if (url.pathname === '/api/auto-evaluate' && response.ok && safe.errorCount > 0) {
+  const errors = Array.isArray(body.errors) ? body.errors.filter(item => typeof item === 'string') : [];
+  const reasons = [
+    [/Google Drive のトークメモ一覧を取得できませんでした \(HTTP (\d{3})\)/, 'Drive list'],
+    [/Google Docs のトークメモを取得できませんでした \(HTTP (\d{3})\)/, 'Docs read'],
+    [/トークメモに分析できる発言がありません/, 'memo has no analyzable utterances'],
+    [/Gemini によるトークメモ分析に失敗しました/, 'Gemini response failed validation'],
+    [/Gemini API の利用上限に達しました/, 'Gemini quota exceeded'],
+    [/Invalid folder URL/, 'invalid Drive folder URL'],
+  ];
+  safe.failureReasons = errors.map(error => {
+    for (const [pattern, label] of reasons) {
+      const match = error.match(pattern);
+      if (match) return match[1] ? `${label} HTTP ${match[1]}` : label;
+    }
+    return 'other evaluation error';
+  });
+}
 console.log(JSON.stringify(invalidPartitionResult ? { invalidResult: true } : safe));
 if (!process.argv.includes('--json-only')) console.log(`HTTP_STATUS:${response.status}`);
 if (!response.ok || invalidPartitionResult || (isPartition && body.errorCount > 0)) process.exitCode = 1;
