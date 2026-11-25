@@ -1,0 +1,27 @@
+name: ChatGPT read-only source
+on:
+  pull_request:
+    paths:
+      [
+        "chatgpt-readonly/**",
+        "server.js",
+        "tests/**",
+        "package.json",
+        ".github/workflows/chatgpt-readonly.yml",
+      ]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run test:chatgpt
+      - run: npm run test:security
+      - run: npm run build
