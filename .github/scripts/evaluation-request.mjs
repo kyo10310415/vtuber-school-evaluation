@@ -35,11 +35,16 @@ const safe = { successCount: number(body.successCount), errorCount: number(body.
 if (Number.isSafeInteger(body.unevaluatedProLevelCount) && body.unevaluatedProLevelCount >= 0) {
   safe.unevaluatedProLevelCount = body.unevaluatedProLevelCount;
 }
-if (!response.ok) {
+if (Number.isSafeInteger(body.invalidYouTubeCount) && body.invalidYouTubeCount >= 0) {
+  safe.invalidYouTubeCount = body.invalidYouTubeCount;
+}
+if (!response.ok && typeof console.error === 'function') {
   const reasons = ['missing-token', 'unavailable', 'malformed', 'partial'];
   const reason = url.pathname === '/api/auto-evaluate-x-only' && reasons.includes(body.quota?.reason)
     ? ` (X usage: ${body.quota.reason})` : '';
-  console.error(`Evaluation request ${url.pathname} returned HTTP ${response.status}${reason}`);
+  const failureReason = url.pathname === '/api/auto-evaluate-x-only' &&
+    ['paused', 'inconsistent-progress'].includes(body.failureReason) ? ` (X evaluation: ${body.failureReason})` : '';
+  console.error(`Evaluation request ${url.pathname} returned HTTP ${response.status}${reason}${failureReason}`);
 }
 const count = value => Number.isSafeInteger(value) && value >= 0;
 if (url.pathname === '/api/auto-evaluate-x-only') {

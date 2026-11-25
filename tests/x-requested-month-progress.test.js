@@ -55,6 +55,8 @@ test('actual X handler resumes requested previous-month progress without duplica
   const first = await f.run(); assert.equal(first.status, 200); assert.equal(first.body.progress.currentBatchIndex, 1);
   const second = await f.run(); assert.equal(second.status, 200); assert.equal(second.body.progress.currentBatchIndex, 2);
   assert.deepEqual(f.selected, ['synthetic-b', 'synthetic-c']);
+  assert.equal(second.body.progress.completedStudents, 3);
+  assert.equal(second.body.progress.isCompleted, true);
   assert.equal(f.queries.some(q => ['INSERT', 'DELETE'].includes(q.kind)), false);
   assert.equal(f.counters.provider, 0); assert.equal(f.counters.save, 0); assert.equal(f.counters.end, 2);
 });
@@ -89,5 +91,14 @@ test('budget refusal preserves requested reset progress instead of deleting it',
   assert.equal(f.queries.some(q => q.kind === 'DELETE' || q.kind === 'INSERT' || q.kind === 'UPDATE'), false);
   assert.equal(f.rows.get('2026-09').current_batch_index, pending.current_batch_index);
   assert.equal(f.rows.get('2026-09').completed_students, pending.completed_students);
+  assert.equal(f.counters.provider, 0);
+});
+
+test('legacy X completion with missing students is not accepted as complete', async () => {
+  const f = fixture({ '2026-09': { ...pending, is_completed: true } });
+  const result = await f.run();
+  assert.equal(result.status, 409);
+  assert.equal(result.body.failureReason, 'inconsistent-progress');
+  assert.deepEqual(f.queries.map(q => q.kind), ['SELECT']);
   assert.equal(f.counters.provider, 0);
 });

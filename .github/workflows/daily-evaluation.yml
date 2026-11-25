@@ -43,7 +43,7 @@ jobs:
         run: |
           [[ -z "$INPUT_DAY" || "$INPUT_DAY" =~ ^[1-9]$ ]] || exit 1
           [[ -z "$INPUT_MONTH" || "$INPUT_MONTH" =~ ^[0-9]{4}-(0[1-9]|1[0-2])$ ]] || exit 1
-          DAY_OF_MONTH=$(date +%d | sed 's/^0//')
+          DAY_OF_MONTH=$(TZ=Asia/Tokyo date +%d | sed 's/^0//')
           
           if [ -n "$INPUT_DAY" ]; then
             DAY_OF_MONTH="$INPUT_DAY"
@@ -88,7 +88,7 @@ jobs:
           if [ -n "$INPUT_MONTH" ]; then
             MONTH="$INPUT_MONTH"
           else
-            MONTH=$(date -u -d "1 month ago" +%Y-%m)
+            MONTH=$(TZ=Asia/Tokyo date -d "$(TZ=Asia/Tokyo date +%Y-%m-01) last month" +%Y-%m)
           fi
           echo "month=$MONTH" >> $GITHUB_OUTPUT
           echo "📅 Evaluating for month: $MONTH"
@@ -162,6 +162,10 @@ jobs:
                 [[ "$ERRORS" =~ ^[0-9]+$ ]] || ERRORS=1
                 EVALUATION_ERRORS=$((EVALUATION_ERRORS + ERRORS))
                 echo "Batch $i completed with errors=$ERRORS"
+                INVALID_YOUTUBE=$(printf '%s' "$BODY" | jq -r '.invalidYouTubeCount // 0')
+                if [[ "$INVALID_YOUTUBE" =~ ^[1-9][0-9]*$ ]]; then
+                  echo "::warning::Batch $i: $INVALID_YOUTUBE invalid YouTube channel registration(s) left unevaluated"
+                fi
               else
                 RETRY_COUNT=$((RETRY_COUNT + 1))
                 echo "::warning::Batch $i HTTP request failed (attempt $RETRY_COUNT/$MAX_RETRIES)"
@@ -213,7 +217,7 @@ jobs:
         run: |
           [[ -z "$INPUT_DAY" || "$INPUT_DAY" =~ ^[1-9]$ ]] || exit 1
           [[ -z "$INPUT_MONTH" || "$INPUT_MONTH" =~ ^[0-9]{4}-(0[1-9]|1[0-2])$ ]] || exit 1
-          DAY_OF_MONTH=$(date +%d | sed 's/^0//')
+          DAY_OF_MONTH=$(TZ=Asia/Tokyo date +%d | sed 's/^0//')
 
           if [ -n "$INPUT_DAY" ]; then
             DAY_OF_MONTH="$INPUT_DAY"
@@ -248,7 +252,7 @@ jobs:
           if [ -n "$INPUT_MONTH" ]; then
             MONTH="$INPUT_MONTH"
           else
-            MONTH=$(date -u -d "1 month ago" +%Y-%m)
+            MONTH=$(TZ=Asia/Tokyo date -d "$(TZ=Asia/Tokyo date +%Y-%m-01) last month" +%Y-%m)
           fi
           echo "month=$MONTH" >> $GITHUB_OUTPUT
           echo "📅 Evaluating for month: $MONTH"

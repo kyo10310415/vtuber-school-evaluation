@@ -3979,6 +3979,7 @@ async function handleAutoEvaluation(c: any, partitionMode: 'plan' | 'execute' | 
     let errorCount = 0
     let skippedCount = 0
     let unevaluatedProLevelCount = 0
+    let invalidYouTubeCount = 0
     const errors: string[] = []
     
     // アクセストークンを取得（キャッシュ用）
@@ -4150,6 +4151,10 @@ async function handleAutoEvaluation(c: any, partitionMode: 'plan' | 'execute' | 
                     evaluation
                   )
                   console.log(`[Auto Evaluate] YouTube評価完了（キャッシュ保存）: ${student.studentId}`)
+                } else if (partitionMode && evaluation?.errorCode === 'INVALID_CHANNEL_INPUT') {
+                  invalidYouTubeCount++
+                  hasAnyAccount = false
+                  result.evaluations.youtube = { status: 'unevaluated', reason: 'YouTubeチャンネルの登録形式が不正です' }
                 } else {
                   result.evaluations.youtube = { error: 'YouTube評価の取得に失敗しました' }
                   console.log(`[Auto Evaluate] YouTube評価失敗（キャッシュなし）: ${student.studentId}`)
@@ -4323,7 +4328,7 @@ async function handleAutoEvaluation(c: any, partitionMode: 'plan' | 'execute' | 
     if (partitionMode && partitionPlan) {
       return c.json({
         success: errorCount === 0,
-        successCount, errorCount, skippedCount, unevaluatedProLevelCount,
+        successCount, errorCount, skippedCount, unevaluatedProLevelCount, invalidYouTubeCount,
         batchInfo: {
           batchIndex, batchSize, totalBatches, processedStudents: students.length,
           activeRows: partitionPlan.activeRows, eligibleStudents: partitionPlan.eligibleStudents,
@@ -5540,7 +5545,7 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
   try {
     // Quota policy changes must not silently resume scheduled evaluation.
     if (getEnv(c, 'X_SCHEDULED_EVALUATION_ENABLED') !== 'true') {
-      return c.json({ success: false, error: 'X scheduled evaluation paused', executionEnabled: false }, 503)
+      return c.json({ success: false, error: 'X scheduled evaluation paused', executionEnabled: false, failureReason: 'paused' }, 503)
     }
     const GOOGLE_SERVICE_ACCOUNT = getEnv(c, 'GOOGLE_SERVICE_ACCOUNT')
     const STUDENT_MASTER_SPREADSHEET_ID = getEnv(c, 'STUDENT_MASTER_SPREADSHEET_ID')
@@ -5621,6 +5626,9 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
       
       // 進捗が完了している場合はスキップ
       if (progress && progress.is_completed) {
+        if (progress.completed_students !== progress.total_students) {
+          return c.json({ success: false, error: 'X progress is incomplete and needs review', failureReason: 'inconsistent-progress' }, 409)
+        }
         console.log(`[Auto Evaluate X Only] Evaluation already completed for ${evaluationMonth}`)
         return c.json({
           success: true,
@@ -5643,7 +5651,7 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
         const status = student.status || ''
         const isActive = status === 'アクティブ'
         const isPermanent = status === '永久会員'
-        return isActive && !isPermanent && student.xAccount
+        return isActive && !isPermanent && !!student.studentId?.trim() && student.xAccount
       })
       
       console.log(`[Auto Evaluate X Only] Total active students with X accounts: ${filteredStudents.length}`)
@@ -5688,6 +5696,9 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
       
       // バッチに処理する生徒がいない場合は完了
       if (batchStudents.length === 0) {
+        if (progress.completed_students !== progress.total_students) {
+          return c.json({ success: false, error: 'X progress is incomplete and needs review', failureReason: 'inconsistent-progress' }, 409)
+        }
         console.log(`[Auto Evaluate X Only] No more students to process. Marking as completed.`)
         await pool.query(`
           UPDATE x_evaluation_progress 
@@ -5824,8 +5835,8 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
             status: 'partial',
             rateLimited: true
           })
-          successCount++
-        } else if (xEval && !xEval.error) {
+          errorCount++
+        } else if (xEval && !xEval.error && !xEval.rateLimited) {
           // 通常の成功パターン
           await persistXCache(
             accessToken,
@@ -5881,10 +5892,14 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
     // Never append an estimated usage row to Google Sheets.
     
     // 進捗を更新
-    const completedStudents = progress.completed_students + successCount
+    const batchCompleted = errorCount === 0
+    const completedStudents = progress.completed_students + (batchCompleted ? successCount + skippedCount : 0)
     const hasNextBatch = endIndex < filteredStudents.length
-    const nextBatchIndex = hasNextBatch ? batchIndex + 1 : batchIndex
-    const isCompleted = !hasNextBatch
+    const nextBatchIndex = batchCompleted && hasNextBatch ? batchIndex + 1 : batchIndex
+    if (batchCompleted && !hasNextBatch && completedStudents !== progress.total_students) {
+      return c.json({ success: false, error: 'X progress is incomplete and needs review', failureReason: 'inconsistent-progress' }, 409)
+    }
+    const isCompleted = batchCompleted && !hasNextBatch
     
     // 更新されたクォータ状況を取得
     const updatedQuota = await getQuotaStatus(X_BEARER_TOKEN)
@@ -5892,7 +5907,7 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
       return c.json({ success: false, error: 'X quota usage unknown', quota: updatedQuota }, 503)
     }
     
-    await pool.query(`
+    if (batchCompleted) await pool.query(`
       UPDATE x_evaluation_progress 
       SET current_batch_index = $1, 
           completed_students = $2, 
@@ -5917,11 +5932,11 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
       },
       progress: {
         currentBatchIndex: batchIndex,
-        nextBatchIndex: hasNextBatch ? nextBatchIndex : null,
+        nextBatchIndex: isCompleted ? null : nextBatchIndex,
         completedStudents,
         totalStudents: filteredStudents.length,
         isCompleted,
-        remainingStudents: filteredStudents.length - completedStudents
+        remainingStudents: progress.total_students - completedStudents
       },
       quota: updatedQuota,
       errors: errors.length > 0 ? errors : undefined,
