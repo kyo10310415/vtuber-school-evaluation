@@ -20,7 +20,7 @@ const appSource = readFileSync(new URL('../src/index.tsx', import.meta.url), 'ut
 const start = appSource.indexOf('async function handleAutoEvaluation(');
 const end = appSource.indexOf('// わなみさん使用回数を確認', start);
 const handler = transformSync(appSource.slice(start, end).replace(/await import\(/g, 'await loadModule('), { loader: 'ts', format: 'cjs' }).code;
-function fixture(students, { sourceFailure = false, cached = false, cacheSaveFails = false, proWriteFails = false } = {}) {
+function fixture(students, { sourceFailure = false, cached = false, cacheSaveFails = false, proWriteFails = false, analysisFails = false, rows = [] } = {}) {
   const calls = { roster: [], aiCtor: 0, ai: 0, db: 0, writes: 0, reads: 0, logs: [] };
   const app = new Hono(); app.use('*', createAccessMiddleware(config));
   const complete = { videosInMonth: 1, subscriberCount: 1, totalViews: 1, privatePayload: marker };
@@ -29,11 +29,13 @@ function fixture(students, { sourceFailure = false, cached = false, cacheSaveFai
     getEnv: (_c, name) => 'synthetic-' + name,
     getPreviousMonth: () => '2026-09',
     fetchStudents: async (...args) => { calls.roster.push(args); if (sourceFailure) throw Error(marker); return structuredClone(students); },
-    GeminiAnalyzer: class { constructor() { calls.aiCtor++; } async analyzeTrainingSession() { calls.ai++; return {}; } },
+    GeminiAnalyzer: class { constructor() { calls.aiCtor++; } async analyzeTrainingSession() { calls.ai++; if (analysisFails) throw Error('Gemini unavailable'); return {}; } },
     getAccessToken: async () => { calls.reads++; return 'synthetic-token'; },
     fetchAbsenceDataFromPostgres: async () => { calls.db++; return []; },
-    fetchDocumentsInFolderByMonth: async () => [], fetchDocumentContent: async () => '',
-    evaluateStudent: () => ({ overallGrade: 'A', attendanceGrade: 'A', punctualityGrade: 'A', missionGrade: 'A' }),
+    fetch: async () => ({ ok: true, json: async () => ({ values: [['評価月', '学籍番号', 'コメント'], ...rows] }) }),
+    isFallbackProLevelComment: comment => comment?.startsWith('【ミッション】分析エラー:'),
+    fetchDocumentsInFolderByMonth: async () => [{ id: 'synthetic-doc' }], fetchDocumentContent: async () => '',
+    evaluateStudent: () => ({ overallGrade: 'A', scores: { absence: 'A', lateness: 'A', mission: 'A' } }),
     convertResultToArray: () => ['synthetic-row'],
     writeResultsToSheet: async () => { calls.writes++; if (proWriteFails) throw Error(marker); },
     getPreviousEvaluationFromSheet: async () => null,
@@ -167,7 +169,8 @@ test('partition executes sorted batch with current revision and minimizes server
 });
 test('cache save failure and ProLevel write failure count as planned failures without private response', async () => {
   for (const options of [{ cacheSaveFails: true }, { cached: true, proWriteFails: true }]) {
-    const students = roster(20), day = studentPartitionDay(students[0].studentId); const f = fixture(students, options);
+    const students = roster(20).map(student => ({ ...student, talkMemoFolderUrl: 'synthetic-folder' }));
+    const day = studentPartitionDay(students[0].studentId); const f = fixture(students, options);
     const plan = await (await f.request(planPath, query(day))).json(); const r = await f.request(runPath, query(day) + '&batchIndex=0', { revision: plan.plan.rosterRevision }); const body = await r.json();
     assert.equal(r.status, 200); assert.equal(body.success, false); assert.equal(body.errorCount > 0, true); assert.equal(body.results, undefined); assert.equal(JSON.stringify(body).includes(marker), false); assert.equal(f.calls.logs.join('').includes(marker), false);
   }
@@ -176,4 +179,33 @@ test('legacy explicit student target/order/default reader contract remains avail
   const students = roster(4), f = fixture(students, { cached: true });
   const r = await f.request('/api/auto-evaluate', 'month=2026-09&studentId=' + encodeURIComponent(students[2].studentId) + '&skipProLevel=true&skipX=true');
   const body = await r.json(); assert.equal(r.status, 200); assert.equal(body.results.length, 1); assert.equal(body.results[0].studentId === students[2].studentId, true); assert.equal(f.calls.roster[0].length, 2);
+});
+
+test('repair only regrades legacy fallback rows, advances over missing memos and preserves successful rows', async () => {
+  const [missing, failed, valid, neverEvaluated] = roster(4);
+  failed.talkMemoFolderUrl = valid.talkMemoFolderUrl = neverEvaluated.talkMemoFolderUrl = 'synthetic-folder';
+  const rows = [
+    ['2026-09', missing.studentId, '【ミッション】分析エラー: quota'],
+    ['2026-09', failed.studentId, '【ミッション】分析エラー: quota'],
+    ['2026-09', valid.studentId, '【ミッション】分析エラー: quota'],
+    ['2026-09', valid.studentId, 'confirmed'],
+  ];
+  const f = fixture([missing, failed, valid, neverEvaluated], { rows });
+  const endpoint = '/api/auto-evaluate';
+  const params = 'month=2026-09&batchSize=1&repairFallbackOnly=true&skipX=true&skipYouTube=true&skipEvaluated=true';
+  const first = await (await f.request(endpoint, params + '&batchIndex=0')).json();
+  assert.equal(first.unevaluatedProLevelCount, 1);
+  assert.equal(first.batchInfo.hasNextBatch, true);
+  assert.equal(f.calls.writes, 0);
+  const second = await (await f.request(endpoint, params + '&batchIndex=1')).json();
+  assert.equal(second.successCount, 1);
+  const third = await (await f.request(endpoint, params + '&batchIndex=2')).json();
+  assert.equal(third.batchInfo.hasNextBatch, false);
+  assert.equal(f.calls.ai, 1);
+  assert.equal(f.calls.writes, 1);
+
+  const rejected = fixture([failed], { rows, analysisFails: true });
+  const result = await (await rejected.request(endpoint, params + '&batchIndex=0')).json();
+  assert.equal(result.errorCount, 1);
+  assert.equal(rejected.calls.writes, 0);
 });

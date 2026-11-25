@@ -7,7 +7,7 @@ import type { EvaluationRequest, EvaluationResponse, EvaluationResult } from './
 import { fetchStudents, fetchAbsenceData, fetchDocumentsInFolder, fetchDocumentsInFolderByMonth, fetchDocumentContent, writeResultsToSheet } from './lib/google-client'
 // fetchPaymentData は一旦使用しない
 import { GeminiAnalyzer } from './lib/gemini-client'
-import { evaluateStudent, convertResultToArray } from './lib/evaluation'
+import { evaluateStudent, convertResultToArray, isFallbackProLevelComment } from './lib/evaluation'
 import { ssoAuthMiddleware } from './middleware/sso-auth.js'
 import { fetchAbsenceDataFromPostgres } from './lib/absence-manager'
 
@@ -1432,6 +1432,10 @@ app.get('/', (c) => {
               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
             />
           </div>
+          <label class="flex items-center gap-2 text-sm">
+            <input type="checkbox" id="repair-prolevel-fallback-only" />
+            過去にメモ不足や分析エラーで保存された評価だけを再採点
+          </label>
           <button
             id="run-prolevel-batch-btn"
             class="px-6 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold rounded-lg hover:from-purple-700 hover:to-indigo-700 transition shadow-md whitespace-nowrap">
@@ -2327,13 +2331,15 @@ app.get('/api/monthly-report/:studentId', async (c) => {
                 const studentIdIndex = header.findIndex((h: string) => h === '学籍番号')
                 const monthIndex = header.findIndex((h: string) => h === '評価月')
                 const dateTimeIndex = header.findIndex((h: string) => h === '評価日時')
+                const commentIndex = Math.max(header.indexOf('コメント'), header.indexOf('評価コメント'))
                 
                 // ✅ 同じ学籍番号・月の場合、評価日時が最新のものを選択
                 let latestRow: any = null
                 let latestDateTime: Date | null = null
                 
                 for (const row of rows.slice(1)) {
-                  if (row[studentIdIndex] === studentId && row[monthIndex] === month) {
+                  if (row[studentIdIndex] === studentId && row[monthIndex] === month &&
+                    !isFallbackProLevelComment(row[commentIndex])) {
                     const rowDateTime = row[dateTimeIndex] ? new Date(row[dateTimeIndex]) : null
                     
                     if (!latestRow || (rowDateTime && (!latestDateTime || rowDateTime > latestDateTime))) {
@@ -2492,13 +2498,15 @@ app.get('/api/evaluation/complete/:studentId', async (c) => {
               const studentIdIndex = header.findIndex((h: string) => h === '学籍番号')
               const monthIndex = header.findIndex((h: string) => h === '評価月')
               const dateTimeIndex = header.findIndex((h: string) => h === '評価日時')
+              const commentIndex = Math.max(header.indexOf('コメント'), header.indexOf('評価コメント'))
               
               // 🔴 改善: 同じ学籍番号・月の場合、評価日時が最新のものを選択
               let latestRow: any = null
               let latestDateTime: Date | null = null
               
               for (const row of rows.slice(1)) {
-                if (row[studentIdIndex] === studentId && row[monthIndex] === month) {
+                if (row[studentIdIndex] === studentId && row[monthIndex] === month &&
+                    !isFallbackProLevelComment(row[commentIndex])) {
                   const rowDateTime = row[dateTimeIndex] ? new Date(row[dateTimeIndex]) : null
                   
                   if (!latestRow || (rowDateTime && (!latestDateTime || rowDateTime > latestDateTime))) {
@@ -3235,10 +3243,11 @@ app.get('/api/prolevel/:studentId', async (c) => {
       const paymentIndex = headers.indexOf('支払い評価')
       const listeningIndex = headers.indexOf('傾聴力評価')
       const comprehensionIndex = headers.indexOf('理解度評価')
-      const commentIndex = headers.indexOf('評価コメント')
+      const commentIndex = Math.max(headers.indexOf('コメント'), headers.indexOf('評価コメント'))
       
       // 生徒データを検索
-      const studentRow = rows.slice(1).find(row => row[studentIdIndex] === studentId)
+      const studentRow = rows.slice(1).reverse().find(row => row[studentIdIndex] === studentId &&
+        !isFallbackProLevelComment(row[commentIndex]))
       
       if (!studentRow) {
         return c.json({ success: false, error: '該当する評価データが見つかりません' }, 404)
@@ -3692,8 +3701,10 @@ app.post('/api/evaluate', async (c) => {
     }
 
     return c.json<EvaluationResponse>({
-      success: true,
-      message: `${results.length}件の評価が完了しました（YouTube/X評価を含む）`,
+      success: results.length > 0,
+      message: results.length > 0
+        ? `${results.length}件の評価が完了しました（YouTube/X評価を含む）`
+        : errors[0] || '評価できる生徒がいませんでした',
       results,
       errors: errors.length > 0 ? errors : undefined,
     })
@@ -3836,6 +3847,10 @@ async function handleAutoEvaluation(c: any, partitionMode: 'plan' | 'execute' | 
     const skipWanamiUsage = c.req.query('skipWanamiUsage') === 'true' // わなみさん使用回数の取得をスキップ（高速化）
     const targetStudentId = c.req.query('studentId') // 特定の生徒のみ評価（デバッグ用）
     const onlyWithTalkMemo = c.req.query('onlyWithTalkMemo') === 'true' // トークメモがある生徒のみ対象（再実行時用）
+    const repairFallbackOnly = !partitionMode && c.req.query('repairFallbackOnly') === 'true'
+    if (repairFallbackOnly && (skipProLevel || !skipX || !skipYouTube)) {
+      return c.json({ success: false, error: '修復モードはプロレベル評価専用です' }, 400)
+    }
     const skipEvaluated = c.req.query('skipEvaluated') === 'true' // 既に評価済みの生徒をスキップ
     
     console.log(`[Auto Evaluate] Starting evaluation for ${month}`)
@@ -3864,7 +3879,7 @@ async function handleAutoEvaluation(c: any, partitionMode: 'plan' | 'execute' | 
       const status = student.status || ''
       const isActive = status === 'アクティブ'
       const isPermanent = status === '永久会員'
-      return isActive && !isPermanent
+      return isActive && !isPermanent && (partitionMode || !!student.studentId?.trim())
     })
     console.log(`[Auto Evaluate] Filtered to ${filteredStudents.length} active students (excluding 永久会員)`)
     // 評価済みスキップ前の全体数を保持（プログレスバー用）
@@ -3894,53 +3909,35 @@ async function handleAutoEvaluation(c: any, partitionMode: 'plan' | 'execute' | 
       console.log(`[Auto Evaluate] Filtered to ${filteredStudents.length} students with talk memo`)
     }
     
-    // 既に評価済みの生徒をスキップ（skipEvaluated=true）
-    if (skipEvaluated) {
-      console.log(`[Auto Evaluate] Checking for already evaluated students in spreadsheet...`)
-      try {
-        // スプレッドシートから既存の評価結果を取得
-        const sheetName = `評価結果_${month}`
-        const accessTokenForCheck = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
-        const response = await fetch(
-          `https://sheets.googleapis.com/v4/spreadsheets/${RESULT_SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}`,
-          {
-            headers: {
-              'Authorization': `Bearer ${accessTokenForCheck}`,
-              'Content-Type': 'application/json'
-            }
-          }
-        )
-        
-        if (response.ok) {
-          const data: any = await response.json()
-          const rows = data.values || []
-          
-          // 既に評価済みの学籍番号を抽出（2列目が学籍番号）
-          const evaluatedStudentIds = new Set<string>()
-          if (rows.length > 1) { // ヘッダー行を除く
-            for (let i = 1; i < rows.length; i++) {
-              const studentId = rows[i][1] // B列（学籍番号）
-              if (studentId) {
-                evaluatedStudentIds.add(studentId)
-              }
-            }
-          }
-          
-          console.log(`[Auto Evaluate] Found ${evaluatedStudentIds.size} already evaluated students`)
-          
-          // 既に評価済みの生徒を除外
-          const beforeCount = filteredStudents.length
-          filteredStudents = filteredStudents.filter(student => !evaluatedStudentIds.has(student.studentId))
-          console.log(`[Auto Evaluate] Filtered out ${beforeCount - filteredStudents.length} evaluated students, ${filteredStudents.length} remaining`)
-        } else {
-          console.log(`[Auto Evaluate] Sheet not found or empty, treating all students as unevaluated`)
-        }
-      } catch (error: any) {
-        console.error(`[Auto Evaluate] Error checking evaluated students:`, error.message)
-        console.log(`[Auto Evaluate] Continuing without skipping evaluated students`)
+    // Select batches before checking sheet rows so missing memos and errors cannot
+    // keep the next request stuck on the same students.
+    const evaluatedStudentIds = new Set<string>()
+    if (!skipProLevel && (skipEvaluated || partitionMode || repairFallbackOnly)) {
+      const fallbackStudentIds = new Set<string>()
+      const token = await getAccessToken(GOOGLE_SERVICE_ACCOUNT)
+      const sheetName = `評価結果_${month}`
+      const response = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${RESULT_SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+      const data = await response.json()
+      if (!response.ok && !(response.status === 400 && data.error?.message?.startsWith('Unable to parse range:'))) {
+        throw new Error(`評価済みデータを取得できませんでした (HTTP ${response.status})`)
+      }
+      const [header = [], ...rows] = data.values || []
+      const commentIndex = Math.max(header.indexOf('コメント'), header.indexOf('評価コメント'))
+      for (const row of rows) {
+        if (!row[1]) continue
+        const ids = isFallbackProLevelComment(row[commentIndex]) ? fallbackStudentIds : evaluatedStudentIds
+        ids.add(String(row[1]))
+      }
+      // Filter by the old failure marker, which remains present after a successful repair.
+      // Keeping repaired IDs in the batch roster prevents offset pagination from skipping rows.
+      if (repairFallbackOnly) {
+        filteredStudents = filteredStudents.filter(student => fallbackStudentIds.has(student.studentId))
       }
     }
-    
+
     // 特定の生徒のみを対象にする場合（デバッグ用）
     let students: typeof filteredStudents
     let startIndex = 0
@@ -3960,16 +3957,8 @@ async function handleAutoEvaluation(c: any, partitionMode: 'plan' | 'execute' | 
       startIndex = 0
       endIndex = 1
     } else {
-      // バッチ処理
-      // skipEvaluated=true の場合：毎回「未評価の先頭N件」を取るので batchIndex は使わず常に先頭から
-      // skipEvaluated=false の場合：batchIndex * batchSize のオフセットで切り出す
-      if (skipEvaluated) {
-        startIndex = 0
-        endIndex = Math.min(batchSize, filteredStudents.length)
-      } else {
-        startIndex = batchIndex * batchSize
-        endIndex = Math.min(startIndex + batchSize, filteredStudents.length)
-      }
+      startIndex = batchIndex * batchSize
+      endIndex = Math.min(startIndex + batchSize, filteredStudents.length)
       students = filteredStudents.slice(startIndex, endIndex)
       console.log(`[Auto Evaluate] Processing batch ${batchIndex}: students ${startIndex + 1}-${endIndex} of ${filteredStudents.length} remaining (${students.length} students, skipEvaluated=${skipEvaluated})`)
       
@@ -3989,6 +3978,7 @@ async function handleAutoEvaluation(c: any, partitionMode: 'plan' | 'execute' | 
     let successCount = 0
     let errorCount = 0
     let skippedCount = 0
+    let unevaluatedProLevelCount = 0
     const errors: string[] = []
     
     // アクセストークンを取得（キャッシュ用）
@@ -4053,102 +4043,49 @@ async function handleAutoEvaluation(c: any, partitionMode: 'plan' | 'execute' | 
         let hasAnyAccount = false
         let proLevelEvaluated = false
         
-        // プロレベル評価（スキップされていない場合のみ）
-        if (!skipProLevel) {
+        if (!skipProLevel && !evaluatedStudentIds.has(student.studentId)) {
           try {
-            console.log(`[Auto Evaluate] Starting pro-level evaluation for ${student.studentId}`)
-            let geminiAnalysis = null
-            
-            // トークメモがある場合はGemini分析を実施（評価月のファイルのみ対象）
-            if (student.talkMemoFolderUrl) {
-              console.log(`[Auto Evaluate] Talk memo folder URL found: ${student.talkMemoFolderUrl}`)
-              console.log(`[Auto Evaluate] Fetching talk memo documents for ${student.studentId} (month=${month})...`)
-              
-              // 評価月に一致するファイルのみ取得
-              const monthDocs = await fetchDocumentsInFolderByMonth(GOOGLE_SERVICE_ACCOUNT, student.talkMemoFolderUrl, month)
-              console.log(`[Auto Evaluate] Found ${monthDocs.length} documents matching month ${month} for ${student.studentId}`)
-              
-              if (monthDocs.length > 0) {
-                console.log(`[Auto Evaluate] Fetching document content: ${monthDocs[0].name}`)
-                // 評価月の最新ドキュメントを取得（複数ある場合は先頭＝最新）
-                const talkMemo = await fetchDocumentContent(GOOGLE_SERVICE_ACCOUNT, monthDocs[0].id)
-                console.log(`[Auto Evaluate] Document fetched. Content length: ${talkMemo.content.length} chars`)
-                console.log(`[Auto Evaluate] Analyzing talk memo with Gemini for ${student.studentId}`)
-                
-                // Geminiで分析（geminiがnullでないことを確認）
-                if (!gemini) {
-                  throw new Error('Gemini analyzer not initialized')
-                }
-                geminiAnalysis = await gemini.analyzeTrainingSession(talkMemo)
-                console.log(`[Auto Evaluate] Gemini analysis completed for ${student.studentId}`)
-              } else {
-                console.log(`[Auto Evaluate] No talk memo document found for month ${month} (${student.studentId}) - evaluating without Gemini analysis`)
-              }
+            const monthDocs = student.talkMemoFolderUrl
+              ? await fetchDocumentsInFolderByMonth(GOOGLE_SERVICE_ACCOUNT, student.talkMemoFolderUrl, month)
+              : []
+            if (monthDocs.length === 0) {
+              unevaluatedProLevelCount++
+              result.evaluations.proLevel = { status: 'unevaluated', reason: '対象月のトークメモがありません' }
             } else {
-              console.log(`[Auto Evaluate] No talk memo folder URL for ${student.studentId}`)
-            }
-            
-            // 欠席データを取得
-            const absenceData = absenceDataList.find(a => a.studentId === student.studentId)
-            console.log(`[Auto Evaluate] Absence data for ${student.studentId}: ${absenceData ? `${absenceData.absenceCount} absences` : 'none'}`)
-            
-            // 支払いデータを取得
-            const paymentData = paymentDataList.find(p => p.studentId === student.studentId)
-            console.log(`[Auto Evaluate] Payment data for ${student.studentId}: ${paymentData ? paymentData.paymentStatus : 'none (S grade)'}`)
-            
-            console.log(`[Auto Evaluate] Calculating evaluation for ${student.studentId}...`)
-            // プロレベル評価を実施（トークメモがなくても、欠席・支払いデータで評価）
-            const proLevelResult = evaluateStudent(
-              student,
-              absenceData,
-              paymentData,
-              geminiAnalysis, // nullの場合もあり得る
-              month
-            )
-            
-            // わなみさん使用回数を追加
-            const wanamiUsageCount = wanamiUsageMap.get(student.studentId) || 0
-            proLevelResult.wanamiUsageCount = wanamiUsageCount
-            console.log(`[Auto Evaluate] Wanami usage count for ${student.studentId}: ${wanamiUsageCount}`)
-            
-            console.log(`[Auto Evaluate] Evaluation result for ${student.studentId}: ${proLevelResult.overallGrade}`)
-            proLevelResults.push(proLevelResult)
-            result.evaluations.proLevel = {
-              overallGrade: proLevelResult.overallGrade,
-              attendanceGrade: proLevelResult.attendanceGrade,
-              punctualityGrade: proLevelResult.punctualityGrade,
-              missionGrade: proLevelResult.missionGrade,
-              wanamiUsageCount: wanamiUsageCount, // わなみさん使用回数を追加
-              hasGeminiAnalysis: !!geminiAnalysis
-            }
-            proLevelEvaluated = true
-            console.log(`[Auto Evaluate] Pro-level evaluation completed for ${student.studentId} (Gemini: ${!!geminiAnalysis}, Grade: ${proLevelResult.overallGrade})`)
-            
-            // ✅ 逐次書き込み: 評価完了後すぐにスプレッドシートに書き込む
-            try {
-              console.log(`[Auto Evaluate] Writing result to sheet for ${student.studentId}...`)
-              const resultArray = convertResultToArray(proLevelResult)
-              await writeResultsToSheet(
-                GOOGLE_SERVICE_ACCOUNT,
-                RESULT_SPREADSHEET_ID,
-                `評価結果_${month}`,
-                [resultArray]
+              const talkMemo = await fetchDocumentContent(GOOGLE_SERVICE_ACCOUNT, monthDocs[0].id)
+              if (!gemini) throw new Error('Gemini analyzer not initialized')
+              const geminiAnalysis = await gemini.analyzeTrainingSession(talkMemo)
+              const proLevelResult = evaluateStudent(
+                student,
+                absenceDataList.find(a => a.studentId === student.studentId),
+                paymentDataList.find(p => p.studentId === student.studentId),
+                geminiAnalysis,
+                month
               )
-              console.log(`[Auto Evaluate] ✅ Result written to sheet for ${student.studentId}`)
-            } catch (writeError: any) {
-              console.error(`[Auto Evaluate] ❌ Failed to write result for ${student.studentId}:`, writeError.message)
-              errors.push(`${student.name}(${student.studentId}): スプレッドシート書き込みエラー - ${writeError.message}`)
+              const wanamiUsageCount = wanamiUsageMap.get(student.studentId) || 0
+              proLevelResult.wanamiUsageCount = wanamiUsageCount
+              await writeResultsToSheet(
+                GOOGLE_SERVICE_ACCOUNT, RESULT_SPREADSHEET_ID, `評価結果_${month}`,
+                [convertResultToArray(proLevelResult)]
+              )
+              proLevelResults.push(proLevelResult)
+              proLevelEvaluated = true
+              result.evaluations.proLevel = {
+                overallGrade: proLevelResult.overallGrade,
+                attendanceGrade: proLevelResult.scores.absence,
+                punctualityGrade: proLevelResult.scores.lateness,
+                missionGrade: proLevelResult.scores.mission,
+                wanamiUsageCount,
+                hasGeminiAnalysis: true
+              }
             }
           } catch (error: any) {
-            console.error(`[Auto Evaluate] Pro-level evaluation error for ${student.studentId}:`, error.message)
-            console.error(`[Auto Evaluate] Error stack:`, error.stack)
+            console.error('[Auto Evaluate] Pro-level evaluation failed')
             result.evaluations.proLevel = { error: error.message }
-            errors.push(`${student.name}(${student.studentId}): プロレベル評価エラー - ${error.message}`)
+            errors.push(`${student.studentId}: プロレベル評価エラー - ${error.message}`)
           }
-        } else {
-          result.evaluations.proLevel = { info: 'プロレベル評価スキップ（skipProLevel=true）' }
         }
-        
+
         // YouTube評価
         if (student.youtubeChannelId && !skipYouTube) {
           hasAnyAccount = true
@@ -4353,17 +4290,15 @@ async function handleAutoEvaluation(c: any, partitionMode: 'plan' | 'execute' | 
           result.evaluations.x = { info: 'Xアカウント情報なし' }
         }
         
-        // アカウント情報が一つもない、かつプロレベル評価もない場合はスキップ
-        if (!hasAnyAccount && !proLevelEvaluated) {
-          console.log(`[Auto Evaluate] スキップ（評価対象情報なし）: ${student.studentId}`)
-          skippedCount++
-          continue
-        }
-        
         results.push(result)
-        if (partitionMode && (errors.length > errorsBeforeStudent ||
-            Object.values(result.evaluations).some((value: any) => value?.error))) errorCount++
-        else successCount++
+        if (errors.length > errorsBeforeStudent ||
+            Object.values(result.evaluations).some((value: any) => value?.error)) {
+          errorCount++
+        } else if (!hasAnyAccount && !proLevelEvaluated) {
+          skippedCount++
+        } else {
+          successCount++
+        }
         console.log(`[Auto Evaluate] Student evaluation completed: ${student.studentId}`)
       } catch (error: any) {
         console.error(`[Auto Evaluate] 生徒評価エラー: ${student.studentId}`, error.message)
@@ -4379,25 +4314,16 @@ async function handleAutoEvaluation(c: any, partitionMode: 'plan' | 'execute' | 
     console.log(`[Auto Evaluate] バッチ完了 - 成功: ${successCount}, エラー: ${errorCount}, スキップ: ${skippedCount}`)
     console.log(`[Auto Evaluate] ✅ 逐次書き込みモード: 各生徒の評価完了時にスプレッドシートに書き込み済み (${proLevelResults.length}件)`)
     
-    // 次のバッチがあるか確認
-    // skipEvaluated=true の場合:
-    //   毎回スプレッドシートを読み直して除外するため filteredStudents が動的に変わる
-    //   「未評価残件数(filteredStudents.length) > 今回取り出した件数(students.length)」
-    //   なら次の未評価生徒がまだいる。students.length=0 なら終了。
-    //   ※ successCount ではなく students.length で判定することで
-    //     全員エラーでも students.length 分はスプレッドシート未記録→次回も同じ生徒に当たり
-    //     無限ループになる恐れがある。そのため「今回 students が空でなく、かつ残件数が batchSize より多い」で判定
-    // skipEvaluated=false の場合: 通常の endIndex による判定
-    const hasNextBatch = skipEvaluated
-      ? students.length > 0 && filteredStudents.length > batchSize  // 残件数がbatchSizeより多ければ次がある
-      : endIndex < filteredStudents.length
+    const hasNextBatch = !targetStudentId && (partitionMode && partitionPlan
+      ? batchIndex + 1 < partitionPlan.totalBatches
+      : endIndex < filteredStudents.length)
     const nextBatchIndex = hasNextBatch ? batchIndex + 1 : null
     const totalBatches = Math.ceil(filteredStudents.length / batchSize)
     
     if (partitionMode && partitionPlan) {
       return c.json({
         success: errorCount === 0,
-        successCount, errorCount, skippedCount,
+        successCount, errorCount, skippedCount, unevaluatedProLevelCount,
         batchInfo: {
           batchIndex, batchSize, totalBatches, processedStudents: students.length,
           activeRows: partitionPlan.activeRows, eligibleStudents: partitionPlan.eligibleStudents,
@@ -4414,7 +4340,7 @@ async function handleAutoEvaluation(c: any, partitionMode: 'plan' | 'execute' | 
         batchSize,
         totalBatches,
         processedStudents: students.length,
-        totalActiveStudents,  // 評価済みスキップ前の全体数（プログレスバー用）
+        totalActiveStudents: repairFallbackOnly ? filteredStudents.length : totalActiveStudents,
         remainingStudents: filteredStudents.length,  // 未評価の残件数
         hasNextBatch,
         nextBatchIndex
@@ -4422,6 +4348,7 @@ async function handleAutoEvaluation(c: any, partitionMode: 'plan' | 'execute' | 
       successCount,
       errorCount,
       skippedCount,
+      unevaluatedProLevelCount,
       proLevelResultsCount: proLevelResults.length,
       errors: errors.length > 0 ? errors : undefined,
       results

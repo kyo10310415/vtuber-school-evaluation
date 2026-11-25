@@ -28,7 +28,7 @@ function googleFixture({ exportFailure = false } = {}) {
         if (exportFailure) throw new Error(marker + '-provider-error');
         return { ok: true, text: async () => text };
       }
-      return { json: async () => url.includes('/drive/v3/files?')
+      return { ok: true, json: async () => url.includes('/drive/v3/files?')
         ? { files: [{ id: marker + '-id', name: marker + ' - 2026/09/01' }, { id: 'other', name: 'Other - 2026/08/01' }] }
         : { title: marker + '-title', tabs: [{ tabProperties: { title: marker + '-tab' } }],
             body: { content: [{ paragraph: { elements: [{ textRun: { content: fallback } }] } }] } } };
@@ -63,8 +63,9 @@ function geminiFixture(fail) {
   const box = { module: { exports: {} }, console: logger(logs),
     GoogleGenerativeAI: class { getGenerativeModel(options) { calls.push(options); return { generateContent: async prompt => {
       prompts.push(prompt);
-      if (fail) throw new Error(marker + '-provider-error');
-      return { response: { text: () => '```json\n' + JSON.stringify({ mission: { grade: 'a', reason: marker + '-reason' } }) + '\n```' } };
+      if (fail === 'quota') throw Object.assign(new Error(marker), { status: 429, errorDetails: [{ violations: [{ quotaMetric: 'generativelanguage.googleapis.com/generate_content_free_tier_requests' }] }] });
+      if (fail === true) throw new Error(marker + '-provider-error');
+      return { response: { text: () => '```json\n' + JSON.stringify(fail === 'incomplete' ? {} : { lateness: { grade: 'S' }, mission: { grade: 'a', reason: marker + '-reason' }, activeListening: { grade: 'B' }, comprehension: { grade: 'C' } }) + '\n```' } };
     } }; } },
   };
   vm.runInNewContext(geminiCode, box);
@@ -79,9 +80,17 @@ test('actual Gemini analysis keeps private prompt and parsed response while logg
   assert.equal(f.calls[0].model, 'gemini-2.5-flash'); safe(f.logs);
   assert.equal(f.logs.some(args => args[0] === '[GeminiAnalyzer] Response text length:' && args[1] > 0), true);
 });
-test('actual Gemini provider exception preserves default analysis and cause in result but not console', async () => {
-  const f = geminiFixture(true); const result = await f.analyzer.analyzeTrainingSession(memo);
-  assert.equal(result.mission.grade, 'C'); assert.equal(result.mission.reason.includes(marker + '-provider-error'), true);
-  assert.equal(f.prompts.length, 1); safe(f.logs);
-  assert.equal(f.logs.some(args => args[0] === '[GeminiAnalyzer] Analysis failed'), true);
+test('Gemini failures and incomplete grades cannot become stored evaluation results', async () => {
+  for (const failure of [true, 'incomplete', 'quota']) {
+    const f = geminiFixture(failure);
+    await assert.rejects(() => f.analyzer.analyzeTrainingSession(memo),
+      failure === 'quota' ? /利用上限/ : /分析に失敗/);
+    assert.equal(f.prompts.length, 1); safe(f.logs);
+    if (failure === 'quota') {
+      assert.ok(JSON.stringify(f.logs).includes('generate_content_free_tier_requests'));
+    }
+  }
+  const f = geminiFixture(false);
+  await assert.rejects(() => f.analyzer.analyzeTrainingSession({ ...memo, messages: [] }), /発言がありません/);
+  assert.equal(f.prompts.length, 0);
 });

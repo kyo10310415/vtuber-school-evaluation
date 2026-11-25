@@ -490,6 +490,9 @@ export async function fetchDocumentsInFolderByMonth(
     }
   );
 
+  if (!response.ok) {
+    throw new Error(`Google Drive のトークメモ一覧を取得できませんでした (HTTP ${response.status})`);
+  }
   const data = await response.json();
   const allFiles: { id: string; name: string }[] = (data.files || []).map((file: any) => ({
     id: file.id || '',
@@ -531,6 +534,9 @@ export async function fetchDocumentContent(
     }
   );
 
+  if (!response.ok) {
+    throw new Error(`Google Docs のトークメモを取得できませんでした (HTTP ${response.status})`);
+  }
   const doc = await response.json();
   const title = doc.title || '';
   

@@ -62,16 +62,16 @@ export function evaluateStudent(
   student: Student,
   absenceData: AbsenceData | undefined,
   paymentData: PaymentData | undefined,
-  geminiAnalysis: GeminiAnalysisResult | null, // nullを許容
+  geminiAnalysis: GeminiAnalysisResult,
   month: string
 ): EvaluationResult {
   const scores: ProLevelScores = {
     absence: evaluateAbsence(absenceData?.absenceCount || 0),
-    lateness: geminiAnalysis?.lateness.grade || 'C', // Gemini評価のみ、デフォルトC
-    mission: geminiAnalysis?.mission.grade || 'C', // デフォルトC
+    lateness: geminiAnalysis.lateness.grade,
+    mission: geminiAnalysis.mission.grade,
     payment: paymentData ? evaluatePayment(paymentData.paymentStatus) : 'S', // 支払いデータなし（未払いリストに含まれていない）= S評価
-    activeListening: geminiAnalysis?.activeListening.grade || 'C', // デフォルトC
-    comprehension: geminiAnalysis?.comprehension.grade || 'C', // デフォルトC
+    activeListening: geminiAnalysis.activeListening.grade,
+    comprehension: geminiAnalysis.comprehension.grade,
   };
 
   const overallGrade = calculateOverallGrade(scores);
@@ -90,7 +90,7 @@ export function evaluateStudent(
 // コメントを生成
 function generateComments(
   scores: ProLevelScores,
-  analysis: GeminiAnalysisResult | null,
+  analysis: GeminiAnalysisResult,
   absenceCount: number,
 ): string {
   const comments: string[] = [];
@@ -120,14 +120,9 @@ function generateComments(
     comments.push(`【改善点】${improvements.join('、')}`);
   }
 
-  // AI分析からの具体的なフィードバック（トークメモがある場合のみ）
-  if (analysis) {
-    comments.push(`【ミッション】${analysis.mission.reason}`);
-    comments.push(`【傾聴力】${analysis.activeListening.reason}`);
-    comments.push(`【理解度】${analysis.comprehension.reason}`);
-  } else {
-    comments.push(`【トークメモ】トークメモが見つかりません。詳細な評価にはトークメモが必要です。`);
-  }
+  comments.push(`【ミッション】${analysis.mission.reason}`);
+  comments.push(`【傾聴力】${analysis.activeListening.reason}`);
+  comments.push(`【理解度】${analysis.comprehension.reason}`);
 
   return comments.join(' / ');
 }
@@ -148,4 +143,12 @@ export function convertResultToArray(result: EvaluationResult): any[] {
     result.comments,           // コメント
     result.evaluatedAt,        // 評価日時
   ];
+}
+
+// Older runs saved fallback grades as completed evaluations.
+export function isFallbackProLevelComment(value: unknown): boolean {
+  return typeof value === 'string' && (
+    value.includes('【トークメモ】トークメモが見つかりません。') ||
+    /【(?:ミッション|傾聴力|理解度)】分析エラー:/.test(value)
+  );
 }

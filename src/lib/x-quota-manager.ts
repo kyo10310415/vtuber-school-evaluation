@@ -47,7 +47,10 @@ export async function getQuotaStatus(bearerToken: string): Promise<QuotaStatus> 
       { method: 'GET', headers: { Authorization: `Bearer ${bearerToken.trim()}` },
         redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(20000) }
     );
-    if (!response.ok) return unknown('unavailable');
+    if (!response.ok) {
+      console.warn('[X Quota] Provider HTTP status:', response.status);
+      return unknown('unavailable');
+    }
     const body = await response.json();
     if (!body || typeof body !== 'object' || Array.isArray(body) ||
         !body.data || typeof body.data !== 'object' || Array.isArray(body.data)) return unknown('malformed');

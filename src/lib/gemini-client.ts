@@ -13,6 +13,9 @@ export class GeminiAnalyzer {
 
   // トークメモを分析して評価を返す
   async analyzeTrainingSession(talkMemo: TalkMemoDocument): Promise<GeminiAnalysisResult> {
+    if (!talkMemo.messages.some(message => message.content.trim())) {
+      throw new Error('トークメモに分析できる発言がありません');
+    }
     const prompt = this.createAnalysisPrompt(talkMemo);
     
     try {
@@ -47,13 +50,20 @@ export class GeminiAnalyzer {
     } catch (error: any) {
       console.error('[GeminiAnalyzer] Analysis failed');
       
-      // エラー時のデフォルト値
-      return {
-        lateness: { grade: 'C', reason: `分析エラー: ${error?.message || 'Unknown error'}` },
-        mission: { grade: 'C', reason: `分析エラー: ${error?.message || 'Unknown error'}` },
-        activeListening: { grade: 'C', reason: `分析エラー: ${error?.message || 'Unknown error'}` },
-        comprehension: { grade: 'C', correctAnswers: 0, totalQuestions: 5, reason: `分析エラー: ${error?.message || 'Unknown error'}` },
-      };
+      const status = Number.isInteger(error?.status) ? error.status : undefined;
+      if (status === 429) {
+        const violations = Array.isArray(error.errorDetails)
+          ? error.errorDetails.flatMap(detail => Array.isArray(detail?.violations) ? detail.violations : [])
+          : [];
+        const metrics = violations.map(item => item?.quotaMetric)
+          .filter(metric => typeof metric === 'string' && /^generativelanguage\.googleapis\.com\/[A-Za-z0-9_]+$/.test(metric));
+        const quotaIds = violations.map(item => item?.quotaId)
+          .filter(id => typeof id === 'string' && /^[A-Za-z][A-Za-z0-9_-]{0,99}$/.test(id));
+        console.warn('[GeminiAnalyzer] Quota exceeded', { status, metrics, quotaIds });
+        throw new Error('Gemini API の利用上限に達しました');
+      }
+      if (status !== undefined) console.warn('[GeminiAnalyzer] HTTP status:', status);
+      throw new Error('Gemini によるトークメモ分析に失敗しました');
     }
   }
 
@@ -143,6 +153,6 @@ ${messages}
     if (['S', 'A', 'B', 'C', 'D'].includes(normalized)) {
       return normalized as Grade;
     }
-    return 'C'; // デフォルト
+    throw new Error('Gemini の評価が欠落または不正です');
   }
 }
