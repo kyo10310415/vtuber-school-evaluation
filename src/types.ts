@@ -19,7 +19,7 @@ export interface ProLevelScores {
   mission: Grade;              // ミッション
   payment: Grade;              // 支払い
   activeListening: Grade;      // アクティブリスニング
-  comprehension: Grade;        // 理解度
+  comprehension: Grade | null; // 理解度。質問が確認できない場合は未評価
 }
 
 // 評価結果
@@ -79,7 +79,7 @@ export interface GeminiAnalysisResult {
     reason: string;
   };
   comprehension: {
-    grade: Grade;
+    grade: Grade | null;
     correctAnswers: number;
     totalQuestions: number;
     reason: string;

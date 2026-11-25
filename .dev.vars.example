@@ -10,8 +10,9 @@ STUDENT_MASTER_SPREADSHEET_ID=your-student-master-spreadsheet-id
 # 欠席データスプレッドシートID
 ABSENCE_SPREADSHEET_ID=19dlNvTEp3SaFgXK7HWEamyhJDKpAODqoTnRhqOtNC4k
 
-# 支払いデータスプレッドシートID
-PAYMENT_SPREADSHEET_ID=1z-FKQnVZj9gtZEAbOFqfSkQyYqTWkmeZjTBBbzVxRpo
+# 支払い管理の読み取り専用API
+PAYMENT_MANAGEMENT_BASE_URL=https://payment-management-ogpb.onrender.com
+PAYMENT_MANAGEMENT_READ_TOKEN=
 
 # 結果出力先スプレッドシートID
 RESULT_SPREADSHEET_ID=your-result-spreadsheet-id

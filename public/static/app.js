@@ -595,8 +595,8 @@ function renderResults(results) {
           </div>
           <div class="text-center p-3 bg-gray-50 rounded">
             <div class="text-xs text-gray-600 mb-1">理解度</div>
-            <span class="inline-block px-3 py-1 ${gradeColor[result.scores.comprehension]} rounded font-bold">
-              ${result.scores.comprehension}
+            <span class="inline-block px-3 py-1 ${gradeColor[result.scores.comprehension] || 'bg-gray-100 text-gray-600'} rounded font-bold">
+              ${result.scores.comprehension ?? '未評価'}
             </span>
           </div>
         </div>
