@@ -32,6 +32,7 @@ function fixture(students, { sourceFailure = false, cached = false, cacheSaveFai
     GeminiAnalyzer: class { constructor() { calls.aiCtor++; } async analyzeTrainingSession() { calls.ai++; if (analysisFails) throw Error('Gemini unavailable'); return {}; } },
     getAccessToken: async () => { calls.reads++; return 'synthetic-token'; },
     fetchAbsenceDataFromPostgres: async () => { calls.db++; return []; },
+    fetchPaymentStatusFromManagement: async () => [],
     fetch: async () => ({ ok: true, json: async () => ({ values: [['評価月', '学籍番号', 'コメント'], ...rows] }) }),
     isFallbackProLevelComment: comment => comment?.startsWith('【ミッション】分析エラー:'),
     fetchDocumentsInFolderByMonth: async () => [{ id: 'synthetic-doc' }], fetchDocumentContent: async () => '',
@@ -40,7 +41,7 @@ function fixture(students, { sourceFailure = false, cached = false, cacheSaveFai
     writeResultsToSheet: async () => { calls.writes++; if (proWriteFails) throw Error(marker); },
     getPreviousEvaluationFromSheet: async () => null,
     loadModule: async name => {
-      if (name === './lib/google-client') return { fetchPaymentStatusFromUnpaidSheet: async () => [], fetchWanamiUsageCount: async () => new Map() };
+      if (name === './lib/google-client') return { fetchWanamiUsageCount: async () => new Map() };
       if (name === './lib/evaluation-cache') return { loadEvaluationSheetRows: async () => [], getCachedEvaluation: async () => cached ? complete : null, saveCachedEvaluation: async () => { calls.writes++; return !cacheSaveFails; } };
       if (name === './lib/youtube-client') return { evaluateYouTubeChannel: async () => { calls.ai++; return youtubeError ?? complete; } };
       throw Error('Unexpected synthetic module');

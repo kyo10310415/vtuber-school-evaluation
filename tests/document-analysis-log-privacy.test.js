@@ -58,14 +58,14 @@ test('actual document export exception keeps body fallback and never logs provid
   assert.equal(doc.messages.length, 1); safe(f.logs);
   assert.equal(f.logs.some(args => args[0] === '[fetchDocumentContent] Export failed; using document body fallback'), true);
 });
-function geminiFixture(fail) {
+function geminiFixture(fail, comprehension = { grade: 'C', correctAnswers: 2, totalQuestions: 7 }) {
   const logs = [], prompts = [], calls = [];
   const box = { module: { exports: {} }, console: logger(logs),
     GoogleGenerativeAI: class { getGenerativeModel(options) { calls.push(options); return { generateContent: async prompt => {
       prompts.push(prompt);
       if (fail === 'quota') throw Object.assign(new Error(marker), { status: 429, errorDetails: [{ violations: [{ quotaMetric: 'generativelanguage.googleapis.com/generate_content_free_tier_requests' }] }] });
       if (fail === true) throw new Error(marker + '-provider-error');
-      return { response: { text: () => '```json\n' + JSON.stringify(fail === 'incomplete' ? {} : { lateness: { grade: 'S' }, mission: { grade: 'a', reason: marker + '-reason' }, activeListening: { grade: 'B' }, comprehension: { grade: 'C' } }) + '\n```' } };
+      return { response: { text: () => '```json\n' + JSON.stringify(fail === 'incomplete' ? {} : { lateness: { grade: 'S' }, mission: { grade: 'a', reason: marker + '-reason' }, activeListening: { grade: 'B' }, comprehension }) + '\n```' } };
     } }; } },
   };
   vm.runInNewContext(geminiCode, box);
@@ -77,8 +77,20 @@ test('actual Gemini analysis keeps private prompt and parsed response while logg
   const f = geminiFixture(false); const result = await f.analyzer.analyzeTrainingSession(memo);
   assert.equal(f.prompts.length, 1); assert.equal(f.prompts[0].includes(marker + '-message'), true);
   assert.equal(result.mission.grade, 'A'); assert.equal(result.mission.reason === marker + '-reason', true);
+  assert.equal(result.comprehension.totalQuestions, 7);
+  assert.equal(result.comprehension.correctAnswers, 2);
   assert.equal(f.calls[0].model, 'gemini-2.5-flash'); safe(f.logs);
   assert.equal(f.logs.some(args => args[0] === '[GeminiAnalyzer] Response text length:' && args[1] > 0), true);
+});
+
+test('comprehension is unevaluated without a question and rejects inconsistent counts', async () => {
+  const undetermined = geminiFixture(false, { grade: null, correctAnswers: 0, totalQuestions: 0 });
+  const result = await undetermined.analyzer.analyzeTrainingSession(memo);
+  assert.equal(result.comprehension.grade, null);
+  assert.equal(result.comprehension.totalQuestions, 0);
+
+  const inconsistent = geminiFixture(false, { grade: 'S', correctAnswers: 3, totalQuestions: 2 });
+  await assert.rejects(() => inconsistent.analyzer.analyzeTrainingSession(memo), /分析に失敗/);
 });
 test('Gemini failures and incomplete grades cannot become stored evaluation results', async () => {
   for (const failure of [true, 'incomplete', 'quota']) {

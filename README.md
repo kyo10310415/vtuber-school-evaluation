@@ -45,12 +45,12 @@ VTuber育成スクールの生徒様の成長度を評価・可視化するシ�
 ### 完成済み機能
 
 ✅ **プロレベルセクション評価（6項目）**
-- 欠席評価（スプレッドシートから取得）
+- 欠席評価（生徒管理のレッスン報告から取得）
 - 遅刻評価（トークメモのAI分析：S or D）
 - ミッション評価（トークメモのAI分析：S〜D）
-- 支払い評価（スプレッドシートから取得）
+- 支払い評価（支払い管理APIから取得）
 - アクティブリスニング評価（トークメモのAI分析：S〜D）
-- 理解度評価（トークメモのAI分析：質問正解数で評価）
+- 理解度評価（トークメモのAI分析：先生の質問への回答内容で評価）
 
 ✅ **YouTube評価（S～D の5段階評価）**
 
@@ -302,15 +302,9 @@ URL: `https://docs.google.com/spreadsheets/d/19dlNvTEp3SaFgXK7HWEamyhJDKpAODqoTn
 |---------|---------|--------|
 | 2024001 | 0 | 2024-12 |
 
-### 支払いデータスプレッドシート
+### 支払いデータ
 
-URL: `https://docs.google.com/spreadsheets/d/1z-FKQnVZj9gtZEAbOFqfSkQyYqTWkmeZjTBBbzVxRpo/edit`
-
-シート名: `RAW_支払い状況`
-
-| 学籍番号 | 支払い状況 | 対象月 |
-|---------|----------|--------|
-| 2024001 | 支払い済み | 2024-12 |
+支払い管理サービスの読み取り専用API `GET /integrations/chatgpt/v1/query` の `billing` を使います。評価月の前月分の統合支払い状況を学籍番号で照合します。参照値は取得時点で保存されている前月分の記録です。
 
 ### 結果スプレッドシート（自動生成）
 
@@ -334,8 +328,11 @@ GEMINI_API_KEY=your-api-key
 # スプレッドシートID
 STUDENT_MASTER_SPREADSHEET_ID=your-id
 ABSENCE_SPREADSHEET_ID=19dlNvTEp3SaFgXK7HWEamyhJDKpAODqoTnRhqOtNC4k
-PAYMENT_SPREADSHEET_ID=1z-FKQnVZj9gtZEAbOFqfSkQyYqTWkmeZjTBBbzVxRpo
 RESULT_SPREADSHEET_ID=your-result-id
+
+# 支払い管理API
+PAYMENT_MANAGEMENT_BASE_URL=https://payment-management-ogpb.onrender.com
+PAYMENT_MANAGEMENT_READ_TOKEN=your-payment-read-token
 ```
 
 ### 2. Google Cloud Projectの設定
@@ -383,7 +380,8 @@ npx wrangler pages secret put GOOGLE_SERVICE_ACCOUNT --project-name webapp
 npx wrangler pages secret put GEMINI_API_KEY --project-name webapp
 npx wrangler pages secret put STUDENT_MASTER_SPREADSHEET_ID --project-name webapp
 npx wrangler pages secret put ABSENCE_SPREADSHEET_ID --project-name webapp
-npx wrangler pages secret put PAYMENT_SPREADSHEET_ID --project-name webapp
+npx wrangler pages secret put PAYMENT_MANAGEMENT_BASE_URL --project-name webapp
+npx wrangler pages secret put PAYMENT_MANAGEMENT_READ_TOKEN --project-name webapp
 npx wrangler pages secret put RESULT_SPREADSHEET_ID --project-name webapp
 
 # デプロイ
@@ -476,6 +474,7 @@ npm run deploy:prod
 ## 🎯 評価基準
 
 ### 欠席
+- 評価月とその前3か月の無断キャンセルを、レッスン報告から集計
 - S: 0回
 - A: 1回
 - B: 2回
@@ -493,20 +492,17 @@ npm run deploy:prod
 - C: やや不十分
 - D: 不十分
 
-### 理解度（質問正解数）
-- S: 5問正解
-- A: 4問正解
-- B: 3問正解
-- C: 2問正解
-- D: 1問以下
+### 理解度
+先生がレッスンの理解を確認するために実際に出した質問を対象に、回答の正確さ・具体性・説明の深さをS〜Dで評価します。質問数は固定しません。対象の質問が確認できない場合は理解度を未評価とし、ミッションとアクティブリスニングの平均を学習項目の点に使います。
 
 ### 支払い
-- S: 支払い済み
-- B: 一部支払い
-- D: 未払い
+- D: 評価月の前月分の統合支払い状況が「未払い（連絡なし）」「未払い（遅れ）」「未払い（期限切れ）」のいずれか
+- S: それ以外（一部入金・未確認や一致する学籍番号がない場合を含む）
+
+本番の環境変数 `PAYMENT_MANAGEMENT_READ_TOKEN` に、支払い管理サービス側で有効な `CHATGPT_READ_TOKEN` を設定します。既存のRenderサービスには環境変数を設定してから切り替えます。APIの認証エラー、取得失敗、切り詰め、不正な応答の場合は採点処理をエラーにします。
 
 ### 総合評価
-6項目の平均点で算出（S=5点、A=4点、B=3点、C=2点、D=1点）
+S=5点、A=4点、B=3点、C=2点、D=1点に換算します。欠席・遅刻・支払いの平均点を15%、評価できた学習項目（ミッション・アクティブリスニング・理解度）の平均点を85%として合算し、四捨五入して総合ランクに戻します。欠席・遅刻・支払いがすべてSで、学習3項目がすべてBの場合、3.3点で総合Bになります。
 
 ## 📊 次のステップ
 

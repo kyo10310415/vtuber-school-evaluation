@@ -5,11 +5,11 @@ import { serveStatic } from 'hono/cloudflare-workers'
 import { renderer } from './renderer'
 import type { EvaluationRequest, EvaluationResponse, EvaluationResult } from './types'
 import { fetchStudents, fetchAbsenceData, fetchDocumentsInFolder, fetchDocumentsInFolderByMonth, fetchDocumentContent, writeResultsToSheet } from './lib/google-client'
-// fetchPaymentData は一旦使用しない
 import { GeminiAnalyzer } from './lib/gemini-client'
 import { evaluateStudent, convertResultToArray, isFallbackProLevelComment } from './lib/evaluation'
 import { ssoAuthMiddleware } from './middleware/sso-auth.js'
 import { fetchAbsenceDataFromPostgres } from './lib/absence-manager'
+import { fetchPaymentStatusFromManagement } from './lib/payment-management'
 
 type Bindings = {
   GOOGLE_SERVICE_ACCOUNT: string;
@@ -17,6 +17,8 @@ type Bindings = {
   STUDENT_MASTER_SPREADSHEET_ID: string;
   ABSENCE_SPREADSHEET_ID: string;
   PAYMENT_SPREADSHEET_ID: string;
+  PAYMENT_MANAGEMENT_BASE_URL: string;
+  PAYMENT_MANAGEMENT_READ_TOKEN: string;
   RESULT_SPREADSHEET_ID: string;
   NOTION_API_TOKEN: string;
   NOTION_DATABASE_ID: string;
@@ -3538,9 +3540,9 @@ app.post('/api/evaluate', async (c) => {
     const STUDENT_MANAGEMENT_DATABASE_URL = getEnv(c, 'STUDENT_MANAGEMENT_DATABASE_URL')
     const absenceDataList = await fetchAbsenceDataFromPostgres(STUDENT_MANAGEMENT_DATABASE_URL, request.month)
     
-    // 支払いデータを取得（新仕様: 支払い漏れ数確認シート）
-    const { fetchPaymentStatusFromUnpaidSheet } = await import('./lib/google-client')
-    const paymentDataList = await fetchPaymentStatusFromUnpaidSheet(GOOGLE_SERVICE_ACCOUNT, request.month)
+    const paymentDataList = await fetchPaymentStatusFromManagement(
+      getEnv(c, 'PAYMENT_MANAGEMENT_BASE_URL'), getEnv(c, 'PAYMENT_MANAGEMENT_READ_TOKEN'), request.month
+    )
     console.log(`[/api/evaluate] Fetched ${paymentDataList.length} payment records`)
 
     const results: EvaluationResult[] = []
@@ -4005,8 +4007,10 @@ async function handleAutoEvaluation(c: any, partitionMode: 'plan' | 'execute' | 
     }
     
     // 支払いデータを取得（プロレベル評価が必要な場合のみ）
-    const { fetchPaymentStatusFromUnpaidSheet, fetchWanamiUsageCount } = await import('./lib/google-client')
-    const paymentDataList = skipProLevel ? [] : await fetchPaymentStatusFromUnpaidSheet(GOOGLE_SERVICE_ACCOUNT, month)
+    const { fetchWanamiUsageCount } = await import('./lib/google-client')
+    const paymentDataList = skipProLevel ? [] : await fetchPaymentStatusFromManagement(
+      getEnv(c, 'PAYMENT_MANAGEMENT_BASE_URL'), getEnv(c, 'PAYMENT_MANAGEMENT_READ_TOKEN'), month
+    )
     if (!skipProLevel) {
       console.log(`[Auto Evaluate] Fetched payment data for ${paymentDataList.length} students`)
     }

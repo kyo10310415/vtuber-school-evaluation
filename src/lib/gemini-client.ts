@@ -93,9 +93,11 @@ ${messages}
    - S: 非常に優れた傾聴、A: 良好、B: 普通、C: やや不足、D: 不足
 
 4. **理解度評価（S〜Dの5段階）**
-   - 先生が口頭で出す質問の正解数をカウント（全5問想定）
-   - 正解数に応じて評価: 5問→S, 4問→A, 3問→B, 2問→C, 1問以下→D
-   - トーク内で質問と回答のやり取りを特定してカウント
+   - 先生が生徒に出した、レッスン内容の理解を確かめる質問と回答を特定する。質問数は固定しない。
+   - 挨拶・日程調整などの質問や、回答を求めない問いかけは除く。同じ質問の言い換えは1問と数える。
+   - 質問に沿ってどの程度正確かつ具体的に、自分の言葉で答えられたかを評価する。補助を受けて一部答えられた場合も考慮する。
+   - S: ほぼすべてに正確に答え、理由も説明できる。A: 大半に適切に答えられる。B: 要点に答えられるが、一部は不十分。C: 適切に答えられる質問が少ない。D: 質問にほとんど答えられない。
+   - correctAnswers と totalQuestions には記録から確認できた実数を入れる。対象となる質問を確認できなければ、両方を0、gradeをnullにする。
 
 【出力形式】
 以下のJSON形式で出力してください：
@@ -113,10 +115,10 @@ ${messages}
     "reason": "基本的な相槌はあるが、深い質問が少ない"
   },
   "comprehension": {
-    "grade": "A",
-    "correctAnswers": 4,
-    "totalQuestions": 5,
-    "reason": "5問中4問正解。概ね理解している"
+    "grade": "B",
+    "correctAnswers": 2,
+    "totalQuestions": 3,
+    "reason": "要点には答えられたが、手順を選んだ理由は補助が必要だった"
   }
 }
 
@@ -125,6 +127,12 @@ ${messages}
 
   // レスポンスを正規化
   private normalizeAnalysisResult(raw: any): GeminiAnalysisResult {
+    const { grade, correctAnswers, totalQuestions, reason } = raw.comprehension ?? {};
+    if (!Number.isSafeInteger(totalQuestions) || totalQuestions < 0 ||
+        !Number.isSafeInteger(correctAnswers) || correctAnswers < 0 || correctAnswers > totalQuestions ||
+        (totalQuestions === 0 && grade !== null)) {
+      throw new Error('Gemini の理解度評価の質問数または回答数が不正です');
+    }
     return {
       lateness: {
         grade: this.normalizeGrade(raw.lateness?.grade),
@@ -139,10 +147,10 @@ ${messages}
         reason: raw.activeListening?.reason || '',
       },
       comprehension: {
-        grade: this.normalizeGrade(raw.comprehension?.grade),
-        correctAnswers: raw.comprehension?.correctAnswers || 0,
-        totalQuestions: raw.comprehension?.totalQuestions || 5,
-        reason: raw.comprehension?.reason || '',
+        grade: totalQuestions === 0 ? null : this.normalizeGrade(grade),
+        correctAnswers,
+        totalQuestions,
+        reason: totalQuestions === 0 ? '理解度を確認できる質問がありません' : reason || '',
       },
     };
   }

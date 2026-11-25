@@ -24,7 +24,7 @@ export function evaluatePayment(paymentStatus: 'paid' | 'unpaid' | 'partial'): G
   return paymentStatus === 'unpaid' ? 'D' : 'S';
 }
 
-// 総合評価を計算（6項目の平均）
+// 総合評価を計算（欠席・遅刻・支払い15%、学習3項目85%）
 export function calculateOverallGrade(scores: ProLevelScores): Grade {
   const gradePoints: Record<Grade, number> = {
     S: 5,
@@ -42,17 +42,20 @@ export function calculateOverallGrade(scores: ProLevelScores): Grade {
     1: 'D',
   };
 
-  // 各項目のポイントを合計
-  const totalPoints =
+  const attendanceAndPaymentPoints =
     gradePoints[scores.absence] +
     gradePoints[scores.lateness] +
-    gradePoints[scores.mission] +
-    gradePoints[scores.payment] +
-    gradePoints[scores.activeListening] +
-    gradePoints[scores.comprehension];
+    gradePoints[scores.payment];
+  const learningGrades = scores.comprehension === null
+    ? [scores.mission, scores.activeListening]
+    : [scores.mission, scores.activeListening, scores.comprehension];
+  const learningPoints = learningGrades.reduce((sum, grade) => sum + gradePoints[grade], 0);
 
-  // 平均ポイントを計算（6項目）
-  const averagePoint = Math.round(totalPoints / 6);
+  // 欠席・遅刻・支払いの平均と、評価できた学習項目の平均に重みを掛けて四捨五入する。
+  const averagePoint = Math.round(
+    (15 * attendanceAndPaymentPoints * learningGrades.length + 85 * learningPoints * 3) /
+    (100 * 3 * learningGrades.length)
+  );
 
   return pointsToGrade[averagePoint] || 'C';
 }
@@ -138,7 +141,7 @@ export function convertResultToArray(result: EvaluationResult): any[] {
     result.scores.mission,     // ミッション
     result.scores.payment,     // 支払い
     result.scores.activeListening,  // アクティブリスニング
-    result.scores.comprehension,    // 理解度
+    result.scores.comprehension ?? '', // 理解度
     result.overallGrade,       // 総合評価
     result.comments,           // コメント
     result.evaluatedAt,        // 評価日時
