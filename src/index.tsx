@@ -5661,7 +5661,10 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
       const plannedStart = (progress?.current_batch_index ?? 0) * requestedBatchSize
       const plannedStudents = Math.min(requestedBatchSize, Math.max(0, filteredStudents.length - plannedStart))
       const requiredPostBudget = plannedStudents * X_POSTS_PER_STUDENT_BOUND
-      if (!Number.isSafeInteger(requiredPostBudget) || requiredPostBudget > quotaStatus.remainingQuota) {
+      const availableFetches = Math.floor(quotaStatus.remainingQuota / X_POSTS_PER_STUDENT_BOUND)
+      if (!Number.isSafeInteger(requiredPostBudget) ||
+          (plannedStudents > 0 && availableFetches < 1) ||
+          (resetExistingProgress && requiredPostBudget > quotaStatus.remainingQuota)) {
         return c.json({ success: false, error: 'X Post budget insufficient for batch', quota: quotaStatus,
           requiredPostBudget, maxPostsPerUncachedStudent: X_POSTS_PER_STUDENT_BOUND }, 429)
       }
@@ -5732,6 +5735,9 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
       let successCount = 0
       let errorCount = 0
       let skippedCount = 0
+      let invalidAccountCount = 0
+      let budgetDeferred = false
+      let uncachedAttempts = 0
       const errors: string[] = []
       
       for (const student of batchStudents) {
@@ -5763,6 +5769,11 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
           console.log(`[Auto Evaluate X Only] Found partial data (rate limited) for ${student.studentId} - will re-evaluate`)
         }
         
+        if (uncachedAttempts >= availableFetches) {
+          budgetDeferred = true
+          break
+        }
+
         // 前月のX評価データをスプレッドシートから取得
         const previousXData = await getPreviousEvaluationFromSheet(
           accessToken,
@@ -5779,6 +5790,7 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
         console.log(`[Auto Evaluate X Only] Previous X data for ${student.studentId}: followers=${previousFollowersCount}, engagement=${previousEngagement}`)
         
         // X評価を実行
+        uncachedAttempts++
         const xEval = await evaluateXAccount(
           X_BEARER_TOKEN,
           student.xAccount,
@@ -5788,6 +5800,12 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
           previousImpressions
         )
         
+        if (xEval?.errorCode === 'INVALID_ACCOUNT_INPUT' || xEval?.errorCode === 'ACCOUNT_NOT_FOUND') {
+          invalidAccountCount++
+          skippedCount++
+          continue
+        }
+
         // ✅ レート制限時も部分的なデータを保存
         if (xEval && (xEval as any).rateLimited && (xEval as any).partialData) {
           // レート制限でツイートデータは取得できないが、フォロワー数は取得できている
@@ -5892,7 +5910,7 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
     // Never append an estimated usage row to Google Sheets.
     
     // 進捗を更新
-    const batchCompleted = errorCount === 0
+    const batchCompleted = errorCount === 0 && !budgetDeferred
     const completedStudents = progress.completed_students + (batchCompleted ? successCount + skippedCount : 0)
     const hasNextBatch = endIndex < filteredStudents.length
     const nextBatchIndex = batchCompleted && hasNextBatch ? batchIndex + 1 : batchIndex
@@ -5928,7 +5946,9 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
         total: batchStudents.length,
         success: successCount,
         errors: errorCount,
-        skipped: skippedCount
+        skipped: skippedCount,
+        invalidAccounts: invalidAccountCount,
+        budgetDeferred
       },
       progress: {
         currentBatchIndex: batchIndex,

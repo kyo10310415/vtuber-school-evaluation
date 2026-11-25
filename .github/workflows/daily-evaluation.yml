@@ -14,6 +14,14 @@ on:
         description: 'Day number (1-9, leave empty for auto-detect)'
         required: false
         type: string
+      evaluation:
+        description: 'Run both jobs or retry only one job'
+        type: choice
+        default: all
+        options:
+          - all
+          - common-only
+          - x-only
 
 concurrency:
   group: school-evaluation-monthly-resume
@@ -30,6 +38,7 @@ env:
 
 jobs:
   daily-evaluation:
+    if: inputs.evaluation != 'x-only'
     runs-on: ubuntu-latest
     timeout-minutes: 120  # 2時間タイムアウト
     
@@ -203,6 +212,7 @@ jobs:
           echo "============================================"
 
   x-evaluation:
+    if: inputs.evaluation != 'common-only'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -282,6 +292,13 @@ jobs:
             fi
             X_ERRORS=$((X_ERRORS + ERRORS))
             echo "X request $((REQUEST + 1))/2 completed with errors=$ERRORS"
+            INVALID_X=$(printf '%s' "$RESPONSE" | jq -r '.summary.invalidAccounts // 0')
+            if [[ "$INVALID_X" =~ ^[1-9][0-9]*$ ]]; then
+              echo "::warning::$INVALID_X invalid or unavailable X account(s) left unevaluated"
+            fi
+            if [ "$(printf '%s' "$RESPONSE" | jq -r '.summary.budgetDeferred // false')" = "true" ]; then
+              echo "X batch will resume without exceeding the current Post budget"
+            fi
             if [ "$IS_COMPLETED" = "true" ]; then break; fi
             if [ "$REQUEST" -lt 1 ]; then sleep 1800; fi
           done

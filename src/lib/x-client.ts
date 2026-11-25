@@ -71,7 +71,8 @@ export interface XEvaluation {
  */
 export async function fetchXUserByUsername(
   bearerToken: string,
-  username: string
+  username: string,
+  onNotFound?: () => void
 ): Promise<XUserMetrics | null> {
   if (!username) {
     console.error('[X API] Username is empty');
@@ -84,7 +85,7 @@ export async function fetchXUserByUsername(
   }
 
   // @を除去
-  const cleanUsername = username.replace('@', '');
+  const cleanUsername = username.replace(/^@/, '');
   console.log(`[X API] Fetching user: ${cleanUsername}`);
 
   // レート制限チェック
@@ -107,33 +108,20 @@ export async function fetchXUserByUsername(
 
     console.log(`[X API] Response status: ${response.status}`);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`[X API] User fetch error: ${response.status} - ${errorText}`);
-      
-      // エラーメッセージを詳細に解析
-      try {
-        const errorJson = JSON.parse(errorText);
-        console.error(`[X API] Error details:`, errorJson);
-        
-        // 429 Too Many Requests の場合は特別なエラーを返す
-        if (response.status === 429) {
-          console.warn(`[X API] Rate limit exceeded when fetching user: ${username}`);
-          // nullではなく、特別なマーカーオブジェクトを返す
-          return { rateLimited: true } as any;
-        }
-      } catch {
-        // JSON解析に失敗した場合はそのままテキストを出力
-      }
-      
+    if (response.status === 429) return { rateLimited: true } as any;
+    if (!response.ok && response.status !== 404) {
+      console.error('[X API] User fetch error:', response.status);
       return null;
     }
 
     const data = await response.json();
-    console.log(`[X API] Response data:`, JSON.stringify(data).substring(0, 200));
-
-    if (!data.data) {
-      console.warn(`[X API] User not found: ${username}`);
+    if (!response.ok || !data.data) {
+      // X documents missing users as a resource-not-found error, including in HTTP 200 responses.
+      const problems = Array.isArray(data.errors) ? data.errors : [data];
+      if (problems.some(problem => problem?.resource_type === 'user' &&
+          (problem.type?.endsWith('/resource-not-found') || problem.title === 'Not Found Error'))) {
+        onNotFound?.();
+      }
       return null;
     }
 
@@ -277,30 +265,13 @@ export async function fetchRecentTweets(
 
       console.log(`[X API] Tweets fetch response status: ${response.status}`);
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`[X API] Tweets fetch error: ${response.status} - ${errorText}`);
-        
-        // エラーメッセージを詳細に解析
-        try {
-          const errorJson = JSON.parse(errorText);
-          console.error(`[X API] Tweets error details:`, errorJson);
-          
-          // 429 Too Many Requests の場合は特別な処理
-          if (response.status === 429) {
-            console.warn(`[X API] Rate limit exceeded for user ${userId}. Tweets will be skipped.`);
-            // レート制限エラーはフラグを立てて返す
-            return { tweets: allTweets, rateLimited: true };
-          }
-        } catch {
-          // JSON解析に失敗した場合はそのままテキストを出力
-        }
-        
-        // エラー時は現在までに取得したツイートを返す
-        return { tweets: allTweets, rateLimited: false };
-      }
+      if (response.status === 429) return { tweets: allTweets, rateLimited: true };
+      if (!response.ok) throw new Error(`X posts request failed (HTTP ${response.status})`);
 
       const data = await response.json();
+      if (Array.isArray(data.errors) && data.errors.length > 0) {
+        throw new Error('X posts response included provider errors');
+      }
       console.log(`[X API] Retrieved ${data.data?.length || 0} tweets on page ${pageCount}`);
 
       if (!data.data || data.data.length === 0) {
@@ -358,8 +329,7 @@ export async function fetchRecentTweets(
     return { tweets: allTweets, rateLimited: false };
     
   } catch (error: any) {
-    console.error(`[X API] Fetch tweets exception:`, error);
-    return { tweets: allTweets, rateLimited: false };
+    throw new Error('Xの投稿データを取得できませんでした');
   }
 }
 
@@ -405,9 +375,9 @@ export async function evaluateXAccount(
   previousEngagement?: number,
   previousImpressions?: number
 ): Promise<XEvaluation | null> {
-  if (!username) {
-    console.error('[X Evaluation] Username is missing');
-    return { error: 'ユーザー名が指定されていません' } as any;
+  const account = username?.trim().replace(/^https?:\/\/(?:www\.)?(?:x|twitter)\.com\/([A-Za-z0-9_]{1,15})\/?(?:[?#].*)?$/i, '$1').replace(/^@/, '');
+  if (!account || !/^[A-Za-z0-9_]{1,15}$/.test(account)) {
+    return { error: 'Xのユーザー名の登録形式が不正です', errorCode: 'INVALID_ACCOUNT_INPUT' } as any;
   }
   
   if (!bearerToken) {
@@ -424,7 +394,11 @@ export async function evaluateXAccount(
     console.log(`[X Evaluation] Bearer token length: ${bearerToken?.length || 0}`);
     console.log(`[X Evaluation] Target month: ${targetMonth}`);
     
-    const user = await fetchXUserByUsername(bearerToken, username);
+    let userNotFound = false;
+    const user = await fetchXUserByUsername(bearerToken, account, () => { userNotFound = true; });
+    if (userNotFound) {
+      return { error: '登録されたXアカウントが見つかりません', errorCode: 'ACCOUNT_NOT_FOUND' } as any;
+    }
     if (!user) {
       console.error(`[X Evaluation] Failed to fetch user: ${username}`);
       console.error(`[X Evaluation] This may be due to:`);
