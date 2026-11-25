@@ -160,7 +160,8 @@ async function runProLevelBatch() {
     return;
   }
 
-  if (!confirm(`${month} のプロレベル評価を全生徒に対して実行します。\n\nすでに評価済みの生徒はスキップします。\n\nよろしいですか？`)) {
+  const repairOnly = document.getElementById('repair-prolevel-fallback-only')?.checked === true;
+  if (!confirm(`${month} のプロレベル評価を${repairOnly ? '過去の採点不能データに対して再実行' : '対象生徒に対して実行'}します。\n\nすでに評価済みの生徒はスキップします。\n\nよろしいですか？`)) {
     return;
   }
 
@@ -182,6 +183,7 @@ async function runProLevelBatch() {
   let successTotal  = 0;
   let errorTotal    = 0;
   let skippedTotal  = 0;
+  let unevaluatedTotal = 0;
   let hasNextBatch  = true;
 
   try {
@@ -190,7 +192,7 @@ async function runProLevelBatch() {
       detailEl.textContent  = `batchIndex=${batchIndex}, batchSize=${batchSize}, skipEvaluated=true`;
 
       const res = await fetch(
-        `/api/auto-evaluate?month=${month}&batchIndex=${batchIndex}&batchSize=${batchSize}&skipX=true&skipYouTube=true&skipEvaluated=true`,
+        `/api/auto-evaluate?month=${month}&batchIndex=${batchIndex}&batchSize=${batchSize}&skipX=true&skipYouTube=true&skipEvaluated=true&repairFallbackOnly=${repairOnly}`,
         { method: 'POST' }
       );
 
@@ -212,6 +214,7 @@ async function runProLevelBatch() {
       successTotal  += data.successCount  || 0;
       errorTotal    += data.errorCount    || 0;
       skippedTotal  += data.skippedCount  || 0;
+      unevaluatedTotal += data.unevaluatedProLevelCount || 0;
       processedTotal = successTotal + errorTotal + skippedTotal;
 
       hasNextBatch  = data.batchInfo?.hasNextBatch ?? false;
@@ -229,11 +232,13 @@ async function runProLevelBatch() {
       await new Promise(r => setTimeout(r, 1000));
     }
 
-    statusEl.textContent  = '✅ 完了';
-    barEl.style.width     = '100%';
-    countEl.textContent   = `${processedTotal} / ${totalStudents}`;
-    detailEl.textContent  = `全バッチ完了 — 成功: ${successTotal}件 / エラー: ${errorTotal}件 / スキップ（評価済み）: ${skippedTotal}件`;
-    showSuccess(`プロレベル評価が完了しました！\n成功: ${successTotal}件、エラー: ${errorTotal}件、スキップ: ${skippedTotal}件`);
+    statusEl.textContent = errorTotal ? 'エラーあり' : '処理完了';
+    barEl.style.width = '100%';
+    countEl.textContent = `${processedTotal} / ${totalStudents}`;
+    const summary = `採点: ${successTotal}件 / 未評価（メモ不足）: ${unevaluatedTotal}件 / エラー: ${errorTotal}件 / 評価済み等: ${skippedTotal - unevaluatedTotal}件`;
+    detailEl.textContent = summary;
+    if (errorTotal) showError(summary);
+    else showSuccess(summary);
 
   } catch (err) {
     statusEl.textContent  = '❌ エラー';

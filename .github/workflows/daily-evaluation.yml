@@ -60,16 +60,17 @@ jobs:
           fi
       
       - name: Wake up Render service
+        timeout-minutes: 4
         if: steps.check_date.outputs.should_run == 'true'
         run: |
           echo "🔥 Waking up Render service..."
           for i in {1..10}; do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://vtuber-school-evaluation.onrender.com/api/health || echo "000")
+            STATUS=$(curl --connect-timeout 5 --max-time 10 -s -o /dev/null -w "%{http_code}" "${EVALUATION_BASE_URL%/}/api/health" || true)
             echo "Attempt $i/10: Status $STATUS"
             
             if [ "$STATUS" = "200" ]; then
               echo "✅ Service is ready!"
-              break
+              exit 0
             fi
             
             if [ $i -lt 10 ]; then
@@ -77,7 +78,8 @@ jobs:
             fi
           done
           
-          sleep 5
+          echo "::error::Evaluation service unavailable"
+          exit 1
       
       - name: Get evaluation month
         if: steps.check_date.outputs.should_run == 'true'

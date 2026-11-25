@@ -32,6 +32,15 @@ const number = value => Number.isFinite(value) ? value : 0;
 const safe = { successCount: number(body.successCount), errorCount: number(body.errorCount), skippedCount: number(body.skippedCount),
   progress: { isCompleted: body.progress?.isCompleted === true, completedStudents: number(body.progress?.completedStudents), totalStudents: number(body.progress?.totalStudents) },
   summary: { total: number(body.summary?.total), success: number(body.summary?.success), errors: number(body.summary?.errors) } };
+if (Number.isSafeInteger(body.unevaluatedProLevelCount) && body.unevaluatedProLevelCount >= 0) {
+  safe.unevaluatedProLevelCount = body.unevaluatedProLevelCount;
+}
+if (!response.ok) {
+  const reasons = ['missing-token', 'unavailable', 'malformed', 'partial'];
+  const reason = url.pathname === '/api/auto-evaluate-x-only' && reasons.includes(body.quota?.reason)
+    ? ` (X usage: ${body.quota.reason})` : '';
+  console.error(`Evaluation request ${url.pathname} returned HTTP ${response.status}${reason}`);
+}
 const count = value => Number.isSafeInteger(value) && value >= 0;
 if (url.pathname === '/api/auto-evaluate-x-only') {
   const summaryValid = body.summary && ['total', 'success', 'errors'].every(field => count(body.summary[field]));
