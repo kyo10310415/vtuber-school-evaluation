@@ -1,330 +1,70 @@
-name: Daily Evaluation (ProLevel + YouTube + X)
-
-on:
-  schedule:
-    # 毎日 JST 10:00 (UTC 01:00) - 月初から9日間実行
-    - cron: '0 1 * * *'
-  workflow_dispatch:
-    inputs:
-      month:
-        description: 'Evaluation month (YYYY-MM, leave empty for previous month)'
-        required: false
-        type: string
-      day:
-        description: 'Day number (1-9, leave empty for auto-detect)'
-        required: false
-        type: string
-      evaluation:
-        description: 'Run both jobs or retry only one job'
-        type: choice
-        default: all
-        options:
-          - all
-          - common-only
-          - x-only
-
+name: August 2026 ProLevel backfill
+on: workflow_dispatch
+permissions:
+  contents: read
 concurrency:
   group: school-evaluation-monthly-resume
   cancel-in-progress: false
-
-permissions:
-  contents: read
-
-env:
-  INPUT_DAY: ${{ inputs.day }}
-  INPUT_MONTH: ${{ inputs.month }}
-  EVALUATION_JOB_TOKEN: ${{ secrets.EVALUATION_JOB_TOKEN }}
-  EVALUATION_BASE_URL: ${{ vars.EVALUATION_BASE_URL || 'https://vtuber-school-evaluation.onrender.com' }}
-
 jobs:
-  daily-evaluation:
-    if: inputs.evaluation != 'x-only'
+  prolevel:
+    name: August ProLevel partition ${{ matrix.day }}
     runs-on: ubuntu-latest
-    timeout-minutes: 120  # 2時間タイムアウト
-    
+    timeout-minutes: 115
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        day: [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    env:
+      MONTH: '2026-08'
+      DAY: ${{ matrix.day }}
+      EVALUATION_JOB_TOKEN: ${{ secrets.EVALUATION_JOB_TOKEN }}
+      EVALUATION_BASE_URL: ${{ vars.EVALUATION_BASE_URL || 'https://vtuber-school-evaluation.onrender.com' }}
     steps:
-      - name: Checkout request helper
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
-      - name: Check if within first 9 days of month
-        id: check_date
+      - name: Process August ProLevel only
+        shell: bash
         run: |
-          [[ -z "$INPUT_DAY" || "$INPUT_DAY" =~ ^[1-9]$ ]] || exit 1
-          [[ -z "$INPUT_MONTH" || "$INPUT_MONTH" =~ ^[0-9]{4}-(0[1-9]|1[0-2])$ ]] || exit 1
-          DAY_OF_MONTH=$(TZ=Asia/Tokyo date +%d | sed 's/^0//')
-          
-          if [ -n "$INPUT_DAY" ]; then
-            DAY_OF_MONTH="$INPUT_DAY"
-            echo "Using manual day: $DAY_OF_MONTH"
-          fi
-          echo "day=$DAY_OF_MONTH" >> $GITHUB_OUTPUT
-          
-          if [ $DAY_OF_MONTH -le 9 ]; then
-            echo "should_run=true" >> $GITHUB_OUTPUT
-            echo "✅ Within first 9 days of month, will run evaluation"
-          else
-            echo "should_run=false" >> $GITHUB_OUTPUT
-            echo "⏭️ Beyond day 9, skipping evaluation"
-          fi
-      
-      - name: Wake up Render service
-        timeout-minutes: 4
-        if: steps.check_date.outputs.should_run == 'true'
-        run: |
-          echo "🔥 Waking up Render service..."
-          for i in {1..10}; do
-            STATUS=$(curl --connect-timeout 5 --max-time 10 -s -o /dev/null -w "%{http_code}" "${EVALUATION_BASE_URL%/}/api/health" || true)
-            echo "Attempt $i/10: Status $STATUS"
-            
-            if [ "$STATUS" = "200" ]; then
-              echo "✅ Service is ready!"
-              exit 0
-            fi
-            
-            if [ $i -lt 10 ]; then
-              sleep 10
-            fi
-          done
-          
-          echo "::error::Evaluation service unavailable"
-          exit 1
-      
-      - name: Get evaluation month
-        if: steps.check_date.outputs.should_run == 'true'
-        id: get_month
-        run: |
-          if [ -n "$INPUT_MONTH" ]; then
-            MONTH="$INPUT_MONTH"
-          else
-            MONTH=$(TZ=Asia/Tokyo date -d "$(TZ=Asia/Tokyo date +%Y-%m-01) last month" +%Y-%m)
-          fi
-          echo "month=$MONTH" >> $GITHUB_OUTPUT
-          echo "📅 Evaluating for month: $MONTH"
-      
-      - name: Calculate batch range for today
-        if: steps.check_date.outputs.should_run == 'true'
-        id: batch_range
-        run: |
-          DAY="${{ steps.check_date.outputs.day }}"
-          MONTH="${{ steps.get_month.outputs.month }}"
-          echo "plan_ok=false" >> "$GITHUB_OUTPUT"
-          echo "plan_failed=true" >> "$GITHUB_OUTPUT"
-          if ! RESPONSE=$(node .github/scripts/evaluation-request.mjs "/api/auto-evaluate/plan?month=$MONTH&partitionDay=$DAY&batchSize=5&skipX=true&skipEvaluated=false" --json-only); then
-            echo "::error::Partition plan could not be retrieved; no common batches will start"
-            exit 0
-          fi
-          TOTAL_BATCHES=$(printf '%s' "$RESPONSE" | jq -r '.plan.totalBatches')
-          ELIGIBLE=$(printf '%s' "$RESPONSE" | jq -r '.plan.eligibleStudents')
-          PARTITION_STUDENTS=$(printf '%s' "$RESPONSE" | jq -r '.plan.partitionStudentCount')
-          EMPTY_TEMPLATES=$(printf '%s' "$RESPONSE" | jq -r '.plan.emptyTemplateCount')
-          INVALID_ACTIVE=$(printf '%s' "$RESPONSE" | jq -r '.plan.invalidActiveCount')
-          REVISION=$(printf '%s' "$RESPONSE" | jq -r '.plan.rosterRevision')
-          for VALUE in "$TOTAL_BATCHES" "$ELIGIBLE" "$PARTITION_STUDENTS" "$EMPTY_TEMPLATES" "$INVALID_ACTIVE"; do
-            [[ "$VALUE" =~ ^[0-9]+$ ]] || exit 1
-          done
-          [[ "$REVISION" =~ ^[a-f0-9]{64}$ ]] || exit 1
-          umask 077
-          printf '%s' "$REVISION" > "${RUNNER_TEMP:?}/evaluation-roster-revision"
-          echo "total_batches=$TOTAL_BATCHES" >> "$GITHUB_OUTPUT"
-          echo "invalid_active=$INVALID_ACTIVE" >> "$GITHUB_OUTPUT"
-          echo "start_batch=0" >> "$GITHUB_OUTPUT"
-          echo "end_batch=$((TOTAL_BATCHES - 1))" >> "$GITHUB_OUTPUT"
-          echo "plan_ok=true" >> "$GITHUB_OUTPUT"
-          echo "plan_failed=false" >> "$GITHUB_OUTPUT"
-          echo "Partition $DAY: eligible=$ELIGIBLE selected=$PARTITION_STUDENTS batches=$TOTAL_BATCHES empty_templates=$EMPTY_TEMPLATES invalid_active=$INVALID_ACTIVE"
-          if [ "$INVALID_ACTIVE" -gt 0 ]; then echo "::warning::Active records with missing identifiers require roster repair"; fi
-      # ============================================
-      # プロレベル + YouTube 評価（X評価をスキップ）
-      # ============================================
-      
-      - name: Process ProLevel + YouTube evaluation batches
-        id: common_batches
-        env:
-          EVALUATION_ROSTER_REVISION_FILE: ${{ runner.temp }}/evaluation-roster-revision
-        if: steps.check_date.outputs.should_run == 'true' && steps.batch_range.outputs.plan_ok == 'true'
-        run: |
-          MONTH="${{ steps.get_month.outputs.month }}"
-          DAY="${{ steps.check_date.outputs.day }}"
-          TOTAL_BATCHES=${{ steps.batch_range.outputs.total_batches }}
-          HTTP_FAILURES=0
-          EVALUATION_ERRORS=0
-          ROSTER_CHANGED=false
-          for ((i=0; i<TOTAL_BATCHES; i++)); do
-            MAX_RETRIES=3
-            RETRY_COUNT=0
-            SUCCESS=false
-            while [ "$RETRY_COUNT" -lt "$MAX_RETRIES" ] && [ "$SUCCESS" = "false" ]; do
-              if [ "$RETRY_COUNT" -gt 0 ]; then sleep 30; fi
-              RESPONSE=$(node .github/scripts/evaluation-request.mjs "/api/auto-evaluate/partition?month=$MONTH&partitionDay=$DAY&batchIndex=$i&batchSize=5&skipX=true&skipEvaluated=false") || true
-              HTTP_STATUS=$(printf '%s\n' "$RESPONSE" | sed -n 's/^HTTP_STATUS://p')
-              BODY=$(printf '%s\n' "$RESPONSE" | sed '/^HTTP_STATUS:/d')
-              if [ "$HTTP_STATUS" = "409" ]; then
-                ROSTER_CHANGED=true
-                HTTP_FAILURES=$((HTTP_FAILURES + 1))
-                echo "::error::Partition roster changed; stopping common batches until a new plan is approved"
-                break
+          plan=$(node .github/scripts/evaluation-request.mjs "/api/auto-evaluate/plan?month=$MONTH&partitionDay=$DAY&batchSize=5" --json-only)
+          batches=$(jq -er '.plan.totalBatches' <<< "$plan")
+          selected=$(jq -er '.plan.partitionStudentCount' <<< "$plan")
+          invalid=$(jq -er '.plan.invalidActiveCount' <<< "$plan")
+          export EVALUATION_ROSTER_REVISION
+          EVALUATION_ROSTER_REVISION=$(jq -er '.plan.rosterRevision' <<< "$plan")
+          echo "Partition $DAY selected=$selected batches=$batches invalid_active=$invalid"
+          failed=0
+          saved=0
+          missing=0
+          errors=0
+          for ((i=0; i<batches; i++)); do
+            finished=false
+            for attempt in 1 2 3; do
+              request=$(node .github/scripts/evaluation-request.mjs "/api/auto-evaluate/partition?month=$MONTH&partitionDay=$DAY&batchIndex=$i&batchSize=5&skipX=true&skipYouTube=true&skipWanamiUsage=true") || true
+              http=$(sed -n 's/^HTTP_STATUS://p' <<< "$request")
+              body=$(sed '/^HTTP_STATUS:/d' <<< "$request")
+              if [[ "$http" == 409 ]]; then
+                echo '::error::Roster changed during the August backfill'
+                exit 1
               fi
-              if [[ "$HTTP_STATUS" =~ ^2[0-9][0-9]$ ]]; then
-                SUCCESS=true
-                ERRORS=$(printf '%s' "$BODY" | jq -r 'if .invalidResult then 1 else .errorCount end')
-                [[ "$ERRORS" =~ ^[0-9]+$ ]] || ERRORS=1
-                EVALUATION_ERRORS=$((EVALUATION_ERRORS + ERRORS))
-                echo "Batch $i completed with errors=$ERRORS"
-                INVALID_YOUTUBE=$(printf '%s' "$BODY" | jq -r '.invalidYouTubeCount // 0')
-                if [[ "$INVALID_YOUTUBE" =~ ^[1-9][0-9]*$ ]]; then
-                  echo "::warning::Batch $i: $INVALID_YOUTUBE invalid YouTube channel registration(s) left unevaluated"
+              error_count=0
+              if [[ "$http" == 200 ]] && jq -e 'has("successCount") and has("errorCount") and has("unevaluatedProLevelCount")' <<< "$body" >/dev/null; then
+                saved=$((saved + $(jq -r '.successCount' <<< "$body")))
+                missing_count=$(jq -r '.unevaluatedProLevelCount' <<< "$body")
+                error_count=$(jq -r '.errorCount' <<< "$body")
+                if [[ "$error_count" == 0 || "$attempt" == 3 ]]; then
+                  missing=$((missing + missing_count))
+                  errors=$((errors + error_count))
+                  finished=true
+                  break
                 fi
-              else
-                RETRY_COUNT=$((RETRY_COUNT + 1))
-                echo "::warning::Batch $i HTTP request failed (attempt $RETRY_COUNT/$MAX_RETRIES)"
               fi
+              if [[ "$attempt" != 3 ]]; then sleep 20; fi
             done
-            if [ "$ROSTER_CHANGED" = "true" ]; then break; fi
-            if [ "$SUCCESS" = "false" ]; then HTTP_FAILURES=$((HTTP_FAILURES + 1)); fi
-            if [ "$i" -lt "$((TOTAL_BATCHES - 1))" ]; then sleep 10; fi
+            if [[ "$finished" == false ]]; then failed=$((failed + 1)); fi
+            echo "Partition $DAY processed batch $((i+1))/$batches saved=$saved missing=$missing errors=$errors failed=$failed"
+            if [[ "$((i+1))" != "$batches" ]]; then sleep 16; fi
           done
-          echo "failure_count=$((HTTP_FAILURES + EVALUATION_ERRORS))" >> "$GITHUB_OUTPUT"
-          echo "roster_changed=$ROSTER_CHANGED" >> "$GITHUB_OUTPUT"
-      - name: Aggregate evaluation outcome
-        if: always()
-        run: |
-          if [ "${{ steps.check_date.outputs.should_run }}" != "true" ]; then exit 0; fi
-          FAILED=0
-          if [ "${{ steps.batch_range.outputs.plan_failed }}" != "false" ]; then FAILED=1; fi
-          if [ "${{ steps.common_batches.outcome }}" = "failure" ]; then FAILED=1; fi
-          COMMON_ERRORS="${{ steps.common_batches.outputs.failure_count || '0' }}"
-          INVALID_ACTIVE="${{ steps.batch_range.outputs.invalid_active || '0' }}"
-          if [ "$COMMON_ERRORS" -gt 0 ] || [ "$INVALID_ACTIVE" -gt 0 ]; then FAILED=1; fi
-          rm -f "${RUNNER_TEMP:?}/evaluation-roster-revision"
-          if [ "$FAILED" -ne 0 ]; then echo "::error::Common evaluation coverage or execution is incomplete"; exit 1; fi
-      - name: Summary
-        if: always()
-        run: |
-          echo "============================================"
-          echo "📊 Daily Evaluation Summary"
-          echo "============================================"
-          echo "Date: $(date)"
-          echo "Day: ${{ steps.check_date.outputs.day }}"
-          echo "Month: ${{ steps.get_month.outputs.month }}"
-          echo "Batches: ${{ steps.batch_range.outputs.start_batch }} - ${{ steps.batch_range.outputs.end_batch }}"
-          echo "Status: ${{ job.status }}"
-          echo "============================================"
-
-  x-evaluation:
-    if: inputs.evaluation != 'common-only'
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    steps:
-      - name: Checkout X request helper
-        timeout-minutes: 5
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          persist-credentials: false
-      - name: Check X monthly evaluation window
-        id: check_date
-        timeout-minutes: 1
-        run: |
-          [[ -z "$INPUT_DAY" || "$INPUT_DAY" =~ ^[1-9]$ ]] || exit 1
-          [[ -z "$INPUT_MONTH" || "$INPUT_MONTH" =~ ^[0-9]{4}-(0[1-9]|1[0-2])$ ]] || exit 1
-          DAY_OF_MONTH=$(TZ=Asia/Tokyo date +%d | sed 's/^0//')
-
-          if [ -n "$INPUT_DAY" ]; then
-            DAY_OF_MONTH="$INPUT_DAY"
-            echo "Using manual day: $DAY_OF_MONTH"
-          fi
-          echo "day=$DAY_OF_MONTH" >> $GITHUB_OUTPUT
-
-          if [ $DAY_OF_MONTH -le 9 ]; then
-            echo "should_run=true" >> $GITHUB_OUTPUT
-            echo "✅ Within first 9 days of month, will run evaluation"
-          else
-            echo "should_run=false" >> $GITHUB_OUTPUT
-            echo "⏭️ Beyond day 9, skipping evaluation"
-          fi
-      - name: Wake X evaluation service
-        id: wake_x
-        if: steps.check_date.outputs.should_run == 'true'
-        timeout-minutes: 4
-        run: |
-          READY=false
-          for ATTEMPT in {1..10}; do
-            STATUS=$(curl --connect-timeout 5 --max-time 10 -s -o /dev/null -w "%{http_code}" "${EVALUATION_BASE_URL%/}/api/health" || true)
-            if [ "$STATUS" = "200" ]; then READY=true; break; fi
-            if [ "$ATTEMPT" -lt 10 ]; then sleep 10; fi
-          done
-          if [ "$READY" != "true" ]; then echo "::error::X evaluation service unavailable"; exit 1; fi
-      - name: Get X evaluation month
-        id: get_month
-        if: steps.check_date.outputs.should_run == 'true'
-        timeout-minutes: 1
-        run: |
-          if [ -n "$INPUT_MONTH" ]; then
-            MONTH="$INPUT_MONTH"
-          else
-            MONTH=$(TZ=Asia/Tokyo date -d "$(TZ=Asia/Tokyo date +%Y-%m-01) last month" +%Y-%m)
-          fi
-          echo "month=$MONTH" >> $GITHUB_OUTPUT
-          echo "📅 Evaluating for month: $MONTH"
-      - name: Resume X monthly evaluation
-        id: x_batches
-        if: steps.check_date.outputs.should_run == 'true' && steps.wake_x.outcome == 'success' && steps.get_month.outcome == 'success'
-        timeout-minutes: 95
-        run: |
-          MONTH="${{ steps.get_month.outputs.month }}"
-          DAY="${{ steps.check_date.outputs.day }}"
-          X_ERRORS=0
-          IS_COMPLETED=false
-          REQUEST_FAILED=false
-          for ((REQUEST=0; REQUEST<2; REQUEST++)); do
-            if ! RESPONSE=$(node .github/scripts/evaluation-request.mjs "/api/auto-evaluate-x-only?month=$MONTH" --json-only); then
-              X_ERRORS=$((X_ERRORS + 1))
-              REQUEST_FAILED=true
-              break
-            fi
-            ERRORS=$(printf '%s' "$RESPONSE" | jq -r '(.errorCount // 0) + (.summary.errors // 0) + (if .requestFailed then 1 else 0 end)')
-            IS_COMPLETED=$(printf '%s' "$RESPONSE" | jq -r '.progress.isCompleted')
-            REQUEST_FLAG=$(printf '%s' "$RESPONSE" | jq -r '.requestFailed // false')
-            if ! [[ "$ERRORS" =~ ^[0-9]+$ ]] || ! [[ "$IS_COMPLETED" =~ ^(true|false)$ ]] || [ "$REQUEST_FLAG" != "false" ]; then
-              X_ERRORS=$((X_ERRORS + 1))
-              REQUEST_FAILED=true
-              break
-            fi
-            X_ERRORS=$((X_ERRORS + ERRORS))
-            echo "X request $((REQUEST + 1))/2 completed with errors=$ERRORS"
-            INVALID_X=$(printf '%s' "$RESPONSE" | jq -r '.summary.invalidAccounts // 0')
-            if [[ "$INVALID_X" =~ ^[1-9][0-9]*$ ]]; then
-              echo "::warning::$INVALID_X invalid or unavailable X account(s) left unevaluated"
-            fi
-            if [ "$(printf '%s' "$RESPONSE" | jq -r '.summary.budgetDeferred // false')" = "true" ]; then
-              echo "X batch will resume without exceeding the current Post budget"
-            fi
-            if [ "$IS_COMPLETED" = "true" ]; then break; fi
-            if [ "$REQUEST" -lt 1 ]; then sleep 1800; fi
-          done
-          STATE=continue
-          if [ "$REQUEST_FAILED" = "true" ]; then STATE=request_failed
-          elif [ "$X_ERRORS" -gt 0 ]; then STATE=partial_error
-          elif [ "$IS_COMPLETED" = "true" ]; then STATE=completed
-          elif [ "$DAY" = "9" ]; then STATE=incomplete_day9
-          fi
-          echo "failure_count=$X_ERRORS" >> "$GITHUB_OUTPUT"
-          echo "is_completed=$IS_COMPLETED" >> "$GITHUB_OUTPUT"
-          echo "state=$STATE" >> "$GITHUB_OUTPUT"
-          echo "X monthly progress: state=$STATE errors=$X_ERRORS"
-      - name: Aggregate X monthly resume outcome
-        if: always()
-        run: |
-          if [ "${{ steps.check_date.outputs.should_run }}" != "true" ]; then exit 0; fi
-          if [ "${{ steps.wake_x.outcome }}" != "success" ] || [ "${{ steps.get_month.outcome }}" != "success" ] || [ "${{ steps.x_batches.outcome }}" != "success" ]; then
-            echo "::error::X monthly resume request did not complete"
-            exit 1
-          fi
-          ERRORS="${{ steps.x_batches.outputs.failure_count }}"
-          COMPLETED="${{ steps.x_batches.outputs.is_completed }}"
-          DAY="${{ steps.check_date.outputs.day }}"
-          if ! [[ "$ERRORS" =~ ^[0-9]+$ ]] || ! [[ "$COMPLETED" =~ ^(true|false)$ ]]; then exit 1; fi
-          if [ "$ERRORS" -gt 0 ]; then echo "::error::X evaluation has partial or request failures"; exit 1; fi
-          if [ "$COMPLETED" = "true" ]; then echo "X monthly evaluation completed"; exit 0; fi
-          if [ "$DAY" = "9" ]; then echo "::error::X monthly evaluation is still incomplete on day 9"; exit 1; fi
-          echo "X monthly evaluation will resume within the next scheduled window"
+          echo "August partition $DAY complete: selected=$selected saved=$saved missing=$missing errors=$errors failed=$failed invalid_active=$invalid"
+          [[ "$errors" == 0 && "$failed" == 0 && "$invalid" == 0 ]]
