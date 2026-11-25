@@ -5801,7 +5801,7 @@ app.post('/api/auto-evaluate-x-only', async (c) => {
           previousImpressions
         )
         
-        if (xEval?.errorCode === 'INVALID_ACCOUNT_INPUT' || xEval?.errorCode === 'ACCOUNT_NOT_FOUND') {
+        if (['INVALID_ACCOUNT_INPUT', 'ACCOUNT_NOT_FOUND', 'POSTS_NOT_ACCESSIBLE'].includes(xEval?.errorCode)) {
           invalidAccountCount++
           skippedCount++
           continue

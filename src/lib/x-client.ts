@@ -96,7 +96,7 @@ export async function fetchXUserByUsername(
     await new Promise(resolve => setTimeout(resolve, waitTime));
   }
 
-  const url = `https://api.twitter.com/2/users/by/username/${cleanUsername}?user.fields=public_metrics`;
+  const url = `https://api.twitter.com/2/users/by/username/${cleanUsername}?user.fields=public_metrics,protected`;
 
   try {
     recordRequest('user_lookup');
@@ -135,6 +135,7 @@ export async function fetchXUserByUsername(
       followingCount: metrics.following_count || 0,
       tweetCount: metrics.tweet_count || 0,
       listedCount: metrics.listed_count || 0,
+      protected: user.protected === true,
     };
   } catch (error: any) {
     console.error(`[X API] Fetch exception:`, error);
@@ -197,7 +198,7 @@ export async function fetchRecentTweets(
   userId: string,
   maxResults: number = 100,
   targetMonth?: string // 追加: 対象月 (YYYY-MM 形式)
-): Promise<{ tweets: XTweet[], rateLimited: boolean }> {
+): Promise<{ tweets: XTweet[], rateLimited: boolean, unavailable?: boolean }> {
   if (!userId) {
     console.error('[X API] userId is empty in fetchRecentTweets');
     return { tweets: [], rateLimited: false };
@@ -270,6 +271,10 @@ export async function fetchRecentTweets(
 
       const data = await response.json();
       if (Array.isArray(data.errors) && data.errors.length > 0) {
+        const cannotReadResource = !data.data?.length && data.errors.every(problem =>
+          typeof problem?.type === 'string' &&
+          /^(https:\/\/api\.(?:x|twitter)\.com\/2\/problems\/)(?:not-authorized-for-resource|resource-not-found)$/.test(problem.type));
+        if (cannotReadResource) return { tweets: [], rateLimited: false, unavailable: true };
         throw new Error('X posts response included provider errors');
       }
       console.log(`[X API] Retrieved ${data.data?.length || 0} tweets on page ${pageCount}`);
@@ -420,10 +425,18 @@ export async function evaluateXAccount(
 
     console.log(`[X Evaluation] User fetched successfully: ${user.username} (ID: ${user.userId})`);
 
+    if (user.protected) {
+      return { error: 'Xアカウントの投稿は非公開です', errorCode: 'POSTS_NOT_ACCESSIBLE' } as any;
+    }
+
     // 2. 対象月のツイートを取得（リプライ除外、対象月のみ）
     console.log(`[X Evaluation] Fetching tweets for user ID: ${user.userId}, month: ${targetMonth}`);
-    const { tweets: monthTweets, rateLimited } = await fetchRecentTweets(bearerToken, user.userId, 100, targetMonth);
+    const { tweets: monthTweets, rateLimited, unavailable } = await fetchRecentTweets(bearerToken, user.userId, 100, targetMonth);
     console.log(`[X Evaluation] Retrieved ${monthTweets.length} tweets in ${targetMonth}, rateLimited: ${rateLimited}`);
+
+    if (unavailable) {
+      return { error: 'Xアカウントの投稿を参照できません', errorCode: 'POSTS_NOT_ACCESSIBLE' } as any;
+    }
 
     // ⚠️ データ品質チェック: レート制限によりツイートデータが取得できていない場合はエラー
     if (rateLimited) {
