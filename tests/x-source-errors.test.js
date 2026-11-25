@@ -40,3 +40,18 @@ test('a failed X posts response does not yield a zero-post grade', async () => {
   assert.ok(result.error);
   assert.equal(result.overallGrade, undefined);
 });
+
+test('protected and explicitly inaccessible X timelines have no grade, distinct from a server failure', async () => {
+  const protectedUser = fixture([reply(200, { data: { id: '123', protected: true, public_metrics: {} } })]);
+  assert.equal((await protectedUser.api.evaluateXAccount('synthetic-token', 'synthetic', '2026-10')).errorCode, 'POSTS_NOT_ACCESSIBLE');
+  assert.equal(protectedUser.calls.length, 1);
+  const problem = { type: 'https://api.x.com/2/problems/not-authorized-for-resource' };
+  const unavailable = fixture([user, reply(200, { errors: [problem] })]);
+  const result = await unavailable.api.evaluateXAccount('synthetic-token', 'synthetic', '2026-10');
+  assert.equal(result.errorCode, 'POSTS_NOT_ACCESSIBLE');
+  assert.equal(result.overallGrade, undefined);
+  const unknown = fixture([user, reply(200, { errors: [{ type: 'temporary-provider-error' }] })]);
+  const failure = await unknown.api.evaluateXAccount('synthetic-token', 'synthetic', '2026-10');
+  assert.ok(failure.error);
+  assert.equal(failure.errorCode, undefined);
+});
