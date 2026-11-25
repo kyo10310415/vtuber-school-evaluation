@@ -17,7 +17,8 @@
     "git:commit": "git add . && git commit -m",
     "git:status": "git status",
     "git:log": "git log --oneline",
-    "test:security": "node --test tests/*.test.js"
+    "test:security": "node --test tests/*.test.js",
+    "test:chatgpt": "node --import tsx --test chatgpt-readonly/*.test.*"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

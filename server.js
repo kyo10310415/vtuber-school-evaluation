@@ -2,6 +2,7 @@ import { serve } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { Hono } from 'hono'
 import app from './dist/_worker.js'
+import {installChatgptReadOnly} from './chatgpt-readonly/install.js'
 
 const port = parseInt(process.env.PORT || '3000', 10)
 
@@ -11,6 +12,9 @@ const wrappedApp = new Hono()
 
 // 静的ファイル配信を追加（dist/staticから配信）
 wrappedApp.use('/static/*', serveStatic({ root: './dist' }))
+
+// Independent bearer-only read integration; business SSO remains unchanged.
+installChatgptReadOnly(wrappedApp)
 
 // メインアプリのすべてのルートを追加
 wrappedApp.route('/', app)

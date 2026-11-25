@@ -17,7 +17,7 @@ test('server startup does not log environment values and preserves application b
     'X_BEARER_TOKEN', 'DATABASE_URL', 'YOUTUBE_ANALYTICS_CLIENT_ID', 'YOUTUBE_ANALYTICS_CLIENT_SECRET',
     'YOUTUBE_ANALYTICS_REDIRECT_URI', 'ANALYTICS_TARGET_SPREADSHEET_ID'].map(key => [key, marker]));
   env.PORT = '10000';
-  let options, bindings;
+  let options, bindings, integrationApp;
   class Hono {
     use() {}
     route() {}
@@ -25,8 +25,10 @@ test('server startup does not log environment values and preserves application b
   }
   const source = (await readFile(new URL('../server.js', import.meta.url), 'utf8')).replace(/^import .*\r?\n/gm, '');
   vm.runInNewContext(source, { ...log, process: { env }, Hono, app: {},
-    serve: received => { options = received; }, serveStatic: () => {}, Response });
+    serve: received => { options = received; }, serveStatic: () => {}, Response,
+    installChatgptReadOnly: target => { integrationApp = target; } });
   assert.equal(options.port, 10000);
+  assert.ok(integrationApp instanceof Hono);
   await options.fetch(new Request('http://localhost/'));
   assert.deepEqual(Object.keys(bindings).sort(), Object.keys(env).filter(key => key !== 'PORT').sort());
   assert.ok(Object.values(bindings).every(value => value === marker));
